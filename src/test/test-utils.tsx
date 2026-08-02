@@ -8,7 +8,13 @@ import {
   type GameRecorderController
 } from '@/hooks/useGameRecorderController'
 import { emptyState, type MacroController } from '@/hooks/useMacroController'
-import type { GameRecorderState, MacroAPI, MacroPointPatch, MacroState } from '@/lib/macro-api'
+import type {
+  BuffAssistantState,
+  GameRecorderState,
+  MacroAPI,
+  MacroPointPatch,
+  MacroState
+} from '@/lib/macro-api'
 
 export function createMacroState(overrides: Partial<MacroState> = {}): MacroState {
   const state: MacroState = {
@@ -188,6 +194,33 @@ export function createMacroApi(
   state: MacroState = createMacroState(),
   gameRecorderState: GameRecorderState = createGameRecorderState()
 ) {
+  const buffState: BuffAssistantState = {
+    config: {
+      schemaVersion: 1,
+      target: null,
+      searchRegion: null,
+      template: null,
+      settings: {
+        cycleMs: 20_000,
+        threshold: 0.86,
+        confirmFrames: 3,
+        missingFrames: 5,
+        sound: {
+          triggerEnabled: true,
+          prewarnThreeEnabled: true,
+          prewarnOneEnabled: true,
+          volume: 0.45
+        },
+        overlay: { x: 40, y: 100, showWaitingDot: false }
+      }
+    },
+    activity: 'stopped',
+    isMonitoring: false,
+    expectedAtUnixMs: null,
+    lastConfidence: 0,
+    sampleCount: 0,
+    lastError: null
+  }
   return {
     getAppVersion: vi.fn<MacroAPI['getAppVersion']>(async () => '1.8.1'),
     getState: vi.fn(async () => state),
@@ -273,6 +306,28 @@ export function createMacroApi(
     onGameRecorderState: vi.fn(
       (_callback: (nextState: GameRecorderState) => void) => () => undefined
     ),
+    getBuffAssistantState: vi.fn(async () => buffState),
+    listBuffCaptureWindows: vi.fn(async () => []),
+    captureBuffPreview: vi.fn(async () => {
+      throw new Error('not configured')
+    }),
+    startBuffSampleCapture: vi.fn(async () => buffState),
+    pauseBuffSampleCapture: vi.fn(async () => buffState),
+    clearBuffSampleFrames: vi.fn(async () => buffState),
+    listBuffSampleFrames: vi.fn(async () => []),
+    getBuffSampleFrame: vi.fn(async () => ''),
+    saveBuffTemplate: vi.fn(async () => buffState),
+    deleteBuffTemplate: vi.fn(async () => buffState),
+    updateBuffAssistantSettings: vi.fn(async () => buffState),
+    startBuffMonitor: vi.fn(async () => buffState),
+    stopBuffMonitor: vi.fn(async () => buffState),
+    startBuffTemplateTest: vi.fn(async () => buffState),
+    stopBuffTemplateTest: vi.fn(async () => buffState),
+    playBuffAssistantSound: vi.fn(async () => undefined),
+    setBuffOverlayEditMode: vi.fn(async () => buffState),
+    onBuffAssistantState: vi.fn(() => () => undefined),
+    onBuffMetric: vi.fn(() => () => undefined),
+    onBuffOverlayState: vi.fn(() => () => undefined),
     window: {
       minimize: vi.fn(async () => undefined),
       toggleMaximize: vi.fn(async () => undefined),

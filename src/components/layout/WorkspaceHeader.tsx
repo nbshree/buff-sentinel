@@ -4,6 +4,7 @@ import {
   Gamepad2,
   LoaderCircle,
   Palette,
+  Radar,
   RefreshCw,
   Sparkles,
   Workflow
@@ -26,17 +27,20 @@ type WorkspaceHeaderProps = {
   onCheckForUpdate: () => void
 }
 
-export type WorkspaceView = 'macro' | 'gameRecorder' | 'calculator' | 'towerCalculator'
+export type WorkspaceView =
+  'macro' | 'gameRecorder' | 'buffAssistant' | 'calculator' | 'towerCalculator'
 
 const workspaceOrder: readonly WorkspaceView[] = [
   'macro',
   'gameRecorder',
+  'buffAssistant',
   'calculator',
   'towerCalculator'
 ]
 const workspaceTabIds: Record<WorkspaceView, string> = {
   macro: 'workspace-tab-macro',
   gameRecorder: 'workspace-tab-game-recorder',
+  buffAssistant: 'workspace-tab-buff-assistant',
   calculator: 'workspace-tab-calculator',
   towerCalculator: 'workspace-tab-tower-calculator'
 }
@@ -49,6 +53,10 @@ const workspaceLabels: Record<WorkspaceView, { title: string; subtitle: string }
   gameRecorder: {
     title: '游戏操作录制',
     subtitle: '相对鼠标与键盘时间轴录制回放'
+  },
+  buffAssistant: {
+    title: '金周天 Buff 助手',
+    subtitle: '屏幕识别、固定时间轴与悬浮预警'
   },
   calculator: {
     title: '防守内功评估',
@@ -138,6 +146,22 @@ export function WorkspaceHeader({
         >
           <Gamepad2 aria-hidden="true" />
           <span>游戏录制</span>
+        </Button>
+        <Button
+          className="workspace-switcher__tab"
+          data-active={activeWorkspace === 'buffAssistant'}
+          id="workspace-tab-buff-assistant"
+          type="button"
+          role="tab"
+          variant="ghost"
+          aria-controls="buff-assistant-workspace"
+          aria-selected={activeWorkspace === 'buffAssistant'}
+          tabIndex={activeWorkspace === 'buffAssistant' ? 0 : -1}
+          onKeyDown={handleWorkspaceKeyDown}
+          onClick={() => onWorkspaceChange('buffAssistant')}
+        >
+          <Radar aria-hidden="true" />
+          <span>Buff 助手</span>
         </Button>
         <Button
           className="workspace-switcher__tab"

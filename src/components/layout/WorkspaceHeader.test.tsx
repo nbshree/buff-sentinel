@@ -156,10 +156,11 @@ describe('WorkspaceHeader', () => {
     renderHeader('longyin', vi.fn(), 'towerCalculator')
 
     const tabs = screen.getAllByRole('tab')
-    expect(tabs).toHaveLength(4)
+    expect(tabs).toHaveLength(5)
     expect(tabs.map((tab) => tab.getAttribute('aria-controls'))).toEqual([
       'macro-workspace',
       'game-recorder-workspace',
+      'buff-assistant-workspace',
       'calculator-workspace',
       'tower-calculator-workspace'
     ])
@@ -167,6 +168,7 @@ describe('WorkspaceHeader', () => {
     expect(screen.getByRole('tab', { name: '拆塔评估' })).toHaveAttribute('tabindex', '0')
     expect(screen.getByRole('tab', { name: '宏流程' })).toHaveAttribute('tabindex', '-1')
     expect(screen.getByRole('tab', { name: '游戏录制' })).toHaveAttribute('tabindex', '-1')
+    expect(screen.getByRole('tab', { name: 'Buff 助手' })).toHaveAttribute('tabindex', '-1')
     expect(screen.getByRole('tab', { name: '防守内功' })).toHaveAttribute('tabindex', '-1')
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('拆塔内功评估')
   })

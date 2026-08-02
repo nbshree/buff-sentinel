@@ -160,6 +160,117 @@ export type GameRecorderState = {
   lastError: string | null
 }
 
+export type NormalizedRect = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export type BuffAssistantActivity =
+  | 'stopped'
+  | 'waiting'
+  | 'tracking'
+  | 'prewarning'
+  | 'capturingSamples'
+  | 'testing'
+  | 'targetUnavailable'
+  | 'error'
+
+export type BuffTarget = {
+  processName: string
+  windowTitle: string
+  className: string
+  referenceWidth: number
+  referenceHeight: number
+}
+
+export type BuffTemplateSummary = {
+  id: string
+  width: number
+  height: number
+}
+
+export type BuffSoundSettings = {
+  triggerEnabled: boolean
+  prewarnThreeEnabled: boolean
+  prewarnOneEnabled: boolean
+  volume: number
+}
+
+export type BuffOverlaySettings = {
+  x: number
+  y: number
+  showWaitingDot: boolean
+}
+
+export type BuffAssistantSettings = {
+  cycleMs: number
+  threshold: number
+  confirmFrames: number
+  missingFrames: number
+  sound: BuffSoundSettings
+  overlay: BuffOverlaySettings
+}
+
+export type BuffAssistantConfig = {
+  schemaVersion: number
+  target: BuffTarget | null
+  searchRegion: NormalizedRect | null
+  template: BuffTemplateSummary | null
+  settings: BuffAssistantSettings
+}
+
+export type BuffAssistantState = {
+  config: BuffAssistantConfig
+  activity: BuffAssistantActivity
+  isMonitoring: boolean
+  expectedAtUnixMs: number | null
+  lastConfidence: number
+  sampleCount: number
+  lastError: string | null
+}
+
+export type CaptureWindowCandidate = {
+  id: string
+  processName: string
+  windowTitle: string
+  className: string
+  width: number
+  height: number
+}
+
+export type BuffCapturePreview = {
+  dataUrl: string
+  width: number
+  height: number
+  target: BuffTarget
+}
+
+export type BuffSampleFrameSummary = {
+  id: number
+  capturedAtUnixMs: number
+  width: number
+  height: number
+  thumbnailDataUrl: string
+}
+
+export type BuffOverlayMode =
+  'hidden' | 'waiting' | 'triggered' | 'countdown' | 'reset' | 'targetUnavailable' | 'editing'
+
+export type BuffOverlayState = {
+  mode: BuffOverlayMode
+  message: string
+  expectedAtUnixMs: number | null
+  emittedAtUnixMs: number
+  editable: boolean
+}
+
+export type BuffMetric = {
+  confidence: number
+  present: boolean
+}
+
 export type WindowResizeDirection =
   'East' | 'North' | 'NorthEast' | 'NorthWest' | 'South' | 'SouthEast' | 'SouthWest' | 'West'
 
@@ -228,6 +339,30 @@ export type MacroAPI = {
     settings: GamePlaybackSettings
   ) => Promise<GameRecorderState>
   onGameRecorderState: (callback: (state: GameRecorderState) => void) => () => void
+  getBuffAssistantState: () => Promise<BuffAssistantState>
+  listBuffCaptureWindows: () => Promise<CaptureWindowCandidate[]>
+  captureBuffPreview: (windowId: string) => Promise<BuffCapturePreview>
+  startBuffSampleCapture: (windowId: string, region: NormalizedRect) => Promise<BuffAssistantState>
+  pauseBuffSampleCapture: () => Promise<BuffAssistantState>
+  clearBuffSampleFrames: () => Promise<BuffAssistantState>
+  listBuffSampleFrames: () => Promise<BuffSampleFrameSummary[]>
+  getBuffSampleFrame: (id: number) => Promise<string>
+  saveBuffTemplate: (
+    sampleId: number,
+    crop: NormalizedRect,
+    maskDataUrl?: string
+  ) => Promise<BuffAssistantState>
+  deleteBuffTemplate: () => Promise<BuffAssistantState>
+  updateBuffAssistantSettings: (settings: BuffAssistantSettings) => Promise<BuffAssistantState>
+  startBuffMonitor: () => Promise<BuffAssistantState>
+  stopBuffMonitor: () => Promise<BuffAssistantState>
+  startBuffTemplateTest: (windowId: string) => Promise<BuffAssistantState>
+  stopBuffTemplateTest: () => Promise<BuffAssistantState>
+  playBuffAssistantSound: (cue: 'triggered' | 'prewarnThree' | 'prewarnOne') => Promise<void>
+  setBuffOverlayEditMode: (enabled: boolean) => Promise<BuffAssistantState>
+  onBuffAssistantState: (callback: (state: BuffAssistantState) => void) => () => void
+  onBuffMetric: (callback: (metric: BuffMetric) => void) => () => void
+  onBuffOverlayState: (callback: (state: BuffOverlayState) => void) => () => void
   window: WindowControlsAPI
 }
 
@@ -282,6 +417,30 @@ function callTauri<T>(operation: () => Promise<T>): Promise<T> {
     return operation()
   } catch (error) {
     return Promise.reject(error)
+  }
+}
+
+function createEventListener<T>(eventName: string, callback: (payload: T) => void): () => void {
+  let disposed = false
+  let unlisten: UnlistenFn | undefined
+
+  void callTauri(() =>
+    listen<T>(eventName, (event) => {
+      if (!disposed) callback(event.payload)
+    })
+  )
+    .then((nextUnlisten) => {
+      if (disposed) nextUnlisten()
+      else unlisten = nextUnlisten
+    })
+    .catch((error: unknown) => {
+      if (!disposed) console.error(`监听 ${eventName} 事件失败`, error)
+    })
+
+  return () => {
+    disposed = true
+    unlisten?.()
+    unlisten = undefined
   }
 }
 
@@ -422,6 +581,41 @@ export const macroApi: MacroAPI = {
       unlisten = undefined
     }
   },
+  getBuffAssistantState: () =>
+    callTauri(() => invoke<BuffAssistantState>('get_buff_assistant_state')),
+  listBuffCaptureWindows: () =>
+    callTauri(() => invoke<CaptureWindowCandidate[]>('list_buff_capture_windows')),
+  captureBuffPreview: (windowId) =>
+    callTauri(() => invoke<BuffCapturePreview>('capture_buff_preview', { windowId })),
+  startBuffSampleCapture: (windowId, region) =>
+    callTauri(() => invoke<BuffAssistantState>('start_buff_sample_capture', { windowId, region })),
+  pauseBuffSampleCapture: () =>
+    callTauri(() => invoke<BuffAssistantState>('pause_buff_sample_capture')),
+  clearBuffSampleFrames: () =>
+    callTauri(() => invoke<BuffAssistantState>('clear_buff_sample_frames')),
+  listBuffSampleFrames: () =>
+    callTauri(() => invoke<BuffSampleFrameSummary[]>('list_buff_sample_frames')),
+  getBuffSampleFrame: (id) => callTauri(() => invoke<string>('get_buff_sample_frame', { id })),
+  saveBuffTemplate: (sampleId, crop, maskDataUrl) =>
+    callTauri(() =>
+      invoke<BuffAssistantState>('save_buff_template', { sampleId, crop, maskDataUrl })
+    ),
+  deleteBuffTemplate: () => callTauri(() => invoke<BuffAssistantState>('delete_buff_template')),
+  updateBuffAssistantSettings: (settings) =>
+    callTauri(() => invoke<BuffAssistantState>('update_buff_assistant_settings', { settings })),
+  startBuffMonitor: () => callTauri(() => invoke<BuffAssistantState>('start_buff_monitor')),
+  stopBuffMonitor: () => callTauri(() => invoke<BuffAssistantState>('stop_buff_monitor')),
+  startBuffTemplateTest: (windowId) =>
+    callTauri(() => invoke<BuffAssistantState>('start_buff_template_test', { windowId })),
+  stopBuffTemplateTest: () =>
+    callTauri(() => invoke<BuffAssistantState>('stop_buff_template_test')),
+  playBuffAssistantSound: (cue) =>
+    callTauri(() => invoke<void>('play_buff_assistant_sound', { cue })),
+  setBuffOverlayEditMode: (enabled) =>
+    callTauri(() => invoke<BuffAssistantState>('set_buff_overlay_edit_mode', { enabled })),
+  onBuffAssistantState: (callback) => createEventListener('buff-assistant-state', callback),
+  onBuffMetric: (callback) => createEventListener('buff-assistant-metric', callback),
+  onBuffOverlayState: (callback) => createEventListener('buff-overlay-state', callback),
   window: windowControls
 }
 

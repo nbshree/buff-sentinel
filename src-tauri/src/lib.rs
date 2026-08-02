@@ -1,3 +1,4 @@
+mod buff_assistant;
 mod commands;
 mod desktop;
 mod game_recorder;
@@ -35,13 +36,17 @@ pub fn run() {
                 game_recorder::storage_directory(app.handle()).map_err(io::Error::other)?;
             let (game_state, game_notices) = game_recorder::GameRecorder::load(game_storage);
             notices.extend(game_notices);
+            let (buff_state, buff_notices) = buff_assistant::BuffAssistant::load(app.handle())?;
+            notices.extend(buff_notices);
             app.manage(AppState::new(profile_file, loaded.store));
             app.manage(game_state);
+            app.manage(buff_state);
             app.manage(updater::PendingUpdate::default());
 
             let state = app.state::<AppState>();
             state.persist_current_store(app.handle());
             desktop::create_tray(app.handle())?;
+            buff_assistant::create_overlay(app.handle())?;
             if let Err(error) = game_recorder::start_raw_input_listener(app.handle()) {
                 notices.push(format!("游戏录制不可用：{error}"));
             }
@@ -100,6 +105,23 @@ pub fn run() {
             game_recorder::delete_game_recording,
             game_recorder::update_game_recorder_hotkeys,
             game_recorder::update_game_playback_settings,
+            buff_assistant::get_buff_assistant_state,
+            buff_assistant::list_buff_capture_windows,
+            buff_assistant::capture_buff_preview,
+            buff_assistant::start_buff_sample_capture,
+            buff_assistant::pause_buff_sample_capture,
+            buff_assistant::clear_buff_sample_frames,
+            buff_assistant::list_buff_sample_frames,
+            buff_assistant::get_buff_sample_frame,
+            buff_assistant::save_buff_template,
+            buff_assistant::delete_buff_template,
+            buff_assistant::update_buff_assistant_settings,
+            buff_assistant::start_buff_monitor,
+            buff_assistant::stop_buff_monitor,
+            buff_assistant::start_buff_template_test,
+            buff_assistant::stop_buff_template_test,
+            buff_assistant::play_buff_assistant_sound,
+            buff_assistant::set_buff_overlay_edit_mode,
             internal_skill_ai::get_mystery_code_status,
             internal_skill_ai::open_ai_provider_registration,
             internal_skill_ai::save_and_validate_mystery_code,
@@ -117,6 +139,7 @@ pub fn run() {
         RunEvent::Exit => {
             commands::stop_run_internal(app);
             game_recorder::stop_game_activity_internal(app);
+            buff_assistant::stop_buff_monitor_internal(app);
             shortcuts::unregister_all(app);
         }
         _ => {}

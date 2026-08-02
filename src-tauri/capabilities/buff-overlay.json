@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "buff-overlay",
+  "description": "Minimal capability for the click-through Buff overlay",
+  "windows": ["buff-overlay"],
+  "permissions": ["core:event:default", "core:window:allow-start-dragging"]
+}

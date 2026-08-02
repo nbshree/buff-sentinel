@@ -4,7 +4,7 @@ use tauri::{
     tray::{TrayIconBuilder, TrayIconEvent},
 };
 
-use crate::{commands, game_recorder, shortcuts, state::AppState};
+use crate::{buff_assistant, commands, game_recorder, shortcuts, state::AppState};
 
 const MENU_SHOW: &str = "show-window";
 const MENU_START: &str = "start-run";
@@ -31,6 +31,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             MENU_STOP => {
                 commands::stop_run_internal(app);
                 game_recorder::stop_game_activity_internal(app);
+                buff_assistant::stop_buff_monitor_internal(app);
             }
             MENU_QUIT => quit_app(app),
             _ => {}
@@ -48,6 +49,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
 }
 
 pub fn show_main_window(app: &AppHandle) {
+    buff_assistant::pause_sample_capture_internal(app);
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -58,6 +60,7 @@ pub fn show_main_window(app: &AppHandle) {
 pub fn quit_app(app: &AppHandle) {
     commands::stop_run_internal(app);
     game_recorder::stop_game_activity_internal(app);
+    buff_assistant::stop_buff_monitor_internal(app);
     {
         let state = app.state::<AppState>();
         state.lock().is_quitting = true;

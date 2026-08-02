@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import { WindowTitleBar } from './components/layout/WindowTitleBar'
 import { WorkspaceHeader, type WorkspaceView } from './components/layout/WorkspaceHeader'
@@ -14,16 +14,22 @@ import { GameRecorderPage } from './features/game-recorder'
 import { InternalSkillCalculatorPage } from './features/internal-skill-calculator'
 import { TowerDemolitionCalculatorPage } from './features/tower-demolition-calculator'
 import { useAppUpdater } from './hooks/useAppUpdater'
+import { useBuffAssistantController } from './hooks/useBuffAssistantController'
 import { useGameRecorderController } from './hooks/useGameRecorderController'
 import { useMacroController } from './hooks/useMacroController'
 import { getInstallBlockedReason } from './lib/install-blocking'
 import { ThemeProvider } from './themes'
+
+const BuffAssistantPage = lazy(() =>
+  import('./features/buff-assistant').then((module) => ({ default: module.BuffAssistantPage }))
+)
 
 function App(): React.JSX.Element {
   const controller = useMacroController()
   const gameRecorderController = useGameRecorderController(
     controller.state.isRunning || controller.state.isRecording
   )
+  const buffAssistantController = useBuffAssistantController()
   const gameActivityBusy = gameRecorderController.state.activity !== 'idle'
   const macroUiController = gameActivityBusy ? { ...controller, isEditingLocked: true } : controller
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>('macro')
@@ -35,6 +41,8 @@ function App(): React.JSX.Element {
     macroIsRunning: controller.state.isRunning,
     macroIsRecording: controller.state.isRecording,
     gameActivity: gameRecorderController.state.activity,
+    buffActivity: buffAssistantController.state.activity,
+    buffIsMonitoring: buffAssistantController.state.isMonitoring,
     gameHasUnsavedChanges:
       gameRecorderController.hasHotkeyChanges ||
       gameRecorderController.hasPlaybackChanges ||
@@ -89,6 +97,17 @@ function App(): React.JSX.Element {
                 onOpenTheme={() => setThemeDialogOpen(true)}
                 onCheckForUpdate={() => void updater.checkForUpdate()}
               />
+              <section
+                className="workspace-view"
+                id="buff-assistant-workspace"
+                role="tabpanel"
+                aria-labelledby="workspace-tab-buff-assistant"
+                hidden={activeWorkspace !== 'buffAssistant'}
+              >
+                <Suspense fallback={<div className="workspace-loading">正在载入 Buff 助手…</div>}>
+                  <BuffAssistantPage controller={buffAssistantController} />
+                </Suspense>
+              </section>
               <section
                 className="workspace-view"
                 id="macro-workspace"

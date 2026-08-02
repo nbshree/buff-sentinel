@@ -1,12 +1,22 @@
 import './assets/main.css'
 import './lib/macro-api'
 
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import App from './App'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>
-)
+async function renderApp(): Promise<void> {
+  const currentWindow = getCurrentWindow()
+  const Component =
+    currentWindow.label === 'buff-overlay'
+      ? (await import('./features/buff-assistant/BuffOverlayApp')).BuffOverlayApp
+      : (await import('./App')).default
+
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <Component />
+    </StrictMode>
+  )
+}
+
+void renderApp()

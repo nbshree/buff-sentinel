@@ -6,6 +6,8 @@ const idleState = {
   macroIsRunning: false,
   macroIsRecording: false,
   gameActivity: 'idle' as const,
+  buffActivity: 'stopped' as const,
+  buffIsMonitoring: false,
   gameHasUnsavedChanges: false,
   macroHasUnsavedChanges: false
 }
@@ -23,6 +25,12 @@ describe('getInstallBlockedReason', () => {
   it('blocks updates when any game recorder draft is unsaved', () => {
     expect(getInstallBlockedReason({ ...idleState, gameHasUnsavedChanges: true })).toBe(
       '游戏录制有未保存的配置，请先保存或撤销后再安装更新。'
+    )
+  })
+
+  it('blocks updates while Buff monitoring is active', () => {
+    expect(getInstallBlockedReason({ ...idleState, buffIsMonitoring: true })).toBe(
+      'Buff 助手正在捕获游戏画面，请先停止监控或采集再安装更新。'
     )
   })
 

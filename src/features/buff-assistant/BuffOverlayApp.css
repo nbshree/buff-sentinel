@@ -1,0 +1,145 @@
+.buff-overlay-document {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent !important;
+}
+
+.buff-overlay-document #root {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+}
+
+.buff-overlay {
+  position: relative;
+  display: flex;
+  width: 300px;
+  min-height: 66px;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  overflow: hidden;
+  border: 1px solid rgb(255 215 111 / 66%);
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgb(75 48 7 / 94%), rgb(20 15 7 / 94%)), rgb(20 15 7 / 94%);
+  box-shadow:
+    0 0 22px rgb(244 184 52 / 40%),
+    inset 0 1px 0 rgb(255 241 190 / 28%);
+  color: #fff1bd;
+  font-family: 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+  user-select: none;
+}
+
+.buff-overlay[data-mode='triggered'] {
+  animation: buff-overlay-trigger 0.38s ease-in-out infinite alternate;
+}
+
+.buff-overlay[data-mode='countdown'] {
+  animation: buff-overlay-warning 0.72s ease-in-out infinite alternate;
+}
+
+.buff-overlay[data-mode='countdown'][data-intense='true'] {
+  border-color: #fff0a6;
+  animation-duration: 0.25s;
+}
+
+.buff-overlay[data-mode='reset'],
+.buff-overlay[data-mode='targetUnavailable'] {
+  border-color: rgb(214 205 184 / 55%);
+  background: rgb(24 23 20 / 92%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+  color: #ddd6c6;
+}
+
+.buff-overlay[data-mode='editing'] {
+  cursor: move;
+  border-style: dashed;
+}
+
+.buff-overlay__glow {
+  position: absolute;
+  inset: -30px;
+  background: radial-gradient(circle, rgb(255 210 82 / 24%), transparent 62%);
+  pointer-events: none;
+}
+
+.buff-overlay__label,
+.buff-overlay__countdown,
+.buff-overlay small,
+.buff-overlay__waiting {
+  position: relative;
+  z-index: 1;
+}
+
+.buff-overlay__label {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 6px rgb(0 0 0 / 60%);
+}
+
+.buff-overlay__countdown {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.buff-overlay__countdown strong {
+  min-width: 54px;
+  color: #ffe17d;
+  font-size: 27px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: right;
+  text-shadow: 0 0 12px rgb(255 199 48 / 55%);
+}
+
+.buff-overlay__countdown span,
+.buff-overlay small {
+  color: #d4c79c;
+  font-size: 10px;
+}
+
+.buff-overlay__waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ead89a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.buff-overlay__waiting span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #deb04a;
+  box-shadow: 0 0 9px rgb(222 176 74 / 70%);
+  animation: buff-overlay-dot 1s ease-in-out infinite alternate;
+}
+
+@keyframes buff-overlay-trigger {
+  to {
+    filter: brightness(1.32);
+    transform: scale(1.025);
+  }
+}
+
+@keyframes buff-overlay-warning {
+  to {
+    box-shadow:
+      0 0 34px rgb(255 192 48 / 70%),
+      inset 0 1px 0 rgb(255 241 190 / 42%);
+    filter: brightness(1.16);
+  }
+}
+
+@keyframes buff-overlay-dot {
+  to {
+    opacity: 0.4;
+    transform: scale(0.7);
+  }
+}

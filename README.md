@@ -37,6 +37,14 @@
 - 多录制管理、目标进程保护，以及可配置的开始录制、停止和回放全局热键
 - 回放使用 `SendInput`；反作弊、独占输入、管理员窗口或特定游戏可能拒绝模拟输入
 
+### 金周天 Buff 助手
+
+- 使用 Windows Graphics Capture 监听指定游戏窗口，不读取游戏内存、不注入进程
+- 内置模板采集向导，可框选 Buff 栏、回看最近 120 秒画面并涂抹动态数字遮罩
+- 首次识别金周天后建立固定 20 秒时间轴，提前 3 秒和 1 秒悬浮闪烁并播放提示音
+- 20 秒到点未识别到图标时自动判定时间轴失效，重新等待下一次真实触发
+- 透明置顶 Overlay 支持鼠标穿透、位置调整和关闭主窗口后托盘常驻
+
 ### 新世界内功评估
 
 - 录入赛年、力量/气海、攻击、破防、流派克制、会心等 11 项基础属性
@@ -109,7 +117,7 @@ Shell 或任意命令执行权限。
 - Tauri 2
 - React 19 + TypeScript + Vite
 - Tailwind CSS 4
-- Rust + Win32 Raw Input / `SendInput`
+- Rust + Windows Graphics Capture / Win32 Raw Input / `SendInput`
 
 ## 环境要求
 
@@ -178,8 +186,9 @@ pnpm tauri:build
 
 ## 用户数据
 
-新版本将宏方案保存到 Tauri 应用数据目录下的 `macro-profiles.json`，游戏录制则保存在同一
-应用数据目录的 `game-recordings/` 子目录。首次启动时，如果发现旧 Electron 版本的数据：
+新版本将宏方案保存到 Tauri 应用数据目录下的 `macro-profiles.json`，游戏录制保存在
+`game-recordings/` 子目录，Buff 助手配置和图标模板保存在 `buff-assistant/` 子目录。首次
+启动时，如果发现旧 Electron 版本的数据：
 
 ```text
 %APPDATA%\macro-flow\macro-profiles.json
