@@ -271,6 +271,9 @@ gh run view <run-id> `
 - feed 的签名是 `.sig` 文件内容，而不是路径或下载 URL。
 - 发行说明中的中文提交信息显示正常。
 
+正式发版不要求在发布机安装旧版本，也不要求通过本机应用内 updater 执行实际升级。以流水线
+验证、公开附件匿名下载、SHA-256、签名内容和 updater feed 一致性检查作为在线更新验收依据。
+
 公开 feed 检查：
 
 ```powershell
@@ -355,5 +358,4 @@ GitHub Actions run，或使用 `-RepairExisting -SkipBuild` 修复。
 - Gitee 发行版存在，`.exe`、`.sig`、`latest.json` 均可公开下载。
 - 安装包 SHA-256、更新签名、feed URL 和版本号均正确。
 - `updater-feed/latest.json` 只前进、不降级，并指向本次发行附件。
-- 从一个较低的 updater-enabled 版本完成过实际应用内升级验收。
 - 工作区没有意外的未提交修改。
