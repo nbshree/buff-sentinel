@@ -683,6 +683,12 @@
   scrollbar-color: var(--border-strong) #090b0e;
 }
 
+.buff-editor-zoom__viewport[data-panning='true'],
+.buff-editor-zoom__viewport[data-panning='true'] * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
 .buff-editor-zoom__stage {
   position: relative;
   min-width: 100%;

@@ -34,7 +34,7 @@ describe('ZoomableEditorViewport', () => {
     })
 
     expect(accepted).toBe(false)
-    expect(screen.getByText('滚轮缩放 · 200%')).toBeInTheDocument()
+    expect(screen.getByText(/200%$/)).toBeInTheDocument()
     expect(viewport.scrollLeft).toBe(60)
     expect(viewport.scrollTop).toBe(70)
   })
@@ -54,7 +54,7 @@ describe('ZoomableEditorViewport', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '重置为 100%' }))
 
-    expect(screen.getByText('滚轮缩放 · 100%')).toBeInTheDocument()
+    expect(screen.getByText(/^滚轮缩放.*100%$/)).toBeInTheDocument()
     expect(viewport.scrollLeft).toBe(0)
     expect(viewport.scrollTop).toBe(0)
   })
@@ -78,9 +78,61 @@ describe('ZoomableEditorViewport', () => {
       </ZoomableEditorViewport>
     )
 
-    expect(screen.getByText('滚轮缩放 · 100%')).toBeInTheDocument()
+    expect(screen.getByText(/^滚轮缩放.*100%$/)).toBeInTheDocument()
     expect(viewport.scrollLeft).toBe(0)
     expect(viewport.scrollTop).toBe(0)
+  })
+
+  it('pans the viewport with Ctrl and the left mouse button without reaching the editor', () => {
+    const onPointerDown = vi.fn()
+    const { container } = render(
+      <ZoomableEditorViewport label="测试缩放视口" resetKey="image-a">
+        <button type="button" onPointerDown={onPointerDown}>
+          图片
+        </button>
+      </ZoomableEditorViewport>
+    )
+    const viewport = container.querySelector('[data-zoom-viewport]') as HTMLDivElement
+    const target = screen.getByRole('button', { name: '图片' })
+    viewport.scrollLeft = 200
+    viewport.scrollTop = 150
+
+    fireEvent.pointerDown(target, {
+      button: 0,
+      clientX: 100,
+      clientY: 100,
+      ctrlKey: true,
+      pointerId: 7
+    })
+    expect(viewport).toHaveAttribute('data-panning', 'true')
+    expect(onPointerDown).not.toHaveBeenCalled()
+
+    fireEvent.pointerMove(viewport, { clientX: 130, clientY: 140, pointerId: 7 })
+    expect(viewport.scrollLeft).toBe(170)
+    expect(viewport.scrollTop).toBe(110)
+
+    fireEvent.pointerUp(viewport, { clientX: 130, clientY: 140, pointerId: 7 })
+    expect(viewport).toHaveAttribute('data-panning', 'false')
+  })
+
+  it('leaves ordinary left-button gestures to the editor', () => {
+    const onPointerDown = vi.fn()
+    render(
+      <ZoomableEditorViewport label="测试缩放视口" resetKey="image-a">
+        <button type="button" onPointerDown={onPointerDown}>
+          图片
+        </button>
+      </ZoomableEditorViewport>
+    )
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: '图片' }), {
+      button: 0,
+      clientX: 100,
+      clientY: 100,
+      pointerId: 8
+    })
+
+    expect(onPointerDown).toHaveBeenCalledOnce()
   })
 })
 

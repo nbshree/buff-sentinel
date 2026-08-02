@@ -25,7 +25,7 @@ describe('RegionEditorDialog', () => {
       />
     )
     const canvas = screen.getByRole('application', { name: 'Buff 搜索区域' })
-    expect(screen.getByText('滚轮缩放 · 100%')).toBeInTheDocument()
+    expect(screen.getByText(/滚轮缩放.+100%/)).toBeInTheDocument()
     vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
       x: 0,
       y: 0,
@@ -87,7 +87,7 @@ describe('MaskEditorDialog', () => {
     )
 
     const clear = screen.getByRole('button', { name: '清除遮罩' })
-    expect(screen.getByText('滚轮缩放 · 100%')).toBeInTheDocument()
+    expect(screen.getByText(/滚轮缩放.+100%/)).toBeInTheDocument()
     await waitFor(() => expect(clear).toBeEnabled())
     fireEvent.click(clear)
     expect(onApply).not.toHaveBeenCalled()

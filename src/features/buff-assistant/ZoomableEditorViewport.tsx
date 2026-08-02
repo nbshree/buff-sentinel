@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode
 } from 'react'
 
@@ -15,6 +16,13 @@ type ZoomableEditorViewportProps = {
 
 type Dimensions = { width: number; height: number }
 type ZoomAnchor = { clientX: number; clientY: number; x: number; y: number }
+type PanGesture = {
+  pointerId: number
+  startX: number
+  startY: number
+  scrollLeft: number
+  scrollTop: number
+}
 
 const minimumZoom = 1
 const maximumZoom = 8
@@ -23,8 +31,10 @@ export function ZoomableEditorViewport({ children, label, resetKey }: ZoomableEd
   const viewportRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const pendingAnchorRef = useRef<ZoomAnchor | null>(null)
+  const panGestureRef = useRef<PanGesture | null>(null)
   const [zoom, setZoom] = useState(minimumZoom)
   const [dimensions, setDimensions] = useState<Dimensions>({ width: 0, height: 0 })
+  const [panning, setPanning] = useState(false)
 
   useLayoutEffect(() => {
     const content = contentRef.current
@@ -59,6 +69,8 @@ export function ZoomableEditorViewport({ children, label, resetKey }: ZoomableEd
 
   useEffect(() => {
     pendingAnchorRef.current = null
+    panGestureRef.current = null
+    setPanning(false)
     setZoom(minimumZoom)
     const viewport = viewportRef.current
     if (viewport) {
@@ -100,9 +112,59 @@ export function ZoomableEditorViewport({ children, label, resetKey }: ZoomableEd
     }
   }
 
+  function handlePanStart(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (!event.ctrlKey || event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    panGestureRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: event.currentTarget.scrollLeft,
+      scrollTop: event.currentTarget.scrollTop
+    }
+    setPanning(true)
+  }
+
+  function handlePanMove(event: ReactPointerEvent<HTMLDivElement>): void {
+    const gesture = panGestureRef.current
+    if (!gesture || gesture.pointerId !== event.pointerId) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.currentTarget.scrollLeft = gesture.scrollLeft - (event.clientX - gesture.startX)
+    event.currentTarget.scrollTop = gesture.scrollTop - (event.clientY - gesture.startY)
+  }
+
+  function handlePanEnd(event: ReactPointerEvent<HTMLDivElement>): void {
+    const gesture = panGestureRef.current
+    if (!gesture || gesture.pointerId !== event.pointerId) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    panGestureRef.current = null
+    setPanning(false)
+  }
+
   return (
     <div className="buff-editor-zoom" aria-label={label}>
-      <div className="buff-editor-zoom__viewport" data-zoom-viewport="" ref={viewportRef}>
+      <div
+        className="buff-editor-zoom__viewport"
+        data-panning={panning}
+        data-zoom-viewport=""
+        ref={viewportRef}
+        onDoubleClickCapture={(event) => {
+          if (!event.ctrlKey) return
+          event.preventDefault()
+          event.stopPropagation()
+        }}
+        onPointerCancelCapture={handlePanEnd}
+        onPointerDownCapture={handlePanStart}
+        onPointerMoveCapture={handlePanMove}
+        onPointerUpCapture={handlePanEnd}
+      >
         <div
           className="buff-editor-zoom__stage"
           style={
@@ -128,7 +190,7 @@ export function ZoomableEditorViewport({ children, label, resetKey }: ZoomableEd
         </div>
       </div>
       <div className="buff-editor-zoom__toolbar">
-        <span>滚轮缩放 · {Math.round(zoom * 100)}%</span>
+        <span>滚轮缩放 · Ctrl+左键拖动 · {Math.round(zoom * 100)}%</span>
         <button disabled={zoom === minimumZoom} type="button" onClick={resetZoom}>
           重置为 100%
         </button>
