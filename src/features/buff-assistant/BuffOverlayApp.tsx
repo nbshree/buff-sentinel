@@ -42,6 +42,7 @@ export function BuffOverlayApp() {
   if (state.mode === 'hidden') return null
 
   const seconds = (remainingMs / 1000).toFixed(1)
+  const warning = state.mode === 'countdown' && remainingMs <= 3_000
   const intense = state.mode === 'countdown' && remainingMs <= 1_000
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>): void {
@@ -55,6 +56,7 @@ export function BuffOverlayApp() {
       data-editable={state.editable}
       data-intense={intense}
       data-mode={state.mode}
+      data-warning={warning}
       onPointerDown={handlePointerDown}
     >
       <span className="buff-overlay__glow" />

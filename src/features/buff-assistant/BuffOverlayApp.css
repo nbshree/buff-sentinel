@@ -37,7 +37,7 @@
   animation: buff-overlay-trigger 0.38s ease-in-out infinite alternate;
 }
 
-.buff-overlay[data-mode='countdown'] {
+.buff-overlay[data-mode='countdown'][data-warning='true'] {
   animation: buff-overlay-warning 0.72s ease-in-out infinite alternate;
 }
 

@@ -196,18 +196,19 @@ export function createMacroApi(
 ) {
   const buffState: BuffAssistantState = {
     config: {
-      schemaVersion: 1,
+      schemaVersion: 4,
       target: null,
       searchRegion: null,
       template: null,
       settings: {
         cycleMs: 20_000,
-        threshold: 0.86,
+        threshold: 0.95,
         confirmFrames: 3,
         missingFrames: 5,
         sound: {
           triggerEnabled: true,
           prewarnThreeEnabled: true,
+          prewarnTwoEnabled: true,
           prewarnOneEnabled: true,
           volume: 0.45
         },
@@ -327,6 +328,7 @@ export function createMacroApi(
     setBuffOverlayEditMode: vi.fn(async () => buffState),
     onBuffAssistantState: vi.fn(() => () => undefined),
     onBuffMetric: vi.fn(() => () => undefined),
+    onBuffExecutionLog: vi.fn(() => () => undefined),
     onBuffOverlayState: vi.fn(() => () => undefined),
     window: {
       minimize: vi.fn(async () => undefined),

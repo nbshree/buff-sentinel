@@ -100,6 +100,7 @@ pub struct RuntimeCaptureHandler {
 struct RuntimeFrame {
     frame_width: u32,
     frame_height: u32,
+    captured_at: Instant,
     image: CapturedImage,
 }
 
@@ -108,6 +109,7 @@ struct RuntimeCaptureProcessor {
     detector: StablePresenceDetector,
     prepared_template: Option<(f32, TemplateData)>,
     last_metric_at: Instant,
+    match_started_at: Option<Instant>,
 }
 
 impl GraphicsCaptureApiHandler for RuntimeCaptureHandler {
@@ -157,6 +159,7 @@ impl GraphicsCaptureApiHandler for RuntimeCaptureHandler {
         let runtime_frame = RuntimeFrame {
             frame_width: frame.width(),
             frame_height: frame.height(),
+            captured_at: Instant::now(),
             image: copy_frame(frame, Some(self.region))?,
         };
         match self.sender.try_send(runtime_frame) {
@@ -188,6 +191,7 @@ impl RuntimeCaptureProcessor {
             detector,
             prepared_template: None,
             last_metric_at: Instant::now() - Duration::from_secs(1),
+            match_started_at: None,
         }
     }
 
@@ -195,15 +199,27 @@ impl RuntimeCaptureProcessor {
         super::handle_capture_frame(&self.flags.app, self.flags.purpose);
         match self.flags.purpose {
             CapturePurpose::Samples => {
-                super::handle_sample_frame(&self.flags.app, frame.image);
+                super::handle_sample_frame(
+                    &self.flags.app,
+                    frame.frame_width,
+                    frame.frame_height,
+                    frame.image,
+                );
             }
             CapturePurpose::Monitor | CapturePurpose::Test => {
                 let gray = rgba_to_gray(frame.image.width, frame.image.height, &frame.image.rgba)?;
                 let template = self.template_for_frame(frame.frame_width, frame.frame_height)?;
                 let confidence = match_template(&gray, template);
-                let present = self.detector.update(confidence >= self.flags.threshold);
-                let should_emit_metric = self.flags.purpose == CapturePurpose::Test
-                    && self.last_metric_at.elapsed() >= Duration::from_millis(200);
+                let matched = confidence >= self.flags.threshold;
+                if matched {
+                    self.match_started_at.get_or_insert(frame.captured_at);
+                } else {
+                    self.match_started_at = None;
+                }
+                let present = self.detector.update(matched);
+                let detected_at = present.then_some(self.match_started_at).flatten();
+                let should_emit_metric =
+                    self.last_metric_at.elapsed() >= Duration::from_millis(200);
                 if should_emit_metric {
                     self.last_metric_at = Instant::now();
                 }
@@ -212,6 +228,7 @@ impl RuntimeCaptureProcessor {
                     self.flags.purpose,
                     confidence,
                     present,
+                    detected_at,
                     should_emit_metric,
                 );
             }
@@ -229,12 +246,13 @@ impl RuntimeCaptureProcessor {
             .template
             .as_ref()
             .ok_or_else(|| "尚未配置 Buff 图标模板".to_string())?;
-        let width_scale = frame_width as f32 / self.flags.reference_width.max(1) as f32;
-        let height_scale = frame_height as f32 / self.flags.reference_height.max(1) as f32;
-        if (width_scale - height_scale).abs() > 0.15 {
-            return Err("游戏窗口宽高比变化过大，请重新采集模板".into());
-        }
-        let scale = (width_scale + height_scale) / 2.0;
+        let scale = reference_scale(
+            frame_width,
+            frame_height,
+            self.flags.reference_width,
+            self.flags.reference_height,
+            self.flags.region,
+        )?;
         let rebuild = self
             .prepared_template
             .as_ref()
@@ -244,6 +262,36 @@ impl RuntimeCaptureProcessor {
         }
         Ok(&self.prepared_template.as_ref().unwrap().1)
     }
+}
+
+fn reference_scale(
+    frame_width: u32,
+    frame_height: u32,
+    reference_width: u32,
+    reference_height: u32,
+    region: NormalizedRect,
+) -> Result<f32, String> {
+    let width_scale = frame_width as f32 / reference_width.max(1) as f32;
+    let height_scale = frame_height as f32 / reference_height.max(1) as f32;
+    if scales_match(f64::from(width_scale), f64::from(height_scale)) {
+        return Ok((width_scale + height_scale) / 2.0);
+    }
+
+    // Older templates stored cropped search-region dimensions as the full-window reference.
+    let region = region.sanitized();
+    let legacy_width = f64::from(reference_width) / region.width;
+    let legacy_height = f64::from(reference_height) / region.height;
+    let legacy_width_scale = f64::from(frame_width) / legacy_width.max(1.0);
+    let legacy_height_scale = f64::from(frame_height) / legacy_height.max(1.0);
+    if scales_match(legacy_width_scale, legacy_height_scale) {
+        return Ok(((legacy_width_scale + legacy_height_scale) / 2.0) as f32);
+    }
+
+    Err("游戏窗口宽高比变化过大，请重新采集模板".into())
+}
+
+fn scales_match(width_scale: f64, height_scale: f64) -> bool {
+    (width_scale - height_scale).abs() / width_scale.max(height_scale).max(f64::EPSILON) <= 0.15
 }
 
 pub fn capture_snapshot(window: Window) -> Result<CapturedImage, String> {
@@ -317,4 +365,33 @@ fn copy_frame(frame: &mut Frame, region: Option<NormalizedRect>) -> Result<Captu
         height,
         rgba,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_REGION: NormalizedRect = NormalizedRect {
+        x: 0.5,
+        y: 0.0,
+        width: 0.4,
+        height: 0.2,
+    };
+
+    #[test]
+    fn reference_scale_accepts_full_window_dimensions() {
+        let scale = reference_scale(1920, 1080, 1920, 1080, TEST_REGION).unwrap();
+        assert!((scale - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn reference_scale_recovers_legacy_cropped_dimensions() {
+        let scale = reference_scale(1920, 1080, 768, 216, TEST_REGION).unwrap();
+        assert!((scale - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn reference_scale_rejects_a_real_aspect_ratio_change() {
+        assert!(reference_scale(1280, 1024, 1920, 1080, TEST_REGION).is_err());
+    }
 }

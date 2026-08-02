@@ -223,9 +223,6 @@ pub fn start_buff_sample_capture(
     }
     let snapshot = state.snapshot();
     emit_state(&app, &snapshot);
-    if let Some(main) = app.get_webview_window("main") {
-        let _ = main.hide();
-    }
     Ok(snapshot)
 }
 
@@ -530,6 +527,7 @@ pub fn play_buff_assistant_sound(
     let audio_cue = match cue.as_str() {
         "triggered" => AudioCue::Triggered,
         "prewarnThree" => AudioCue::PrewarnThree,
+        "prewarnTwo" => AudioCue::PrewarnTwo,
         "prewarnOne" => AudioCue::PrewarnOne,
         _ => return Err("未知提示音类型".into()),
     };
@@ -595,7 +593,12 @@ pub fn set_buff_overlay_edit_mode(
     Ok(snapshot)
 }
 
-pub(crate) fn handle_sample_frame(app: &AppHandle, image: CapturedImage) {
+pub(crate) fn handle_sample_frame(
+    app: &AppHandle,
+    frame_width: u32,
+    frame_height: u32,
+    image: CapturedImage,
+) {
     let Ok(png) = encode_png(&image) else {
         return;
     };
@@ -612,8 +615,8 @@ pub(crate) fn handle_sample_frame(app: &AppHandle, image: CapturedImage) {
         if inner.samples.is_empty()
             && let Some(target) = &mut inner.sample_target
         {
-            target.reference_width = image.width.max(1);
-            target.reference_height = image.height.max(1);
+            target.reference_width = frame_width.max(1);
+            target.reference_height = frame_height.max(1);
         }
         let id = inner.next_sample_id;
         inner.next_sample_id = inner.next_sample_id.wrapping_add(1).max(1);
@@ -660,6 +663,7 @@ pub(crate) fn handle_detection_frame(
     purpose: CapturePurpose,
     confidence: f32,
     present: bool,
+    detected_at: Option<Instant>,
     emit_metric: bool,
 ) {
     let state = app.state::<BuffAssistant>();
@@ -692,7 +696,9 @@ pub(crate) fn handle_detection_frame(
             return;
         }
         inner.last_confidence = confidence;
-        let actions = inner.timeline.update(Instant::now(), present);
+        let actions = inner
+            .timeline
+            .update_with_detected_at(Instant::now(), present, detected_at);
         inner.activity = match inner.timeline.phase() {
             TimelinePhase::Stopped => BuffAssistantActivity::Stopped,
             TimelinePhase::Waiting => BuffAssistantActivity::Waiting,
@@ -711,6 +717,15 @@ pub(crate) fn handle_detection_frame(
             inner.config.settings.sound.clone(),
         )
     };
+    if emit_metric {
+        let _ = app.emit(
+            "buff-assistant-metric",
+            BuffMetric {
+                confidence,
+                present,
+            },
+        );
+    }
     if actions.is_empty() {
         return;
     }
@@ -721,26 +736,29 @@ pub(crate) fn handle_detection_frame(
                 if sound.trigger_enabled {
                     state.audio.play(AudioCue::Triggered, sound.volume);
                 }
-                show_transient_overlay(
-                    app,
-                    BuffOverlayMode::Triggered,
-                    "金周天已触发",
-                    snapshot.expected_at_unix_ms,
-                    Duration::from_millis(800),
-                );
+                emit_execution_log(app, "真实触发已确认，新的倒计时已开始");
+                show_countdown_overlay(app, snapshot.expected_at_unix_ms);
             }
             TimelineAction::PrewarnThree => {
                 if sound.prewarn_three_enabled {
                     state.audio.play(AudioCue::PrewarnThree, sound.volume);
                 }
-                show_countdown_overlay(app, snapshot.expected_at_unix_ms);
+                emit_execution_log(app, "倒计时剩余 3 秒");
+            }
+            TimelineAction::PrewarnTwo => {
+                if sound.prewarn_two_enabled {
+                    state.audio.play(AudioCue::PrewarnTwo, sound.volume);
+                }
+                emit_execution_log(app, "倒计时剩余 2 秒");
             }
             TimelineAction::PrewarnOne => {
                 if sound.prewarn_one_enabled {
                     state.audio.play(AudioCue::PrewarnOne, sound.volume);
                 }
+                emit_execution_log(app, "倒计时剩余 1 秒");
             }
             TimelineAction::Reset => {
+                emit_execution_log(app, "截止点未确认金周天，时间轴已重置");
                 show_transient_overlay(
                     app,
                     BuffOverlayMode::Reset,
@@ -1002,6 +1020,10 @@ fn emit_state(app: &AppHandle, state: &BuffAssistantState) {
     let _ = app.emit("buff-assistant-state", state);
 }
 
+fn emit_execution_log(app: &AppHandle, message: &str) {
+    let _ = app.emit("buff-assistant-execution-log", message);
+}
+
 fn emit_overlay(app: &AppHandle, state: BuffOverlayState) {
     let _ = app.emit_to(OVERLAY_LABEL, "buff-overlay-state", state);
 }
@@ -1071,9 +1093,7 @@ fn show_transient_overlay(
             let inner = state.lock();
             (
                 !inner.overlay_editing && inner.overlay_generation == generation,
-                inner.monitor_requested
-                    && inner.activity == BuffAssistantActivity::Waiting
-                    && inner.config.settings.overlay.show_waiting_dot,
+                inner.monitor_requested && inner.activity == BuffAssistantActivity::Waiting,
             )
         };
         if !should_hide {
@@ -1091,9 +1111,7 @@ fn show_waiting_overlay(app: &AppHandle) {
     let state = app.state::<BuffAssistant>();
     let show = {
         let inner = state.lock();
-        inner.monitor_requested
-            && inner.config.settings.overlay.show_waiting_dot
-            && !inner.overlay_editing
+        inner.monitor_requested && !inner.overlay_editing
     };
     if !show {
         hide_overlay(app);
@@ -1115,12 +1133,28 @@ fn show_waiting_overlay(app: &AppHandle) {
 }
 
 fn show_target_unavailable_overlay(app: &AppHandle) {
-    show_transient_overlay(
+    let state = app.state::<BuffAssistant>();
+    {
+        let mut inner = state.lock();
+        if inner.overlay_editing {
+            return;
+        }
+        inner.overlay_generation = inner.overlay_generation.wrapping_add(1);
+    }
+    if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
+        let _ = overlay.set_ignore_cursor_events(true);
+        let _ = overlay.set_focusable(false);
+        let _ = overlay.show();
+    }
+    emit_overlay(
         app,
-        BuffOverlayMode::TargetUnavailable,
-        "等待游戏窗口",
-        None,
-        Duration::from_millis(1_500),
+        BuffOverlayState {
+            mode: BuffOverlayMode::TargetUnavailable,
+            message: "等待游戏窗口".into(),
+            expected_at_unix_ms: None,
+            emitted_at_unix_ms: now_millis(),
+            editable: false,
+        },
     );
 }
 

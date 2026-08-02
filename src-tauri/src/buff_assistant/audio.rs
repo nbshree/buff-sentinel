@@ -10,6 +10,7 @@ use rodio::{DeviceSinkBuilder, Source, source::SineWave};
 pub enum AudioCue {
     Triggered,
     PrewarnThree,
+    PrewarnTwo,
     PrewarnOne,
 }
 
@@ -37,8 +38,9 @@ impl AudioEngine {
             while let Ok((cue, volume)) = receiver.recv() {
                 let (frequency, duration) = match cue {
                     AudioCue::Triggered => (820.0, 180),
-                    AudioCue::PrewarnThree => (620.0, 150),
-                    AudioCue::PrewarnOne => (980.0, 220),
+                    AudioCue::PrewarnThree | AudioCue::PrewarnTwo | AudioCue::PrewarnOne => {
+                        (800.0, 170)
+                    }
                 };
                 let wave = SineWave::new(frequency)
                     .take_duration(Duration::from_millis(duration))

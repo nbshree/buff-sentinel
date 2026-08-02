@@ -1,5 +1,9 @@
 .buff-assistant-page {
   display: grid;
+  width: 100%;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   gap: 16px;
   height: 100%;
   overflow: auto;
@@ -8,11 +12,66 @@
 }
 
 .buff-assistant-hero,
-.buff-card {
+.buff-card,
+.buff-execution-log {
   border: 1px solid color-mix(in srgb, var(--border-default) 78%, transparent);
   border-radius: 14px;
   background: color-mix(in srgb, var(--surface-panel-strong) 92%, transparent);
   box-shadow: 0 10px 26px color-mix(in srgb, var(--text-primary) 7%, transparent);
+}
+
+.buff-execution-log {
+  min-height: 150px;
+  overflow: hidden;
+}
+
+.buff-execution-log header {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-default);
+  padding: 8px 12px 8px 16px;
+}
+
+.buff-execution-log h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.buff-execution-log h3 svg {
+  width: 17px;
+  height: 17px;
+  color: #c89522;
+}
+
+.buff-execution-log header button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.buff-execution-log__body {
+  height: 112px;
+  overflow: auto;
+  padding: 9px 16px 12px;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.buff-execution-log__body p {
+  margin: 0 0 5px;
+  color: var(--text-secondary);
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.buff-execution-log__body .buff-execution-log__empty {
+  color: var(--text-muted);
+  font-family: inherit;
 }
 
 .buff-assistant-hero {
@@ -51,23 +110,24 @@
 }
 
 .buff-assistant-status {
-  display: flex;
-  min-width: 164px;
+  display: inline-flex;
+  min-width: 0;
+  flex: none;
   align-items: center;
-  gap: 12px;
-  border: 1px solid rgb(201 151 33 / 30%);
-  border-radius: 12px;
-  padding: 12px 15px;
-  background: rgb(201 151 33 / 8%);
+  gap: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: color-mix(in srgb, var(--surface-muted) 82%, transparent);
 }
 
 .buff-assistant-status__dot {
-  width: 11px;
-  height: 11px;
+  width: 8px;
+  height: 8px;
   flex: none;
   border-radius: 999px;
   background: #a3a3a3;
-  box-shadow: 0 0 0 5px rgb(163 163 163 / 14%);
+  box-shadow: 0 0 0 3px rgb(163 163 163 / 14%);
 }
 
 .buff-assistant-status[data-status='waiting'] .buff-assistant-status__dot,
@@ -77,24 +137,44 @@
   box-shadow: 0 0 14px 5px rgb(217 166 50 / 30%);
 }
 
+.buff-assistant-status[data-status='waiting'],
+.buff-assistant-status[data-status='tracking'],
+.buff-assistant-status[data-status='prewarning'] {
+  border-color: rgb(201 151 33 / 36%);
+  background: rgb(201 151 33 / 10%);
+}
+
+.buff-assistant-status[data-status='capturingSamples'],
+.buff-assistant-status[data-status='testing'] {
+  border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.buff-assistant-status[data-status='capturingSamples'] .buff-assistant-status__dot,
+.buff-assistant-status[data-status='testing'] .buff-assistant-status__dot {
+  background: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.buff-assistant-status[data-status='error'] {
+  border-color: color-mix(in srgb, var(--color-danger) 42%, transparent);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+}
+
+.buff-assistant-status[data-status='error'] .buff-assistant-status__dot {
+  background: var(--color-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 18%, transparent);
+}
+
 .buff-assistant-status[data-status='prewarning'] .buff-assistant-status__dot {
   animation: buff-pulse 0.55s ease-in-out infinite alternate;
 }
 
-.buff-assistant-status small,
-.buff-assistant-status strong {
-  display: block;
-}
-
-.buff-assistant-status small {
-  margin-bottom: 3px;
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
 .buff-assistant-status strong {
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .buff-assistant-error {
@@ -402,6 +482,21 @@
   background: #090b0e;
 }
 
+.buff-mask-editor[data-zoomed='true'] {
+  width: min(720px, 100%);
+}
+
+.buff-mask-editor__viewport {
+  max-width: 100%;
+  overflow: auto;
+  scrollbar-color: var(--border-strong) #090b0e;
+}
+
+.buff-mask-editor__viewport[data-zoomed='true'] {
+  width: 100%;
+  max-height: 520px;
+}
+
 .buff-mask-editor__canvas {
   display: block;
   width: auto;
@@ -412,6 +507,10 @@
   touch-action: none;
 }
 
+.buff-mask-editor__viewport[data-zoomed='true'] .buff-mask-editor__canvas {
+  image-rendering: pixelated;
+}
+
 .buff-mask-editor__footer {
   display: flex;
   justify-content: space-between;
@@ -419,6 +518,25 @@
   padding: 7px 9px;
   color: var(--text-muted);
   font-size: 10px;
+}
+
+.buff-mask-editor__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.buff-mask-editor__actions button[aria-label] {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  place-items: center;
+}
+
+.buff-mask-editor__actions svg {
+  width: 15px;
+  height: 15px;
 }
 
 .buff-template-test {

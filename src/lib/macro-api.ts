@@ -194,6 +194,7 @@ export type BuffTemplateSummary = {
 export type BuffSoundSettings = {
   triggerEnabled: boolean
   prewarnThreeEnabled: boolean
+  prewarnTwoEnabled: boolean
   prewarnOneEnabled: boolean
   volume: number
 }
@@ -358,10 +359,13 @@ export type MacroAPI = {
   stopBuffMonitor: () => Promise<BuffAssistantState>
   startBuffTemplateTest: (windowId: string) => Promise<BuffAssistantState>
   stopBuffTemplateTest: () => Promise<BuffAssistantState>
-  playBuffAssistantSound: (cue: 'triggered' | 'prewarnThree' | 'prewarnOne') => Promise<void>
+  playBuffAssistantSound: (
+    cue: 'triggered' | 'prewarnThree' | 'prewarnTwo' | 'prewarnOne'
+  ) => Promise<void>
   setBuffOverlayEditMode: (enabled: boolean) => Promise<BuffAssistantState>
   onBuffAssistantState: (callback: (state: BuffAssistantState) => void) => () => void
   onBuffMetric: (callback: (metric: BuffMetric) => void) => () => void
+  onBuffExecutionLog: (callback: (message: string) => void) => () => void
   onBuffOverlayState: (callback: (state: BuffOverlayState) => void) => () => void
   window: WindowControlsAPI
 }
@@ -615,6 +619,8 @@ export const macroApi: MacroAPI = {
     callTauri(() => invoke<BuffAssistantState>('set_buff_overlay_edit_mode', { enabled })),
   onBuffAssistantState: (callback) => createEventListener('buff-assistant-state', callback),
   onBuffMetric: (callback) => createEventListener('buff-assistant-metric', callback),
+  onBuffExecutionLog: (callback) =>
+    createEventListener('buff-assistant-execution-log', callback),
   onBuffOverlayState: (callback) => createEventListener('buff-overlay-state', callback),
   window: windowControls
 }

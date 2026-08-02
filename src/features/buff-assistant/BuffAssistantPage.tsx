@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Save,
   ScanSearch,
+  ScrollText,
   Settings2,
   Square,
   Trash2,
@@ -37,6 +38,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     samples,
     selectedFrame,
     metric,
+    logs,
     busy,
     error,
     refreshWindows,
@@ -52,6 +54,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     stopMonitor,
     startTest,
     stopTest,
+    clearLogs,
     setOverlayEditing
   } = controller
   const [selectedWindowId, setSelectedWindowId] = useState('')
@@ -136,14 +139,15 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
         <div>
           <span className="buff-assistant-eyebrow">金周天 · 屏幕识别</span>
           <h2>自动监听真实触发，脱战后自动丢弃旧时间轴</h2>
-          <p>第一次识别成功后建立固定 20 秒轴；提前 3 秒和 1 秒预警，到点未出现则重新等待。</p>
+          <p>第一次识别成功后立即显示固定 20 秒倒计时；提前 3、2、1 秒预警。</p>
         </div>
-        <div className="buff-assistant-status" data-status={state.activity}>
+        <div
+          aria-label={`当前状态：${status}`}
+          className="buff-assistant-status"
+          data-status={state.activity}
+        >
           <span className="buff-assistant-status__dot" />
-          <div>
-            <small>当前状态</small>
-            <strong>{status}</strong>
-          </div>
+          <strong>{status}</strong>
         </div>
       </section>
 
@@ -213,7 +217,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               <input
                 max={120}
                 min={5}
-                step={0.1}
+                step={0.01}
                 type="number"
                 value={settings.cycleMs / 1000}
                 onChange={(event) =>
@@ -284,26 +288,24 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               onTest={() => void window.api.playBuffAssistantSound('triggered')}
             />
             <ToggleRow
-              checked={settings.sound.prewarnThreeEnabled}
-              label="提前 3 秒提示音"
+              checked={
+                settings.sound.prewarnThreeEnabled &&
+                settings.sound.prewarnTwoEnabled &&
+                settings.sound.prewarnOneEnabled
+              }
+              label="提前 3、2、1 秒提示音"
               onChange={(checked) =>
                 setSettings((current) => ({
                   ...current,
-                  sound: { ...current.sound, prewarnThreeEnabled: checked }
+                  sound: {
+                    ...current.sound,
+                    prewarnThreeEnabled: checked,
+                    prewarnTwoEnabled: checked,
+                    prewarnOneEnabled: checked
+                  }
                 }))
               }
               onTest={() => void window.api.playBuffAssistantSound('prewarnThree')}
-            />
-            <ToggleRow
-              checked={settings.sound.prewarnOneEnabled}
-              label="提前 1 秒提示音"
-              onChange={(checked) =>
-                setSettings((current) => ({
-                  ...current,
-                  sound: { ...current.sound, prewarnOneEnabled: checked }
-                }))
-              }
-              onTest={() => void window.api.playBuffAssistantSound('prewarnOne')}
             />
             <label className="buff-volume-row">
               <Volume2 aria-hidden="true" />
@@ -322,19 +324,6 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                 }
               />
               <strong>{Math.round(settings.sound.volume * 100)}%</strong>
-            </label>
-            <label className="buff-check-row">
-              <input
-                checked={settings.overlay.showWaitingDot}
-                type="checkbox"
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    overlay: { ...current.overlay, showWaitingDot: event.target.checked }
-                  }))
-                }
-              />
-              等待阶段显示状态点
             </label>
           </div>
           <div className="buff-card__actions">
@@ -409,11 +398,11 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               ) : (
                 <Button disabled={busy || !searchRegion} onClick={() => void handleStartCapture()}>
                   <ScanSearch aria-hidden="true" />
-                  开始采集并隐藏窗口
+                  开始采集
                 </Button>
               )}
               <span className="buff-action-hint">
-                正常游戏后双击托盘图标返回，画面会自动暂停并保留最近 120 秒。
+                采集期间可正常切换到游戏，返回后点击暂停并载入最近 120 秒画面。
               </span>
             </div>
           </div>
@@ -525,6 +514,33 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
             </div>
           </div>
         ) : null}
+      </section>
+
+      <section className="buff-execution-log" aria-labelledby="buff-execution-log-title">
+        <header>
+          <h3 id="buff-execution-log-title">
+            <ScrollText aria-hidden="true" />
+            执行日志
+          </h3>
+          <Button
+            aria-label="清空执行日志"
+            disabled={logs.length === 0}
+            size="icon-compact"
+            title="清空日志"
+            type="button"
+            variant="outline"
+            onClick={clearLogs}
+          >
+            <Trash2 aria-hidden="true" />
+          </Button>
+        </header>
+        <div className="buff-execution-log__body" aria-live="polite">
+          {logs.length === 0 ? (
+            <p className="buff-execution-log__empty">暂无日志。</p>
+          ) : (
+            logs.map((item, index) => <p key={`${index}-${item}`}>{item}</p>)
+          )}
+        </div>
       </section>
     </div>
   )

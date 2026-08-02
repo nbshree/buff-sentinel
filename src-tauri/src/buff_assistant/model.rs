@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 1;
+pub const CONFIG_SCHEMA_VERSION: u32 = 4;
 pub const DEFAULT_CYCLE_MS: u64 = 20_000;
-pub const DEFAULT_THRESHOLD: f32 = 0.86;
+const PREVIOUS_DEFAULT_CYCLE_MS: u64 = 20_180;
+pub const DEFAULT_THRESHOLD: f32 = 0.95;
+const LEGACY_DEFAULT_THRESHOLD: f32 = 0.86;
 pub const DEFAULT_CONFIRM_FRAMES: u32 = 3;
 pub const DEFAULT_MISSING_FRAMES: u32 = 5;
 
@@ -67,6 +69,8 @@ pub struct BuffTemplateSummary {
 pub struct BuffSoundSettings {
     pub trigger_enabled: bool,
     pub prewarn_three_enabled: bool,
+    #[serde(default = "enabled_by_default")]
+    pub prewarn_two_enabled: bool,
     pub prewarn_one_enabled: bool,
     pub volume: f32,
 }
@@ -76,10 +80,15 @@ impl Default for BuffSoundSettings {
         Self {
             trigger_enabled: true,
             prewarn_three_enabled: true,
+            prewarn_two_enabled: true,
             prewarn_one_enabled: true,
             volume: 0.45,
         }
     }
+}
+
+const fn enabled_by_default() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -166,6 +175,14 @@ impl Default for BuffAssistantConfig {
 
 impl BuffAssistantConfig {
     pub fn sanitize(&mut self) {
+        if self.schema_version < 2
+            && (self.settings.threshold - LEGACY_DEFAULT_THRESHOLD).abs() < 0.000_1
+        {
+            self.settings.threshold = DEFAULT_THRESHOLD;
+        }
+        if self.schema_version < 4 && self.settings.cycle_ms == PREVIOUS_DEFAULT_CYCLE_MS {
+            self.settings.cycle_ms = DEFAULT_CYCLE_MS;
+        }
         self.schema_version = CONFIG_SCHEMA_VERSION;
         self.search_region = self.search_region.map(NormalizedRect::sanitized);
         self.settings.sanitize();
@@ -299,5 +316,52 @@ mod tests {
         assert_eq!(settings.confirm_frames, 1);
         assert_eq!(settings.missing_frames, 30);
         assert_eq!(settings.sound.volume, 1.0);
+    }
+
+    #[test]
+    fn legacy_default_threshold_is_migrated_to_ninety_five_percent() {
+        let mut config = BuffAssistantConfig::default();
+        config.schema_version = 1;
+        config.settings.threshold = LEGACY_DEFAULT_THRESHOLD;
+        config.sanitize();
+        assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
+        assert_eq!(config.settings.threshold, DEFAULT_THRESHOLD);
+    }
+
+    #[test]
+    fn legacy_custom_threshold_is_preserved() {
+        let mut config = BuffAssistantConfig::default();
+        config.schema_version = 1;
+        config.settings.threshold = 0.9;
+        config.sanitize();
+        assert_eq!(config.settings.threshold, 0.9);
+    }
+
+    #[test]
+    fn previous_default_cycle_is_restored_to_twenty_seconds() {
+        let mut config = BuffAssistantConfig::default();
+        config.schema_version = 3;
+        config.settings.cycle_ms = PREVIOUS_DEFAULT_CYCLE_MS;
+        config.sanitize();
+        assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
+        assert_eq!(config.settings.cycle_ms, DEFAULT_CYCLE_MS);
+    }
+
+    #[test]
+    fn legacy_custom_cycle_is_preserved() {
+        let mut config = BuffAssistantConfig::default();
+        config.schema_version = 3;
+        config.settings.cycle_ms = 21_000;
+        config.sanitize();
+        assert_eq!(config.settings.cycle_ms, 21_000);
+    }
+
+    #[test]
+    fn legacy_sound_settings_enable_the_two_second_warning() {
+        let settings: BuffSoundSettings = serde_json::from_str(
+            r#"{"triggerEnabled":true,"prewarnThreeEnabled":true,"prewarnOneEnabled":true,"volume":0.45}"#,
+        )
+        .unwrap();
+        assert!(settings.prewarn_two_enabled);
     }
 }
