@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-const DEADLINE_CONFIRMATION_GRACE: Duration = Duration::from_millis(600);
+use super::model::DEFAULT_DEADLINE_GRACE_MS;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TimelinePhase {
@@ -22,7 +22,9 @@ pub enum TimelineAction {
 pub struct BuffTimeline {
     phase: TimelinePhase,
     cycle: Duration,
+    deadline_confirmation_grace: Duration,
     expected_at: Option<Instant>,
+    armed: bool,
     sent_three: bool,
     sent_two: bool,
     sent_one: bool,
@@ -33,7 +35,9 @@ impl BuffTimeline {
         Self {
             phase: TimelinePhase::Stopped,
             cycle: Duration::from_millis(cycle_ms),
+            deadline_confirmation_grace: Duration::from_millis(DEFAULT_DEADLINE_GRACE_MS),
             expected_at: None,
+            armed: false,
             sent_three: false,
             sent_two: false,
             sent_one: false,
@@ -44,14 +48,21 @@ impl BuffTimeline {
         self.cycle = Duration::from_millis(cycle_ms);
         self.phase = TimelinePhase::Waiting;
         self.expected_at = None;
+        self.armed = false;
         self.sent_three = false;
         self.sent_two = false;
         self.sent_one = false;
     }
 
+    pub fn start_waiting_with_grace(&mut self, cycle_ms: u64, deadline_grace_ms: u64) {
+        self.start_waiting(cycle_ms);
+        self.deadline_confirmation_grace = Duration::from_millis(deadline_grace_ms);
+    }
+
     pub fn stop(&mut self) {
         self.phase = TimelinePhase::Stopped;
         self.expected_at = None;
+        self.armed = false;
         self.sent_three = false;
         self.sent_two = false;
         self.sent_one = false;
@@ -60,6 +71,7 @@ impl BuffTimeline {
     pub fn reset_waiting(&mut self) {
         self.phase = TimelinePhase::Waiting;
         self.expected_at = None;
+        self.armed = false;
         self.sent_three = false;
         self.sent_two = false;
         self.sent_one = false;
@@ -75,18 +87,23 @@ impl BuffTimeline {
 
     #[cfg(test)]
     pub fn update(&mut self, now: Instant, icon_present: bool) -> Vec<TimelineAction> {
-        self.update_with_detected_at(now, icon_present, None)
+        self.update_with_detected_at(now, icon_present, !icon_present, None)
     }
 
     pub fn update_with_detected_at(
         &mut self,
         now: Instant,
         icon_present: bool,
+        absence_confirmed: bool,
         detected_at: Option<Instant>,
     ) -> Vec<TimelineAction> {
         match self.phase {
             TimelinePhase::Stopped => Vec::new(),
             TimelinePhase::Waiting => {
+                if !self.armed {
+                    self.armed = absence_confirmed;
+                    return Vec::new();
+                }
                 if icon_present {
                     self.anchor(valid_detection_time(now, detected_at));
                     vec![TimelineAction::Triggered]
@@ -95,31 +112,23 @@ impl BuffTimeline {
                 }
             }
             TimelinePhase::Tracking | TimelinePhase::Prewarning => {
-                self.update_anchored(now, icon_present, detected_at)
+                self.update_anchored(now, icon_present)
             }
         }
     }
 
-    fn update_anchored(
-        &mut self,
-        now: Instant,
-        icon_present: bool,
-        detected_at: Option<Instant>,
-    ) -> Vec<TimelineAction> {
+    fn update_anchored(&mut self, now: Instant, icon_present: bool) -> Vec<TimelineAction> {
         let Some(expected_at) = self.expected_at else {
             self.reset_waiting();
             return vec![TimelineAction::Reset];
         };
 
         if now >= expected_at {
-            if icon_present {
-                let detected_near_deadline = detected_at.filter(|detected| {
-                    expected_at.saturating_duration_since(*detected) <= Duration::from_secs(1)
-                });
-                self.anchor(valid_detection_time(now, detected_near_deadline));
+            if icon_present && now <= expected_at + self.deadline_confirmation_grace {
+                self.anchor(expected_at);
                 return vec![TimelineAction::Triggered];
             }
-            if now < expected_at + DEADLINE_CONFIRMATION_GRACE {
+            if now < expected_at + self.deadline_confirmation_grace {
                 return Vec::new();
             }
             self.reset_waiting();
@@ -147,6 +156,7 @@ impl BuffTimeline {
 
     fn anchor(&mut self, now: Instant) {
         self.phase = TimelinePhase::Tracking;
+        self.armed = true;
         self.expected_at = now.checked_add(self.cycle);
         self.sent_three = false;
         self.sent_two = false;
@@ -179,10 +189,42 @@ mod tests {
     }
 
     #[test]
+    fn ignores_an_icon_that_was_already_present_when_monitoring_started() {
+        let start = Instant::now();
+        let mut timeline = BuffTimeline::new(20_000);
+        timeline.start_waiting(20_000);
+
+        assert!(
+            timeline
+                .update_with_detected_at(start, true, false, Some(start))
+                .is_empty()
+        );
+        assert!(
+            timeline
+                .update_with_detected_at(start + Duration::from_secs(2), false, false, None,)
+                .is_empty()
+        );
+        assert!(
+            timeline
+                .update_with_detected_at(start + Duration::from_secs(3), false, true, None,)
+                .is_empty()
+        );
+        assert_eq!(timeline.phase(), TimelinePhase::Waiting);
+        assert_eq!(timeline.expected_at(), None);
+
+        let next_trigger = start + Duration::from_secs(8);
+        assert_eq!(
+            timeline.update_with_detected_at(next_trigger, true, false, Some(next_trigger),),
+            [TimelineAction::Triggered]
+        );
+    }
+
+    #[test]
     fn ignores_icon_presence_before_the_twenty_second_deadline() {
         let start = Instant::now();
         let mut timeline = BuffTimeline::new(20_000);
         timeline.start_waiting(20_000);
+        timeline.update(start, false);
         timeline.update(start, true);
         assert!(
             timeline
@@ -200,6 +242,7 @@ mod tests {
         let start = Instant::now();
         let mut timeline = BuffTimeline::new(20_000);
         timeline.start_waiting(20_000);
+        timeline.update(start, false);
         timeline.update(start, true);
         assert_eq!(
             timeline.update(start + Duration::from_secs(17), false),
@@ -233,6 +276,7 @@ mod tests {
         let start = Instant::now();
         let mut timeline = BuffTimeline::new(20_000);
         timeline.start_waiting(20_000);
+        timeline.update(start, false);
         timeline.update(start, true);
         assert!(
             timeline
@@ -256,6 +300,7 @@ mod tests {
         let start = Instant::now();
         let mut timeline = BuffTimeline::new(20_000);
         timeline.start_waiting(20_000);
+        timeline.update(start, false);
         timeline.update(start, true);
         assert_eq!(
             timeline.update(start + Duration::from_millis(20_600), false),
@@ -263,6 +308,7 @@ mod tests {
         );
 
         let detected_again = start + Duration::from_secs(24);
+        timeline.update(start + Duration::from_secs(21), false);
         assert_eq!(
             timeline.update(detected_again, true),
             [TimelineAction::Triggered]
@@ -279,9 +325,10 @@ mod tests {
         let confirmed_at = first_match + Duration::from_millis(166);
         let mut timeline = BuffTimeline::new(20_000);
         timeline.start_waiting(20_000);
+        timeline.update(first_match, false);
 
         assert_eq!(
-            timeline.update_with_detected_at(confirmed_at, true, Some(first_match)),
+            timeline.update_with_detected_at(confirmed_at, true, false, Some(first_match)),
             [TimelineAction::Triggered]
         );
         assert_eq!(
@@ -291,77 +338,121 @@ mod tests {
     }
 
     #[test]
-    fn next_trigger_uses_a_new_match_observed_just_before_the_deadline() {
+    fn next_trigger_within_grace_continues_from_the_previous_deadline() {
         let start = Instant::now();
         let expected = start + Duration::from_secs(20);
         let first_match = expected - Duration::from_millis(100);
         let confirmed_at = expected + Duration::from_millis(70);
         let mut timeline = BuffTimeline::new(20_000);
         timeline.start_waiting(20_000);
+        timeline.update(start, false);
         timeline.update(start, true);
 
         assert_eq!(
-            timeline.update_with_detected_at(confirmed_at, true, Some(first_match)),
+            timeline.update_with_detected_at(confirmed_at, true, false, Some(first_match)),
             [TimelineAction::Triggered]
         );
         assert_eq!(
             timeline.expected_at(),
-            first_match.checked_add(Duration::from_secs(20))
+            expected.checked_add(Duration::from_secs(20))
         );
     }
 
     #[test]
-    fn stale_detection_time_is_not_reused_at_the_next_deadline() {
+    fn detection_timestamp_does_not_shift_an_existing_timeline() {
         let start = Instant::now();
         let confirmed_at = start + Duration::from_millis(20_100);
         let mut timeline = BuffTimeline::new(20_000);
         timeline.start_waiting(20_000);
+        timeline.update(start, false);
         timeline.update(start, true);
 
-        timeline.update_with_detected_at(confirmed_at, true, Some(start));
+        timeline.update_with_detected_at(confirmed_at, true, false, Some(start));
         assert_eq!(
             timeline.expected_at(),
-            confirmed_at.checked_add(Duration::from_secs(20))
+            start.checked_add(Duration::from_secs(40))
         );
     }
 
     #[test]
-    fn late_trigger_during_confirmation_grace_does_not_reset_the_timeline() {
+    fn trigger_confirmed_at_599_ms_continues_the_existing_timeline() {
         let start = Instant::now();
         let expected = start + Duration::from_secs(20);
-        let first_match = expected + Duration::from_millis(180);
-        let confirmed_at = expected + Duration::from_millis(346);
+        let first_match = expected + Duration::from_millis(433);
+        let confirmed_at = expected + Duration::from_millis(599);
         let mut timeline = BuffTimeline::new(20_000);
         timeline.start_waiting(20_000);
+        timeline.update(start, false);
         timeline.update(start, true);
 
         assert!(timeline.update(expected, false).is_empty());
         assert_eq!(
-            timeline.update_with_detected_at(confirmed_at, true, Some(first_match)),
+            timeline.update_with_detected_at(confirmed_at, true, false, Some(first_match)),
             [TimelineAction::Triggered]
         );
         assert_eq!(
             timeline.expected_at(),
-            first_match.checked_add(Duration::from_secs(20))
+            expected.checked_add(Duration::from_secs(20))
         );
     }
 
     #[test]
-    fn observed_jitter_does_not_change_the_configured_period() {
-        let first_trigger = Instant::now();
-        let second_trigger = first_trigger + Duration::from_millis(20_180);
+    fn trigger_confirmed_after_600_ms_resets_the_timeline() {
+        let start = Instant::now();
+        let expected = start + Duration::from_secs(20);
+        let confirmed_at = expected + Duration::from_millis(601);
         let mut timeline = BuffTimeline::new(20_000);
         timeline.start_waiting(20_000);
-        timeline.update_with_detected_at(first_trigger, true, Some(first_trigger));
+        timeline.update(start, false);
+        timeline.update(start, true);
+
+        assert_eq!(
+            timeline.update_with_detected_at(confirmed_at, true, false, Some(expected)),
+            [TimelineAction::Reset]
+        );
+        assert_eq!(timeline.phase(), TimelinePhase::Waiting);
+        assert_eq!(timeline.expected_at(), None);
+    }
+
+    #[test]
+    fn configured_deadline_grace_is_applied() {
+        let start = Instant::now();
+        let expected = start + Duration::from_secs(20);
+        let mut timeline = BuffTimeline::new(20_000);
+        timeline.start_waiting_with_grace(20_000, 300);
+        timeline.update(start, false);
+        timeline.update(start, true);
+
+        assert_eq!(
+            timeline.update_with_detected_at(
+                expected + Duration::from_millis(301),
+                true,
+                false,
+                Some(expected),
+            ),
+            [TimelineAction::Reset]
+        );
+    }
+
+    #[test]
+    fn observed_jitter_does_not_change_the_fixed_deadline() {
+        let first_trigger = Instant::now();
+        let expected = first_trigger + Duration::from_secs(20);
+        let second_trigger = expected + Duration::from_millis(100);
+        let mut timeline = BuffTimeline::new(20_000);
+        timeline.start_waiting(20_000);
+        timeline.update(first_trigger, false);
+        timeline.update_with_detected_at(first_trigger, true, false, Some(first_trigger));
 
         timeline.update_with_detected_at(
             second_trigger + Duration::from_millis(166),
             true,
+            false,
             Some(second_trigger),
         );
         assert_eq!(
             timeline.expected_at(),
-            second_trigger.checked_add(Duration::from_secs(20))
+            expected.checked_add(Duration::from_secs(20))
         );
     }
 }

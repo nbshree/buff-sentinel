@@ -206,6 +206,7 @@ impl RuntimeCaptureProcessor {
             self.match_started_at = None;
         }
         let present = self.detector.update(matched);
+        let absence_confirmed = self.detector.absence_confirmed();
         let detected_at = present.then_some(self.match_started_at).flatten();
         let should_emit_metric = self.last_metric_at.elapsed() >= Duration::from_millis(200);
         if should_emit_metric {
@@ -216,6 +217,7 @@ impl RuntimeCaptureProcessor {
             self.flags.purpose,
             confidence,
             present,
+            absence_confirmed,
             detected_at,
             should_emit_metric,
         );

@@ -63,7 +63,7 @@ export function BuffOverlayApp() {
       {state.mode === 'waiting' ? (
         <div className="buff-overlay__waiting">
           <span />
-          等待金周天
+          等待金周天（脱战）
         </div>
       ) : (
         <>

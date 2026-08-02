@@ -11,12 +11,13 @@ import type {
 
 const defaultState: BuffAssistantState = {
   config: {
-    schemaVersion: 4,
+    schemaVersion: 5,
     target: null,
     searchRegion: null,
     template: null,
     settings: {
       cycleMs: 20_000,
+      deadlineGraceMs: 600,
       threshold: 0.95,
       confirmFrames: 3,
       missingFrames: 5,
@@ -166,7 +167,7 @@ export function useBuffAssistantController() {
     stateRef.current = result
     setState(result)
     lastMetricLogRef.current = { at: 0, present: false }
-    appendLog('开始日常监控，等待首次确认金周天')
+    appendLog('开始日常监控，等待脱战后下一次确认金周天')
     return result
   }, [appendLog, run])
 

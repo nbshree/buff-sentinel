@@ -196,12 +196,13 @@ export function createMacroApi(
 ) {
   const buffState: BuffAssistantState = {
     config: {
-      schemaVersion: 4,
+      schemaVersion: 5,
       target: null,
       searchRegion: null,
       template: null,
       settings: {
         cycleMs: 20_000,
+        deadlineGraceMs: 600,
         threshold: 0.95,
         confirmFrames: 3,
         missingFrames: 5,

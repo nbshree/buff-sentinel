@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 4;
+pub const CONFIG_SCHEMA_VERSION: u32 = 5;
 pub const DEFAULT_CYCLE_MS: u64 = 20_000;
+pub const DEFAULT_DEADLINE_GRACE_MS: u64 = 600;
 const PREVIOUS_DEFAULT_CYCLE_MS: u64 = 20_180;
 pub const DEFAULT_THRESHOLD: f32 = 0.95;
 const LEGACY_DEFAULT_THRESHOLD: f32 = 0.86;
@@ -113,6 +114,8 @@ impl Default for BuffOverlaySettings {
 #[serde(rename_all = "camelCase")]
 pub struct BuffAssistantSettings {
     pub cycle_ms: u64,
+    #[serde(default = "default_deadline_grace_ms")]
+    pub deadline_grace_ms: u64,
     pub threshold: f32,
     pub confirm_frames: u32,
     pub missing_frames: u32,
@@ -124,6 +127,7 @@ impl Default for BuffAssistantSettings {
     fn default() -> Self {
         Self {
             cycle_ms: DEFAULT_CYCLE_MS,
+            deadline_grace_ms: DEFAULT_DEADLINE_GRACE_MS,
             threshold: DEFAULT_THRESHOLD,
             confirm_frames: DEFAULT_CONFIRM_FRAMES,
             missing_frames: DEFAULT_MISSING_FRAMES,
@@ -136,6 +140,7 @@ impl Default for BuffAssistantSettings {
 impl BuffAssistantSettings {
     pub fn sanitize(&mut self) {
         self.cycle_ms = self.cycle_ms.clamp(5_000, 120_000);
+        self.deadline_grace_ms = self.deadline_grace_ms.min(2_000);
         self.threshold = if self.threshold.is_finite() {
             self.threshold.clamp(0.5, 0.99)
         } else {
@@ -149,6 +154,10 @@ impl BuffAssistantSettings {
             BuffSoundSettings::default().volume
         };
     }
+}
+
+const fn default_deadline_grace_ms() -> u64 {
+    DEFAULT_DEADLINE_GRACE_MS
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -289,6 +298,7 @@ mod tests {
     fn settings_are_sanitized() {
         let mut settings = BuffAssistantSettings {
             cycle_ms: 1,
+            deadline_grace_ms: 9_000,
             threshold: f32::NAN,
             confirm_frames: 0,
             missing_frames: 100,
@@ -300,6 +310,7 @@ mod tests {
         };
         settings.sanitize();
         assert_eq!(settings.cycle_ms, 5_000);
+        assert_eq!(settings.deadline_grace_ms, 2_000);
         assert_eq!(settings.threshold, DEFAULT_THRESHOLD);
         assert_eq!(settings.confirm_frames, 1);
         assert_eq!(settings.missing_frames, 30);
@@ -351,5 +362,28 @@ mod tests {
         )
         .unwrap();
         assert!(settings.prewarn_two_enabled);
+    }
+
+    #[test]
+    fn legacy_settings_use_the_default_deadline_grace() {
+        let settings: BuffAssistantSettings = serde_json::from_str(
+            r#"{
+                "cycleMs": 20000,
+                "threshold": 0.95,
+                "confirmFrames": 3,
+                "missingFrames": 5,
+                "sound": {
+                    "triggerEnabled": true,
+                    "prewarnThreeEnabled": true,
+                    "prewarnTwoEnabled": true,
+                    "prewarnOneEnabled": true,
+                    "volume": 0.45
+                },
+                "overlay": { "x": 40, "y": 100, "showWaitingDot": false }
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(settings.deadline_grace_ms, DEFAULT_DEADLINE_GRACE_MS);
     }
 }

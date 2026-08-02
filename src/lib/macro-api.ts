@@ -200,6 +200,7 @@ export type BuffOverlaySettings = {
 
 export type BuffAssistantSettings = {
   cycleMs: number
+  deadlineGraceMs: number
   threshold: number
   confirmFrames: number
   missingFrames: number

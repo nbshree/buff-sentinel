@@ -70,6 +70,10 @@ impl StablePresenceDetector {
         }
         self.present
     }
+
+    pub fn absence_confirmed(&self) -> bool {
+        !self.present && self.misses >= self.missing_frames.max(1)
+    }
 }
 
 pub fn rgba_to_gray(width: u32, height: u32, rgba: &[u8]) -> Result<GrayImage, String> {
@@ -195,9 +199,11 @@ mod tests {
     fn stable_detector_requires_confirm_and_missing_frames() {
         let mut detector = StablePresenceDetector::new(3, 2);
         assert!(!detector.update(true));
+        assert!(!detector.absence_confirmed());
         assert!(!detector.update(true));
         assert!(detector.update(true));
         assert!(detector.update(false));
         assert!(!detector.update(false));
+        assert!(detector.absence_confirmed());
     }
 }

@@ -285,7 +285,10 @@ pub fn start_buff_monitor_internal(app: &AppHandle) -> Result<(), String> {
         inner.monitor_requested = true;
         inner.reconnect_generation = inner.reconnect_generation.wrapping_add(1);
         let cycle_ms = inner.config.settings.cycle_ms;
-        inner.timeline.start_waiting(cycle_ms);
+        let deadline_grace_ms = inner.config.settings.deadline_grace_ms;
+        inner
+            .timeline
+            .start_waiting_with_grace(cycle_ms, deadline_grace_ms);
         inner.activity = BuffAssistantActivity::Waiting;
         inner.expected_at_unix_ms = None;
         inner.last_error = None;
@@ -474,6 +477,7 @@ pub(crate) fn handle_detection_frame(
     purpose: CapturePurpose,
     confidence: f32,
     present: bool,
+    absence_confirmed: bool,
     detected_at: Option<Instant>,
     emit_metric: bool,
 ) {
@@ -507,9 +511,12 @@ pub(crate) fn handle_detection_frame(
             return;
         }
         inner.last_confidence = confidence;
-        let actions = inner
-            .timeline
-            .update_with_detected_at(Instant::now(), present, detected_at);
+        let actions = inner.timeline.update_with_detected_at(
+            Instant::now(),
+            present,
+            absence_confirmed,
+            detected_at,
+        );
         inner.activity = match inner.timeline.phase() {
             TimelinePhase::Stopped => BuffAssistantActivity::Stopped,
             TimelinePhase::Waiting => BuffAssistantActivity::Waiting,
@@ -654,7 +661,10 @@ fn attach_monitor_capture(
             inner.capture_purpose = Some(CapturePurpose::Monitor);
             inner.last_frame_at = Some(Instant::now());
             let cycle_ms = inner.config.settings.cycle_ms;
-            inner.timeline.start_waiting(cycle_ms);
+            let deadline_grace_ms = inner.config.settings.deadline_grace_ms;
+            inner
+                .timeline
+                .start_waiting_with_grace(cycle_ms, deadline_grace_ms);
             inner.activity = BuffAssistantActivity::Waiting;
             inner.expected_at_unix_ms = None;
             inner.last_error = None;
@@ -934,7 +944,7 @@ fn show_waiting_overlay(app: &AppHandle) {
         app,
         BuffOverlayState {
             mode: BuffOverlayMode::Waiting,
-            message: "等待金周天".into(),
+            message: "等待金周天（脱战）".into(),
             expected_at_unix_ms: None,
             emitted_at_unix_ms: now_millis(),
             editable: false,

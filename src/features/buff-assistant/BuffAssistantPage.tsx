@@ -198,7 +198,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               <Settings2 aria-hidden="true" />
               <div>
                 <h3>识别与提醒设置</h3>
-                <p>更改识别参数后，正在运行的监控会重新等待首次触发。</p>
+                <p>更改识别参数后，正在运行的监控会重新等待脱战后的下一次触发。</p>
               </div>
             </div>
           </header>
@@ -215,6 +215,22 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                   setSettings((current) => ({
                     ...current,
                     cycleMs: Math.round(Number(event.target.value) * 1000)
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>触发宽限期（毫秒）</span>
+              <input
+                max={2000}
+                min={0}
+                step={50}
+                type="number"
+                value={settings.deadlineGraceMs}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    deadlineGraceMs: Number(event.target.value)
                   }))
                 }
               />
