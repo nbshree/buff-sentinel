@@ -73,6 +73,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_app_version,
+            desktop::set_tray_workspace,
             commands::get_state,
             commands::update_appearance,
             commands::start_recording,

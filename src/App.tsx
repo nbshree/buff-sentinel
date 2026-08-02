@@ -69,6 +69,12 @@ function App(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
+    void window.api.setTrayWorkspace(activeWorkspace).catch((error: unknown) => {
+      console.error('更新托盘菜单失败', error)
+    })
+  }, [activeWorkspace])
+
+  useEffect(() => {
     if (!gameActivityBusy) return
     controller.stopHotkeyCapture()
     controller.closeKeyStepEditor()

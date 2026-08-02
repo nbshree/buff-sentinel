@@ -280,6 +280,9 @@ export type WindowSize = {
   height: number
 }
 
+export type TrayWorkspace =
+  'macro' | 'gameRecorder' | 'buffAssistant' | 'calculator' | 'towerCalculator'
+
 export type WindowControlsAPI = {
   minimize: () => Promise<void>
   toggleMaximize: () => Promise<void>
@@ -292,6 +295,7 @@ export type WindowControlsAPI = {
 
 export type MacroAPI = {
   getAppVersion: () => Promise<string>
+  setTrayWorkspace: (workspace: TrayWorkspace) => Promise<void>
   getState: () => Promise<MacroState>
   startRecording: () => Promise<MacroState>
   stopRecording: () => Promise<MacroState>
@@ -483,6 +487,8 @@ const windowControls: WindowControlsAPI = {
 
 export const macroApi: MacroAPI = {
   getAppVersion: () => callTauri(() => invoke<string>('get_app_version')),
+  setTrayWorkspace: (workspace) =>
+    callTauri(() => invoke<void>('set_tray_workspace', { workspace })),
   getState: () => invokeState('get_state'),
   startRecording: () => invokeState('start_recording'),
   stopRecording: () => invokeState('stop_recording'),
@@ -619,8 +625,7 @@ export const macroApi: MacroAPI = {
     callTauri(() => invoke<BuffAssistantState>('set_buff_overlay_edit_mode', { enabled })),
   onBuffAssistantState: (callback) => createEventListener('buff-assistant-state', callback),
   onBuffMetric: (callback) => createEventListener('buff-assistant-metric', callback),
-  onBuffExecutionLog: (callback) =>
-    createEventListener('buff-assistant-execution-log', callback),
+  onBuffExecutionLog: (callback) => createEventListener('buff-assistant-execution-log', callback),
   onBuffOverlayState: (callback) => createEventListener('buff-overlay-state', callback),
   window: windowControls
 }
