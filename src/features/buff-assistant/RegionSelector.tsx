@@ -2,6 +2,7 @@ import { Maximize2 } from 'lucide-react'
 import { useRef, useState, type PointerEvent } from 'react'
 
 import type { NormalizedRect } from '../../lib/macro-api'
+import { ZoomableEditorViewport } from './ZoomableEditorViewport'
 
 type Point = { x: number; y: number }
 type ResizeHandle = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw'
@@ -104,52 +105,62 @@ export function RegionSelector({
     if (next && distance >= (interaction.kind === 'create' ? 4 : 2)) onChange(next)
   }
 
+  const canvas = (
+    <div
+      aria-label={label}
+      className="buff-region-selector__canvas"
+      ref={hostRef}
+      role="application"
+      onDoubleClick={(event) => {
+        if (!onRequestExpand) return
+        event.preventDefault()
+        interactionRef.current = null
+        setDraft(null)
+        onRequestExpand()
+      }}
+      onPointerCancel={() => {
+        interactionRef.current = null
+        setDraft(null)
+      }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={finishInteraction}
+    >
+      <img alt="游戏窗口捕获预览" draggable={false} src={imageUrl} />
+      {selection ? (
+        <div
+          className="buff-region-selector__selection"
+          data-region-selection=""
+          style={{
+            left: `${selection.x * 100}%`,
+            top: `${selection.y * 100}%`,
+            width: `${selection.width * 100}%`,
+            height: `${selection.height * 100}%`
+          }}
+        >
+          <span className="buff-region-selector__label">{label}</span>
+          {resizeHandles.map((handle) => (
+            <i
+              aria-hidden="true"
+              className="buff-region-selector__handle"
+              data-resize-handle={handle}
+              key={handle}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+
   return (
     <div className="buff-region-selector" data-expanded={expanded}>
-      <div
-        aria-label={label}
-        className="buff-region-selector__canvas"
-        ref={hostRef}
-        role="application"
-        onDoubleClick={(event) => {
-          if (!onRequestExpand) return
-          event.preventDefault()
-          interactionRef.current = null
-          setDraft(null)
-          onRequestExpand()
-        }}
-        onPointerCancel={() => {
-          interactionRef.current = null
-          setDraft(null)
-        }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={finishInteraction}
-      >
-        <img alt="游戏窗口捕获预览" draggable={false} src={imageUrl} />
-        {selection ? (
-          <div
-            className="buff-region-selector__selection"
-            data-region-selection=""
-            style={{
-              left: `${selection.x * 100}%`,
-              top: `${selection.y * 100}%`,
-              width: `${selection.width * 100}%`,
-              height: `${selection.height * 100}%`
-            }}
-          >
-            <span className="buff-region-selector__label">{label}</span>
-            {resizeHandles.map((handle) => (
-              <i
-                aria-hidden="true"
-                className="buff-region-selector__handle"
-                data-resize-handle={handle}
-                key={handle}
-              />
-            ))}
-          </div>
-        ) : null}
-      </div>
+      {expanded ? (
+        <ZoomableEditorViewport label={`${label}缩放视口`} resetKey={imageUrl}>
+          {canvas}
+        </ZoomableEditorViewport>
+      ) : (
+        canvas
+      )}
       <div className="buff-region-selector__footer">
         <p>拖动空白处重选；拖动框内移动，拖动边角精调。</p>
         {onRequestExpand ? (

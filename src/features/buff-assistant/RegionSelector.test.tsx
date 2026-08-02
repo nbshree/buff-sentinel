@@ -90,4 +90,35 @@ describe('RegionSelector', () => {
     expect(onRequestExpand).toHaveBeenCalledOnce()
     expect(onChange).not.toHaveBeenCalled()
   })
+
+  it('keeps normalized selection coordinates correct at a scaled display size', () => {
+    const onChange = vi.fn()
+    render(
+      <RegionSelector
+        expanded
+        imageUrl="preview.png"
+        label="缩放区域"
+        value={initial}
+        onChange={onChange}
+      />
+    )
+    const canvas = screen.getByRole('application', { name: '缩放区域' })
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 2000,
+      bottom: 1000,
+      width: 2000,
+      height: 1000,
+      toJSON: () => ({})
+    })
+
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 200, clientY: 100, detail: 1 })
+    fireEvent.pointerMove(canvas, { clientX: 800, clientY: 400 })
+    fireEvent.pointerUp(canvas, { clientX: 800, clientY: 400, detail: 1 })
+
+    expect(onChange).toHaveBeenCalledWith({ x: 0.1, y: 0.1, width: 0.3, height: 0.3 })
+  })
 })

@@ -402,6 +402,12 @@
 .buff-region-selector[data-expanded='true'] .buff-region-selector__canvas {
   width: fit-content;
   max-width: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.buff-region-selector[data-expanded='true'] {
+  width: 100%;
 }
 
 .buff-region-selector__canvas img {
@@ -428,6 +434,10 @@
   cursor: move;
 }
 
+.buff-region-selector[data-expanded='true'] .buff-region-selector__selection {
+  border-width: calc(2px * var(--editor-zoom-inverse, 1));
+}
+
 .buff-region-selector__label {
   position: absolute;
   top: -24px;
@@ -442,6 +452,12 @@
   pointer-events: none;
 }
 
+.buff-region-selector[data-expanded='true'] .buff-region-selector__label {
+  top: calc(-24px * var(--editor-zoom-inverse, 1));
+  transform: scale(var(--editor-zoom-inverse, 1));
+  transform-origin: left bottom;
+}
+
 .buff-region-selector__handle {
   position: absolute;
   width: 10px;
@@ -450,6 +466,12 @@
   border-radius: 2px;
   background: #f4bc3d;
   box-shadow: 0 1px 3px rgb(0 0 0 / 45%);
+}
+
+.buff-region-selector[data-expanded='true'] .buff-region-selector__handle {
+  width: calc(10px * var(--editor-zoom-inverse, 1));
+  height: calc(10px * var(--editor-zoom-inverse, 1));
+  border-width: calc(1px * var(--editor-zoom-inverse, 1));
 }
 
 .buff-region-selector__handle[data-resize-handle='n'],
@@ -554,8 +576,11 @@
 }
 
 .buff-mask-editor[data-expanded='true'] {
-  width: fit-content;
-  max-width: none;
+  width: 100%;
+  max-width: 100%;
+  overflow: visible;
+  border: 0;
+  background: transparent;
 }
 
 .buff-mask-editor__viewport {
@@ -565,8 +590,9 @@
 }
 
 .buff-mask-editor[data-expanded='true'] .buff-mask-editor__viewport {
-  max-width: 82vw;
-  max-height: calc(88vh - 220px);
+  max-width: none;
+  max-height: none;
+  overflow: visible;
 }
 
 .buff-mask-editor__canvas {
@@ -629,11 +655,72 @@
 
 .buff-image-editor-dialog__workspace {
   display: grid;
+  width: 100%;
+  height: 100%;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   padding: 4px;
-  place-items: center;
+  place-items: stretch;
   scrollbar-color: var(--border-strong) var(--surface-muted);
+}
+
+.buff-editor-zoom {
+  display: grid;
+  width: 100%;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: #080a0d;
+}
+
+.buff-editor-zoom__viewport {
+  min-width: 0;
+  min-height: 280px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--border-strong) #090b0e;
+}
+
+.buff-editor-zoom__stage {
+  position: relative;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+.buff-editor-zoom__content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: fit-content;
+  height: fit-content;
+  transform-origin: top left;
+}
+
+.buff-editor-zoom__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--border-default);
+  padding: 7px 9px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.buff-editor-zoom__toolbar button {
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.buff-editor-zoom__toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 
 .buff-image-editor-dialog__warning {

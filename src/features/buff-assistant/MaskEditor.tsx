@@ -10,6 +10,7 @@ import {
 } from 'react'
 
 import type { NormalizedRect } from '../../lib/macro-api'
+import { ZoomableEditorViewport } from './ZoomableEditorViewport'
 
 export type MaskPoint = { x: number; y: number }
 export type MaskStroke = { points: MaskPoint[]; radius: number }
@@ -186,6 +187,44 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
     1200 / Math.max(1, dimensions.height)
   )
 
+  const canvas = (
+    <div className="buff-mask-editor__viewport">
+      <canvas
+        aria-label="模板忽略区域画笔"
+        className="buff-mask-editor__canvas"
+        ref={canvasRef}
+        style={
+          expanded
+            ? {
+                width: dimensions.width * expandedScale,
+                height: dimensions.height * expandedScale
+              }
+            : undefined
+        }
+        onDoubleClick={(event) => {
+          if (!onRequestExpand) return
+          event.preventDefault()
+          if (clickTimerRef.current !== null) {
+            window.clearTimeout(clickTimerRef.current)
+            clickTimerRef.current = null
+          }
+          activeStrokeRef.current = null
+          pointerStartRef.current = null
+          setDraftStroke(null)
+          onRequestExpand()
+        }}
+        onPointerCancel={() => {
+          activeStrokeRef.current = null
+          pointerStartRef.current = null
+          setDraftStroke(null)
+        }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+      />
+    </div>
+  )
+
   return (
     <div
       className="buff-mask-editor"
@@ -193,41 +232,16 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
       tabIndex={0}
       onKeyDown={handleKeyDown}
     >
-      <div className="buff-mask-editor__viewport">
-        <canvas
-          aria-label="模板忽略区域画笔"
-          className="buff-mask-editor__canvas"
-          ref={canvasRef}
-          style={
-            expanded
-              ? {
-                  width: dimensions.width * expandedScale,
-                  height: dimensions.height * expandedScale
-                }
-              : undefined
-          }
-          onDoubleClick={(event) => {
-            if (!onRequestExpand) return
-            event.preventDefault()
-            if (clickTimerRef.current !== null) {
-              window.clearTimeout(clickTimerRef.current)
-              clickTimerRef.current = null
-            }
-            activeStrokeRef.current = null
-            pointerStartRef.current = null
-            setDraftStroke(null)
-            onRequestExpand()
-          }}
-          onPointerCancel={() => {
-            activeStrokeRef.current = null
-            pointerStartRef.current = null
-            setDraftStroke(null)
-          }}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-        />
-      </div>
+      {expanded ? (
+        <ZoomableEditorViewport
+          label="忽略区域缩放视口"
+          resetKey={`${imageUrl}:${crop.x}:${crop.y}:${crop.width}:${crop.height}`}
+        >
+          {canvas}
+        </ZoomableEditorViewport>
+      ) : (
+        canvas
+      )}
       <div className="buff-mask-editor__footer">
         <span>{ready ? '红色区域不会参与识别' : '正在准备模板预览…'}</span>
         <div className="buff-mask-editor__actions">
