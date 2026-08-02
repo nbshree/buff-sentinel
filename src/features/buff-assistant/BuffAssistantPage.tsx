@@ -17,7 +17,14 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../components/ui/button'
 import type { BuffAssistantController } from '../../hooks/useBuffAssistantController'
 import type { BuffAssistantSettings, NormalizedRect } from '../../lib/macro-api'
-import { MaskEditor, type MaskEditorHandle } from './MaskEditor'
+import {
+  createMaskHistory,
+  MaskEditor,
+  type MaskEditorHandle,
+  type MaskHistory
+} from './MaskEditor'
+import { MaskEditorDialog } from './MaskEditorDialog'
+import { RegionEditorDialog } from './RegionEditorDialog'
 import { RegionSelector } from './RegionSelector'
 
 import './BuffAssistantPage.css'
@@ -53,6 +60,10 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const [searchRegion, setSearchRegion] = useState<NormalizedRect | null>(null)
   const [templateSource, setTemplateSource] = useState<string | null>(null)
   const [templateCrop, setTemplateCrop] = useState<NormalizedRect | null>(null)
+  const [maskHistory, setMaskHistory] = useState<MaskHistory>(() => createMaskHistory())
+  const [searchRegionEditorOpen, setSearchRegionEditorOpen] = useState(false)
+  const [templateCropEditorOpen, setTemplateCropEditorOpen] = useState(false)
+  const [maskEditorOpen, setMaskEditorOpen] = useState(false)
   const [settings, setSettings] = useState<BuffAssistantSettings>(state.config.settings)
   const [overlayEditing, setOverlayEditingState] = useState(false)
   const maskRef = useRef<MaskEditorHandle>(null)
@@ -105,12 +116,19 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     const result = await capturePreview(selectedWindowId)
     setSearchRegion(state.config.searchRegion ?? defaultRegion)
     setTemplateCrop(null)
+    setMaskHistory(createMaskHistory())
     if (result.width < 1) setSearchRegion(null)
   }
 
   function handleSearchRegionChange(region: NormalizedRect): void {
     setSearchRegion(region)
     setTemplateCrop(null)
+    setMaskHistory(createMaskHistory())
+  }
+
+  function handleTemplateCropChange(crop: NormalizedRect): void {
+    setTemplateCrop(crop)
+    setMaskHistory(createMaskHistory())
   }
 
   async function handleSaveTemplate(): Promise<void> {
@@ -395,6 +413,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               label="Buff 搜索区域"
               value={searchRegion}
               onChange={handleSearchRegionChange}
+              onRequestExpand={() => setSearchRegionEditorOpen(true)}
             />
           </div>
         ) : null}
@@ -412,7 +431,8 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               imageUrl={templateSource}
               label="金周天图标"
               value={templateCrop}
-              onChange={setTemplateCrop}
+              onChange={handleTemplateCropChange}
+              onRequestExpand={() => setTemplateCropEditorOpen(true)}
             />
             {templateCrop ? (
               <>
@@ -423,7 +443,14 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                     <p>在倒计时数字、层数或动态闪光上涂抹；不需要时可直接保存。</p>
                   </div>
                 </div>
-                <MaskEditor crop={templateCrop} imageUrl={templateSource} ref={maskRef} />
+                <MaskEditor
+                  crop={templateCrop}
+                  imageUrl={templateSource}
+                  ref={maskRef}
+                  value={maskHistory}
+                  onChange={setMaskHistory}
+                  onRequestExpand={() => setMaskEditorOpen(true)}
+                />
                 <div className="buff-card__actions">
                   <Button disabled={busy} onClick={() => void handleSaveTemplate()}>
                     <Save aria-hidden="true" />
@@ -475,6 +502,49 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           </div>
         ) : null}
       </section>
+
+      {preview ? (
+        <RegionEditorDialog
+          description="框内拖动可整体移动，拖动四边或四角可精确调整搜索范围。"
+          imageUrl={preview.dataUrl}
+          label="Buff 搜索区域"
+          open={searchRegionEditorOpen}
+          title="精调 Buff 栏搜索区域"
+          value={searchRegion}
+          warning={templateCrop ? '应用新的搜索区域后，将清空图标裁剪和忽略区域。' : undefined}
+          onApply={handleSearchRegionChange}
+          onOpenChange={setSearchRegionEditorOpen}
+        />
+      ) : null}
+
+      {templateSource ? (
+        <RegionEditorDialog
+          description="框内拖动可整体移动，拖动四边或四角可贴合金周天图标主体。"
+          imageUrl={templateSource}
+          label="金周天图标"
+          open={templateCropEditorOpen}
+          title="精调金周天图标主体"
+          value={templateCrop}
+          warning={
+            maskHistory.present.length > 0
+              ? '应用新的图标范围后，将清空已涂抹的忽略区域。'
+              : undefined
+          }
+          onApply={handleTemplateCropChange}
+          onOpenChange={setTemplateCropEditorOpen}
+        />
+      ) : null}
+
+      {templateSource && templateCrop ? (
+        <MaskEditorDialog
+          crop={templateCrop}
+          imageUrl={templateSource}
+          open={maskEditorOpen}
+          value={maskHistory}
+          onApply={setMaskHistory}
+          onOpenChange={setMaskEditorOpen}
+        />
+      ) : null}
 
       <section className="buff-execution-log" aria-labelledby="buff-execution-log-title">
         <header>
