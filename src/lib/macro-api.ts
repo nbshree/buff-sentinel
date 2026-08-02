@@ -168,14 +168,7 @@ export type NormalizedRect = {
 }
 
 export type BuffAssistantActivity =
-  | 'stopped'
-  | 'waiting'
-  | 'tracking'
-  | 'prewarning'
-  | 'capturingSamples'
-  | 'testing'
-  | 'targetUnavailable'
-  | 'error'
+  'stopped' | 'waiting' | 'tracking' | 'prewarning' | 'testing' | 'targetUnavailable' | 'error'
 
 export type BuffTarget = {
   processName: string
@@ -228,7 +221,6 @@ export type BuffAssistantState = {
   isMonitoring: boolean
   expectedAtUnixMs: number | null
   lastConfidence: number
-  sampleCount: number
   lastError: string | null
 }
 
@@ -246,14 +238,6 @@ export type BuffCapturePreview = {
   width: number
   height: number
   target: BuffTarget
-}
-
-export type BuffSampleFrameSummary = {
-  id: number
-  capturedAtUnixMs: number
-  width: number
-  height: number
-  thumbnailDataUrl: string
 }
 
 export type BuffOverlayMode =
@@ -347,13 +331,8 @@ export type MacroAPI = {
   getBuffAssistantState: () => Promise<BuffAssistantState>
   listBuffCaptureWindows: () => Promise<CaptureWindowCandidate[]>
   captureBuffPreview: (windowId: string) => Promise<BuffCapturePreview>
-  startBuffSampleCapture: (windowId: string, region: NormalizedRect) => Promise<BuffAssistantState>
-  pauseBuffSampleCapture: () => Promise<BuffAssistantState>
-  clearBuffSampleFrames: () => Promise<BuffAssistantState>
-  listBuffSampleFrames: () => Promise<BuffSampleFrameSummary[]>
-  getBuffSampleFrame: (id: number) => Promise<string>
   saveBuffTemplate: (
-    sampleId: number,
+    searchRegion: NormalizedRect,
     crop: NormalizedRect,
     maskDataUrl?: string
   ) => Promise<BuffAssistantState>
@@ -597,18 +576,9 @@ export const macroApi: MacroAPI = {
     callTauri(() => invoke<CaptureWindowCandidate[]>('list_buff_capture_windows')),
   captureBuffPreview: (windowId) =>
     callTauri(() => invoke<BuffCapturePreview>('capture_buff_preview', { windowId })),
-  startBuffSampleCapture: (windowId, region) =>
-    callTauri(() => invoke<BuffAssistantState>('start_buff_sample_capture', { windowId, region })),
-  pauseBuffSampleCapture: () =>
-    callTauri(() => invoke<BuffAssistantState>('pause_buff_sample_capture')),
-  clearBuffSampleFrames: () =>
-    callTauri(() => invoke<BuffAssistantState>('clear_buff_sample_frames')),
-  listBuffSampleFrames: () =>
-    callTauri(() => invoke<BuffSampleFrameSummary[]>('list_buff_sample_frames')),
-  getBuffSampleFrame: (id) => callTauri(() => invoke<string>('get_buff_sample_frame', { id })),
-  saveBuffTemplate: (sampleId, crop, maskDataUrl) =>
+  saveBuffTemplate: (searchRegion, crop, maskDataUrl) =>
     callTauri(() =>
-      invoke<BuffAssistantState>('save_buff_template', { sampleId, crop, maskDataUrl })
+      invoke<BuffAssistantState>('save_buff_template', { searchRegion, crop, maskDataUrl })
     ),
   deleteBuffTemplate: () => callTauri(() => invoke<BuffAssistantState>('delete_buff_template')),
   updateBuffAssistantSettings: (settings) =>

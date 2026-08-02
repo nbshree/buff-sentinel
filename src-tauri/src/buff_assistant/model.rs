@@ -203,7 +203,6 @@ pub enum BuffAssistantActivity {
     Waiting,
     Tracking,
     Prewarning,
-    CapturingSamples,
     Testing,
     TargetUnavailable,
     Error,
@@ -217,7 +216,6 @@ pub struct BuffAssistantState {
     pub is_monitoring: bool,
     pub expected_at_unix_ms: Option<i64>,
     pub last_confidence: f32,
-    pub sample_count: usize,
     pub last_error: Option<String>,
 }
 
@@ -239,16 +237,6 @@ pub struct CapturePreview {
     pub width: u32,
     pub height: u32,
     pub target: BuffTarget,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SampleFrameSummary {
-    pub id: u64,
-    pub captured_at_unix_ms: i64,
-    pub width: u32,
-    pub height: u32,
-    pub thumbnail_data_url: String,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

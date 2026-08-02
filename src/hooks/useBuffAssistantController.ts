@@ -5,7 +5,6 @@ import type {
   BuffAssistantState,
   BuffCapturePreview,
   BuffMetric,
-  BuffSampleFrameSummary,
   CaptureWindowCandidate,
   NormalizedRect
 } from '../lib/macro-api'
@@ -35,7 +34,6 @@ const defaultState: BuffAssistantState = {
   isMonitoring: false,
   expectedAtUnixMs: null,
   lastConfidence: 0,
-  sampleCount: 0,
   lastError: null
 }
 
@@ -45,8 +43,6 @@ export function useBuffAssistantController() {
   const [state, setState] = useState<BuffAssistantState>(defaultState)
   const [windows, setWindows] = useState<CaptureWindowCandidate[]>([])
   const [preview, setPreview] = useState<BuffCapturePreview | null>(null)
-  const [samples, setSamples] = useState<BuffSampleFrameSummary[]>([])
-  const [selectedFrame, setSelectedFrame] = useState<string | null>(null)
   const [metric, setMetric] = useState<BuffMetric>({ confidence: 0, present: false })
   const [logs, setLogs] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
@@ -141,41 +137,9 @@ export function useBuffAssistantController() {
     [run]
   )
 
-  const startSampleCapture = useCallback(
-    async (windowId: string, region: NormalizedRect) => {
-      const result = await run(() => window.api.startBuffSampleCapture(windowId, region))
-      setState(result)
-      setSamples([])
-      setSelectedFrame(null)
-      return result
-    },
-    [run]
-  )
-
-  const pauseSampleCapture = useCallback(async () => {
-    const result = await run(() => window.api.pauseBuffSampleCapture())
-    setState(result)
-    return result
-  }, [run])
-
-  const loadSamples = useCallback(async () => {
-    const frames = await run(() => window.api.listBuffSampleFrames())
-    setSamples(frames)
-    return frames
-  }, [run])
-
-  const loadSampleFrame = useCallback(
-    async (id: number) => {
-      const frame = await run(() => window.api.getBuffSampleFrame(id))
-      setSelectedFrame(frame)
-      return frame
-    },
-    [run]
-  )
-
   const saveTemplate = useCallback(
-    async (sampleId: number, crop: NormalizedRect, maskDataUrl?: string) => {
-      const result = await run(() => window.api.saveBuffTemplate(sampleId, crop, maskDataUrl))
+    async (searchRegion: NormalizedRect, crop: NormalizedRect, maskDataUrl?: string) => {
+      const result = await run(() => window.api.saveBuffTemplate(searchRegion, crop, maskDataUrl))
       setState(result)
       return result
     },
@@ -250,20 +214,13 @@ export function useBuffAssistantController() {
     state,
     windows,
     preview,
-    samples,
-    selectedFrame,
     metric,
     logs,
     busy,
     error,
     setPreview,
-    setSelectedFrame,
     refreshWindows,
     capturePreview,
-    startSampleCapture,
-    pauseSampleCapture,
-    loadSamples,
-    loadSampleFrame,
     saveTemplate,
     deleteTemplate,
     updateSettings,

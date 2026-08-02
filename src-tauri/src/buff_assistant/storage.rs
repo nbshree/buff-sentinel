@@ -43,7 +43,7 @@ pub fn load_config(directory: &Path) -> (BuffAssistantConfig, Vec<String>) {
         .as_ref()
         .is_some_and(|template| !template_directory(directory, &template.id).exists())
     {
-        notices.push("Buff 图标模板文件不存在，请重新采集".into());
+        notices.push("Buff 图标模板文件不存在，请重新配置".into());
         config.template = None;
     }
     (config, notices)

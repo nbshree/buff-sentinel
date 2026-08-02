@@ -30,7 +30,7 @@ describe('getInstallBlockedReason', () => {
 
   it('blocks updates while Buff monitoring is active', () => {
     expect(getInstallBlockedReason({ ...idleState, buffIsMonitoring: true })).toBe(
-      'Buff 助手正在捕获游戏画面，请先停止监控或采集再安装更新。'
+      'Buff 助手正在捕获游戏画面，请先停止监控或测试再安装更新。'
     )
   })
 

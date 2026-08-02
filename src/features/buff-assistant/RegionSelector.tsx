@@ -57,7 +57,7 @@ export function RegionSelector({ imageUrl, value, label, onChange }: RegionSelec
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       >
-        <img alt="游戏窗口采集预览" draggable={false} src={imageUrl} />
+        <img alt="游戏窗口捕获预览" draggable={false} src={imageUrl} />
         {selection ? (
           <div
             className="buff-region-selector__selection"

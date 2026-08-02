@@ -31,7 +31,6 @@ pub struct CapturedImage {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CapturePurpose {
-    Samples,
     Monitor,
     Test,
 }
@@ -122,7 +121,7 @@ impl GraphicsCaptureApiHandler for RuntimeCaptureHandler {
         let region = ctx.flags.region;
         let app = ctx.flags.app.clone();
         let purpose = ctx.flags.purpose;
-        let minimum_frame_interval = capture_interval(purpose);
+        let minimum_frame_interval = Duration::from_millis(83);
         let mut processor = RuntimeCaptureProcessor::new(ctx.flags);
         thread::spawn(move || {
             while let Ok(frame) = receiver.recv() {
@@ -197,42 +196,29 @@ impl RuntimeCaptureProcessor {
 
     fn process(&mut self, frame: RuntimeFrame) -> Result<(), String> {
         super::handle_capture_frame(&self.flags.app, self.flags.purpose);
-        match self.flags.purpose {
-            CapturePurpose::Samples => {
-                super::handle_sample_frame(
-                    &self.flags.app,
-                    frame.frame_width,
-                    frame.frame_height,
-                    frame.image,
-                );
-            }
-            CapturePurpose::Monitor | CapturePurpose::Test => {
-                let gray = rgba_to_gray(frame.image.width, frame.image.height, &frame.image.rgba)?;
-                let template = self.template_for_frame(frame.frame_width, frame.frame_height)?;
-                let confidence = match_template(&gray, template);
-                let matched = confidence >= self.flags.threshold;
-                if matched {
-                    self.match_started_at.get_or_insert(frame.captured_at);
-                } else {
-                    self.match_started_at = None;
-                }
-                let present = self.detector.update(matched);
-                let detected_at = present.then_some(self.match_started_at).flatten();
-                let should_emit_metric =
-                    self.last_metric_at.elapsed() >= Duration::from_millis(200);
-                if should_emit_metric {
-                    self.last_metric_at = Instant::now();
-                }
-                super::handle_detection_frame(
-                    &self.flags.app,
-                    self.flags.purpose,
-                    confidence,
-                    present,
-                    detected_at,
-                    should_emit_metric,
-                );
-            }
+        let gray = rgba_to_gray(frame.image.width, frame.image.height, &frame.image.rgba)?;
+        let template = self.template_for_frame(frame.frame_width, frame.frame_height)?;
+        let confidence = match_template(&gray, template);
+        let matched = confidence >= self.flags.threshold;
+        if matched {
+            self.match_started_at.get_or_insert(frame.captured_at);
+        } else {
+            self.match_started_at = None;
         }
+        let present = self.detector.update(matched);
+        let detected_at = present.then_some(self.match_started_at).flatten();
+        let should_emit_metric = self.last_metric_at.elapsed() >= Duration::from_millis(200);
+        if should_emit_metric {
+            self.last_metric_at = Instant::now();
+        }
+        super::handle_detection_frame(
+            &self.flags.app,
+            self.flags.purpose,
+            confidence,
+            present,
+            detected_at,
+            should_emit_metric,
+        );
         Ok(())
     }
 
@@ -287,7 +273,7 @@ fn reference_scale(
         return Ok(((legacy_width_scale + legacy_height_scale) / 2.0) as f32);
     }
 
-    Err("游戏窗口宽高比变化过大，请重新采集模板".into())
+    Err("游戏窗口宽高比变化过大，请重新捕获预览并配置模板".into())
 }
 
 fn scales_match(width_scale: f64, height_scale: f64) -> bool {
@@ -336,13 +322,6 @@ pub fn start_runtime_capture(
     );
     RuntimeCaptureHandler::start_free_threaded(settings)
         .map_err(|error| format!("启动游戏窗口捕获失败：{error}"))
-}
-
-const fn capture_interval(purpose: CapturePurpose) -> Duration {
-    match purpose {
-        CapturePurpose::Samples => Duration::from_millis(333),
-        CapturePurpose::Monitor | CapturePurpose::Test => Duration::from_millis(83),
-    }
 }
 
 fn copy_frame(frame: &mut Frame, region: Option<NormalizedRect>) -> Result<CapturedImage, String> {

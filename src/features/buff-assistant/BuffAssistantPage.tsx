@@ -3,11 +3,9 @@ import {
   Eye,
   ImagePlus,
   MonitorPlay,
-  Pause,
   Play,
   RefreshCw,
   Save,
-  ScanSearch,
   ScrollText,
   Settings2,
   Square,
@@ -35,18 +33,12 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     state,
     windows,
     preview,
-    samples,
-    selectedFrame,
     metric,
     logs,
     busy,
     error,
     refreshWindows,
     capturePreview,
-    startSampleCapture,
-    pauseSampleCapture,
-    loadSamples,
-    loadSampleFrame,
     saveTemplate,
     deleteTemplate,
     updateSettings,
@@ -59,7 +51,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   } = controller
   const [selectedWindowId, setSelectedWindowId] = useState('')
   const [searchRegion, setSearchRegion] = useState<NormalizedRect | null>(null)
-  const [selectedSampleId, setSelectedSampleId] = useState<number | null>(null)
+  const [templateSource, setTemplateSource] = useState<string | null>(null)
   const [templateCrop, setTemplateCrop] = useState<NormalizedRect | null>(null)
   const [settings, setSettings] = useState<BuffAssistantSettings>(state.config.settings)
   const [overlayEditing, setOverlayEditingState] = useState(false)
@@ -86,45 +78,44 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     setSelectedWindowId((configured ?? windows[0]).id)
   }, [selectedWindowId, state.config.target, windows])
 
+  useEffect(() => {
+    let disposed = false
+    setTemplateSource(null)
+    if (!preview || !searchRegion) return
+
+    void cropImageDataUrl(preview.dataUrl, searchRegion)
+      .then((dataUrl) => {
+        if (!disposed) setTemplateSource(dataUrl)
+      })
+      .catch((reason: unknown) => {
+        if (!disposed) console.error('裁剪 Buff 搜索区域失败', reason)
+      })
+
+    return () => {
+      disposed = true
+    }
+  }, [preview, searchRegion])
+
   const status = describeStatus(state.activity, state.isMonitoring)
   const hasTemplate = Boolean(
     state.config.template && state.config.target && state.config.searchRegion
   )
-  const selectedSample = samples.find((sample) => sample.id === selectedSampleId)
-
   async function handlePreview(): Promise<void> {
     if (!selectedWindowId) return
     const result = await capturePreview(selectedWindowId)
     setSearchRegion(state.config.searchRegion ?? defaultRegion)
-    setSelectedSampleId(null)
     setTemplateCrop(null)
     if (result.width < 1) setSearchRegion(null)
   }
 
-  async function handleStartCapture(): Promise<void> {
-    if (!selectedWindowId || !searchRegion) return
-    await startSampleCapture(selectedWindowId, searchRegion)
-  }
-
-  async function handleLoadSamples(): Promise<void> {
-    if (state.activity === 'capturingSamples') await pauseSampleCapture()
-    const frames = await loadSamples()
-    const latest = frames[frames.length - 1]
-    if (!latest) return
-    setSelectedSampleId(latest.id)
-    await loadSampleFrame(latest.id)
-    setTemplateCrop({ x: 0.05, y: 0.05, width: 0.2, height: 0.8 })
-  }
-
-  async function handleSelectSample(id: number): Promise<void> {
-    setSelectedSampleId(id)
-    await loadSampleFrame(id)
+  function handleSearchRegionChange(region: NormalizedRect): void {
+    setSearchRegion(region)
     setTemplateCrop(null)
   }
 
   async function handleSaveTemplate(): Promise<void> {
-    if (!selectedSampleId || !templateCrop) return
-    await saveTemplate(selectedSampleId, templateCrop, maskRef.current?.getMaskDataUrl())
+    if (!searchRegion || !templateCrop) return
+    await saveTemplate(searchRegion, templateCrop, maskRef.current?.getMaskDataUrl())
   }
 
   async function handleOverlayEdit(): Promise<void> {
@@ -171,7 +162,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           <div className="buff-runtime-summary">
             <div>
               <span>模板</span>
-              <strong>{state.config.template ? '金周天已配置' : '尚未采集'}</strong>
+              <strong>{state.config.template ? '金周天已配置' : '尚未配置'}</strong>
             </div>
             <div>
               <span>识别阈值</span>
@@ -340,8 +331,8 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           <div>
             <ImagePlus aria-hidden="true" />
             <div>
-              <h3>采集金周天图标模板</h3>
-              <p>选择窗口、框选 Buff 栏、正常战斗，再从最近画面中裁出金周天图标。</p>
+              <h3>配置金周天图标模板</h3>
+              <p>捕获包含金周天的画面，框选 Buff 栏后直接裁出图标主体。</p>
             </div>
           </div>
           <Button disabled={busy} size="sm" variant="outline" onClick={() => void refreshWindows()}>
@@ -387,69 +378,22 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               imageUrl={preview.dataUrl}
               label="Buff 搜索区域"
               value={searchRegion}
-              onChange={setSearchRegion}
+              onChange={handleSearchRegionChange}
             />
-            <div className="buff-card__actions">
-              {state.activity === 'capturingSamples' ? (
-                <Button disabled={busy} variant="outline" onClick={() => void pauseSampleCapture()}>
-                  <Pause aria-hidden="true" />
-                  暂停采集
-                </Button>
-              ) : (
-                <Button disabled={busy || !searchRegion} onClick={() => void handleStartCapture()}>
-                  <ScanSearch aria-hidden="true" />
-                  开始采集
-                </Button>
-              )}
-              <span className="buff-action-hint">
-                采集期间可正常切换到游戏，返回后点击暂停并载入最近 120 秒画面。
-              </span>
-            </div>
           </div>
         ) : null}
 
-        {state.sampleCount > 0 ? (
+        {templateSource ? (
           <div className="buff-wizard-step">
             <div className="buff-wizard-step__title">
               <span>2</span>
               <div>
-                <strong>选择包含金周天的画面</strong>
-                <p>当前缓存 {state.sampleCount} 帧，优先选择图标清晰且闪光较少的一帧。</p>
-              </div>
-            </div>
-            <Button disabled={busy} variant="outline" onClick={() => void handleLoadSamples()}>
-              载入最近画面
-            </Button>
-            {samples.length > 0 ? (
-              <div className="buff-sample-strip">
-                {samples.map((sample) => (
-                  <button
-                    className="buff-sample-thumb"
-                    data-selected={sample.id === selectedSampleId}
-                    key={sample.id}
-                    type="button"
-                    onClick={() => void handleSelectSample(sample.id)}
-                  >
-                    <img alt={`采集帧 ${sample.id}`} src={sample.thumbnailDataUrl} />
-                    <span>{new Date(sample.capturedAtUnixMs).toLocaleTimeString()}</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
-        {selectedFrame && selectedSample ? (
-          <div className="buff-wizard-step">
-            <div className="buff-wizard-step__title">
-              <span>3</span>
-              <div>
-                <strong>裁剪金周天图标</strong>
-                <p>只框选图标主体，尽量不要包含相邻 Buff。</p>
+                <strong>裁剪金周天图标主体</strong>
+                <p>下方仅显示刚才框选的 Buff 搜索区域，不要包含相邻 Buff。</p>
               </div>
             </div>
             <RegionSelector
-              imageUrl={selectedFrame}
+              imageUrl={templateSource}
               label="金周天图标"
               value={templateCrop}
               onChange={setTemplateCrop}
@@ -457,13 +401,13 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
             {templateCrop ? (
               <>
                 <div className="buff-wizard-step__title buff-wizard-step__title--sub">
-                  <span>4</span>
+                  <span>3</span>
                   <div>
                     <strong>涂抹忽略区域</strong>
                     <p>在倒计时数字、层数或动态闪光上涂抹；不需要时可直接保存。</p>
                   </div>
                 </div>
-                <MaskEditor crop={templateCrop} imageUrl={selectedFrame} ref={maskRef} />
+                <MaskEditor crop={templateCrop} imageUrl={templateSource} ref={maskRef} />
                 <div className="buff-card__actions">
                   <Button disabled={busy} onClick={() => void handleSaveTemplate()}>
                     <Save aria-hidden="true" />
@@ -571,13 +515,59 @@ function ToggleRow({ checked, label, onChange, onTest }: ToggleRowProps) {
   )
 }
 
+function cropImageDataUrl(imageUrl: string, region: NormalizedRect): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.decoding = 'async'
+    image.onload = () => {
+      const startX = clamp(Math.floor(image.naturalWidth * region.x), 0, image.naturalWidth - 1)
+      const startY = clamp(Math.floor(image.naturalHeight * region.y), 0, image.naturalHeight - 1)
+      const endX = clamp(
+        Math.ceil(image.naturalWidth * (region.x + region.width)),
+        startX + 1,
+        image.naturalWidth
+      )
+      const endY = clamp(
+        Math.ceil(image.naturalHeight * (region.y + region.height)),
+        startY + 1,
+        image.naturalHeight
+      )
+      const canvas = document.createElement('canvas')
+      canvas.width = endX - startX
+      canvas.height = endY - startY
+      const context = canvas.getContext('2d')
+      if (!context) {
+        reject(new Error('无法创建 Buff 搜索区域画布'))
+        return
+      }
+      context.drawImage(
+        image,
+        startX,
+        startY,
+        canvas.width,
+        canvas.height,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      )
+      resolve(canvas.toDataURL('image/png'))
+    }
+    image.onerror = () => reject(new Error('无法读取捕获预览'))
+    image.src = imageUrl
+  })
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value))
+}
+
 function describeStatus(activity: string, monitoring: boolean): string {
   if (!monitoring && activity === 'stopped') return '未开始'
   const labels: Record<string, string> = {
     waiting: '等待金周天',
     tracking: '20 秒计时中',
     prewarning: '即将触发',
-    capturingSamples: '正在采集画面',
     testing: '模板测试中',
     targetUnavailable: '等待游戏窗口',
     error: '运行异常',

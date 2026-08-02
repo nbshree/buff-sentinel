@@ -7,7 +7,6 @@ mod timeline;
 mod windows;
 
 use std::{
-    collections::VecDeque,
     io::Cursor,
     path::PathBuf,
     sync::{Mutex, MutexGuard},
@@ -21,11 +20,11 @@ use capture::{
     CapturePurpose, CapturedImage, RuntimeCaptureControl, RuntimeCaptureFlags, capture_snapshot,
     start_runtime_capture,
 };
-use image::{DynamicImage, GrayImage, ImageEncoder, Luma, RgbaImage, codecs::jpeg::JpegEncoder};
+use image::{DynamicImage, GrayImage, Luma, RgbaImage};
 pub use model::{
     BuffAssistantActivity, BuffAssistantConfig, BuffAssistantSettings, BuffAssistantState,
     BuffOverlayMode, BuffOverlayState, BuffTarget, CapturePreview, CaptureWindowCandidate,
-    NormalizedRect, SampleFrameSummary,
+    NormalizedRect,
 };
 use serde::Serialize;
 use tauri::{
@@ -33,18 +32,12 @@ use tauri::{
 };
 use timeline::{BuffTimeline, TimelineAction, TimelinePhase};
 
-const SAMPLE_RETENTION_MS: i64 = 120_000;
-const SAMPLE_MEMORY_LIMIT: usize = 64 * 1024 * 1024;
 const MONITOR_FRAME_TIMEOUT: Duration = Duration::from_secs(3);
 const OVERLAY_LABEL: &str = "buff-overlay";
 
-struct StoredSample {
-    id: u64,
-    captured_at_unix_ms: i64,
-    width: u32,
-    height: u32,
+struct StoredPreview {
     png: Vec<u8>,
-    thumbnail_data_url: String,
+    target: BuffTarget,
 }
 
 struct RuntimeData {
@@ -58,11 +51,7 @@ struct RuntimeData {
     capture: Option<RuntimeCaptureControl>,
     capture_purpose: Option<CapturePurpose>,
     timeline: BuffTimeline,
-    samples: VecDeque<StoredSample>,
-    sample_bytes: usize,
-    next_sample_id: u64,
-    sample_target: Option<BuffTarget>,
-    sample_region: Option<NormalizedRect>,
+    template_preview: Option<StoredPreview>,
     last_frame_at: Option<Instant>,
     reconnect_generation: u64,
     overlay_generation: u64,
@@ -95,11 +84,7 @@ impl BuffAssistant {
                     storage_directory: directory,
                     capture: None,
                     capture_purpose: None,
-                    samples: VecDeque::new(),
-                    sample_bytes: 0,
-                    next_sample_id: 1,
-                    sample_target: None,
-                    sample_region: None,
+                    template_preview: None,
                     last_frame_at: None,
                     reconnect_generation: 0,
                     overlay_generation: 0,
@@ -162,174 +147,57 @@ pub fn list_buff_capture_windows() -> Result<Vec<CaptureWindowCandidate>, String
 }
 
 #[tauri::command]
-pub fn capture_buff_preview(window_id: String) -> Result<CapturePreview, String> {
-    let (window, candidate) = windows::resolve_window(&window_id)?;
-    let image = capture_snapshot(window)?;
-    Ok(CapturePreview {
-        data_url: png_data_url(&image)?,
-        width: image.width,
-        height: image.height,
-        target: BuffTarget {
-            reference_width: image.width,
-            reference_height: image.height,
-            ..windows::target_from_candidate(&candidate)
-        },
-    })
-}
-
-#[tauri::command]
-pub fn start_buff_sample_capture(
-    app: AppHandle,
+pub fn capture_buff_preview(
     state: State<'_, BuffAssistant>,
     window_id: String,
-    region: NormalizedRect,
-) -> Result<BuffAssistantState, String> {
-    let region = region.sanitized();
+) -> Result<CapturePreview, String> {
     let (window, candidate) = windows::resolve_window(&window_id)?;
-    let target = windows::target_from_candidate(&candidate);
-    stop_buff_monitor_internal(&app);
-    {
-        let mut inner = state.lock();
-        inner.samples.clear();
-        inner.sample_bytes = 0;
-        inner.sample_target = Some(target.clone());
-        inner.sample_region = Some(region);
-        inner.activity = BuffAssistantActivity::CapturingSamples;
-        inner.monitor_requested = false;
-        inner.last_error = None;
-        inner.capture_purpose = Some(CapturePurpose::Samples);
-    }
-    let flags = RuntimeCaptureFlags {
-        app: app.clone(),
-        purpose: CapturePurpose::Samples,
-        region,
-        template: None,
-        reference_width: target.reference_width,
-        reference_height: target.reference_height,
-        threshold: 1.0,
-        confirm_frames: 1,
-        missing_frames: 1,
+    let image = capture_snapshot(window)?;
+    let png = encode_png(&image)?;
+    let target = BuffTarget {
+        reference_width: image.width,
+        reference_height: image.height,
+        ..windows::target_from_candidate(&candidate)
     };
-    match start_runtime_capture(window, flags) {
-        Ok(control) => state.lock().capture = Some(control),
-        Err(error) => {
-            let mut inner = state.lock();
-            inner.activity = BuffAssistantActivity::Error;
-            inner.capture_purpose = None;
-            inner.last_error = Some(error.clone());
-            emit_state(&app, &snapshot_from_runtime(&inner));
-            return Err(error);
-        }
-    }
-    let snapshot = state.snapshot();
-    emit_state(&app, &snapshot);
-    Ok(snapshot)
-}
-
-#[tauri::command]
-pub fn pause_buff_sample_capture(
-    app: AppHandle,
-    state: State<'_, BuffAssistant>,
-) -> BuffAssistantState {
-    pause_sample_capture_internal(&app);
-    state.snapshot()
-}
-
-pub fn pause_sample_capture_internal(app: &AppHandle) {
-    let state = app.state::<BuffAssistant>();
-    let control = {
-        let mut inner = state.lock();
-        if inner.capture_purpose != Some(CapturePurpose::Samples) {
-            return;
-        }
-        inner.capture_purpose = None;
-        inner.activity = BuffAssistantActivity::Stopped;
-        inner.capture.take()
-    };
-    if let Some(control) = control {
-        let _ = control.stop();
-    }
-    emit_state(app, &state.snapshot());
-}
-
-#[tauri::command]
-pub fn clear_buff_sample_frames(
-    app: AppHandle,
-    state: State<'_, BuffAssistant>,
-) -> BuffAssistantState {
-    let snapshot = {
-        let mut inner = state.lock();
-        inner.samples.clear();
-        inner.sample_bytes = 0;
-        snapshot_from_runtime(&inner)
-    };
-    emit_state(&app, &snapshot);
-    snapshot
-}
-
-#[tauri::command]
-pub fn list_buff_sample_frames(state: State<'_, BuffAssistant>) -> Vec<SampleFrameSummary> {
-    state
-        .lock()
-        .samples
-        .iter()
-        .map(|sample| SampleFrameSummary {
-            id: sample.id,
-            captured_at_unix_ms: sample.captured_at_unix_ms,
-            width: sample.width,
-            height: sample.height,
-            thumbnail_data_url: sample.thumbnail_data_url.clone(),
-        })
-        .collect()
-}
-
-#[tauri::command]
-pub fn get_buff_sample_frame(state: State<'_, BuffAssistant>, id: u64) -> Result<String, String> {
-    state
-        .lock()
-        .samples
-        .iter()
-        .find(|sample| sample.id == id)
-        .map(|sample| format!("data:image/png;base64,{}", BASE64.encode(&sample.png)))
-        .ok_or_else(|| "找不到采集帧，请重新采集".into())
+    let data_url = png_bytes_data_url(&png);
+    state.lock().template_preview = Some(StoredPreview {
+        png,
+        target: target.clone(),
+    });
+    Ok(CapturePreview {
+        data_url,
+        width: image.width,
+        height: image.height,
+        target,
+    })
 }
 
 #[tauri::command]
 pub fn save_buff_template(
     app: AppHandle,
     state: State<'_, BuffAssistant>,
-    sample_id: u64,
+    search_region: NormalizedRect,
     crop: NormalizedRect,
     mask_data_url: Option<String>,
 ) -> Result<BuffAssistantState, String> {
-    let (png, target, region, directory) = {
+    let (png, target, directory) = {
         let inner = state.lock();
-        let sample = inner
-            .samples
-            .iter()
-            .find(|sample| sample.id == sample_id)
-            .ok_or_else(|| "找不到用于制作模板的采集帧".to_string())?;
+        let preview = inner
+            .template_preview
+            .as_ref()
+            .ok_or_else(|| "找不到捕获预览，请重新捕获".to_string())?;
         (
-            sample.png.clone(),
-            inner
-                .sample_target
-                .clone()
-                .ok_or_else(|| "缺少采集窗口信息".to_string())?,
-            inner
-                .sample_region
-                .ok_or_else(|| "缺少 Buff 搜索区域".to_string())?,
+            preview.png.clone(),
+            preview.target.clone(),
             inner.storage_directory.clone(),
         )
     };
     let source =
-        image::load_from_memory(&png).map_err(|error| format!("读取采集帧失败：{error}"))?;
-    let (x, y, end_x, end_y) = crop.pixel_bounds(source.width(), source.height());
-    let width = end_x - x;
-    let height = end_y - y;
-    if width < 8 || height < 8 {
-        return Err("模板区域过小，请重新框选图标".into());
-    }
-    let template = source.crop_imm(x, y, width, height);
+        image::load_from_memory(&png).map_err(|error| format!("读取捕获预览失败：{error}"))?;
+    let region = search_region.sanitized();
+    let template = crop_template_from_preview(&source, region, crop)?;
+    let width = template.width();
+    let height = template.height();
     let mask = decode_mask(mask_data_url.as_deref(), width, height)?;
     let id = format!("jinzhoutian-{}", now_millis());
     let summary = storage::save_template(&directory, &id, &template, &mask)?;
@@ -412,7 +280,7 @@ pub fn start_buff_monitor_internal(app: &AppHandle) -> Result<(), String> {
             || inner.config.target.is_none()
             || inner.config.search_region.is_none()
         {
-            return Err("请先完成金周天模板采集".into());
+            return Err("请先完成金周天模板配置".into());
         }
         inner.monitor_requested = true;
         inner.reconnect_generation = inner.reconnect_generation.wrapping_add(1);
@@ -591,63 +459,6 @@ pub fn set_buff_overlay_edit_mode(
     let snapshot = state.snapshot();
     emit_state(&app, &snapshot);
     Ok(snapshot)
-}
-
-pub(crate) fn handle_sample_frame(
-    app: &AppHandle,
-    frame_width: u32,
-    frame_height: u32,
-    image: CapturedImage,
-) {
-    let Ok(png) = encode_png(&image) else {
-        return;
-    };
-    let Ok(thumbnail_data_url) = encode_thumbnail(&image) else {
-        return;
-    };
-    let state = app.state::<BuffAssistant>();
-    let snapshot = {
-        let mut inner = state.lock();
-        if inner.capture_purpose != Some(CapturePurpose::Samples) {
-            return;
-        }
-        let captured_at_unix_ms = now_millis();
-        if inner.samples.is_empty()
-            && let Some(target) = &mut inner.sample_target
-        {
-            target.reference_width = frame_width.max(1);
-            target.reference_height = frame_height.max(1);
-        }
-        let id = inner.next_sample_id;
-        inner.next_sample_id = inner.next_sample_id.wrapping_add(1).max(1);
-        inner.sample_bytes = inner
-            .sample_bytes
-            .saturating_add(png.len())
-            .saturating_add(thumbnail_data_url.len());
-        inner.samples.push_back(StoredSample {
-            id,
-            captured_at_unix_ms,
-            width: image.width,
-            height: image.height,
-            png,
-            thumbnail_data_url,
-        });
-        while inner.samples.front().is_some_and(|sample| {
-            captured_at_unix_ms - sample.captured_at_unix_ms > SAMPLE_RETENTION_MS
-                || inner.sample_bytes > SAMPLE_MEMORY_LIMIT
-        }) {
-            if let Some(removed) = inner.samples.pop_front() {
-                inner.sample_bytes = inner
-                    .sample_bytes
-                    .saturating_sub(removed.png.len())
-                    .saturating_sub(removed.thumbnail_data_url.len());
-            }
-        }
-        snapshot_from_runtime(&inner)
-    };
-    if snapshot.sample_count == 1 || snapshot.sample_count.is_multiple_of(6) {
-        emit_state(app, &snapshot);
-    }
 }
 
 pub(crate) fn handle_capture_frame(app: &AppHandle, purpose: CapturePurpose) {
@@ -878,7 +689,7 @@ fn capture_flags(
         .config
         .template
         .clone()
-        .ok_or_else(|| "尚未采集金周天图标模板".to_string())?;
+        .ok_or_else(|| "尚未配置金周天图标模板".to_string())?;
     let template = storage::load_template(&inner.storage_directory, &summary)?;
     Ok((
         RuntimeCaptureFlags {
@@ -1011,7 +822,6 @@ fn snapshot_from_runtime(inner: &RuntimeData) -> BuffAssistantState {
         is_monitoring: inner.monitor_requested,
         expected_at_unix_ms: inner.expected_at_unix_ms,
         last_confidence: inner.last_confidence,
-        sample_count: inner.samples.len(),
         last_error: inner.last_error.clone(),
     }
 }
@@ -1192,27 +1002,30 @@ fn encode_png(image: &CapturedImage) -> Result<Vec<u8>, String> {
     Ok(bytes.into_inner())
 }
 
-fn png_data_url(image: &CapturedImage) -> Result<String, String> {
-    Ok(format!(
-        "data:image/png;base64,{}",
-        BASE64.encode(encode_png(image)?)
-    ))
+fn png_bytes_data_url(png: &[u8]) -> String {
+    format!("data:image/png;base64,{}", BASE64.encode(png))
 }
 
-fn encode_thumbnail(image: &CapturedImage) -> Result<String, String> {
-    let rgba = RgbaImage::from_raw(image.width, image.height, image.rgba.clone())
-        .ok_or_else(|| "捕获画面像素格式无效".to_string())?;
-    let thumbnail = DynamicImage::ImageRgba8(rgba).thumbnail(180, 100).to_rgb8();
-    let mut bytes = Vec::new();
-    JpegEncoder::new_with_quality(&mut bytes, 72)
-        .write_image(
-            thumbnail.as_raw(),
-            thumbnail.width(),
-            thumbnail.height(),
-            image::ExtendedColorType::Rgb8,
-        )
-        .map_err(|error| format!("编码缩略图失败：{error}"))?;
-    Ok(format!("data:image/jpeg;base64,{}", BASE64.encode(bytes)))
+fn crop_template_from_preview(
+    preview: &DynamicImage,
+    search_region: NormalizedRect,
+    crop: NormalizedRect,
+) -> Result<DynamicImage, String> {
+    let (region_x, region_y, region_end_x, region_end_y) =
+        search_region.pixel_bounds(preview.width(), preview.height());
+    let region = preview.crop_imm(
+        region_x,
+        region_y,
+        region_end_x - region_x,
+        region_end_y - region_y,
+    );
+    let (x, y, end_x, end_y) = crop.pixel_bounds(region.width(), region.height());
+    let width = end_x - x;
+    let height = end_y - y;
+    if width < 8 || height < 8 {
+        return Err("模板区域过小，请重新框选图标".into());
+    }
+    Ok(region.crop_imm(x, y, width, height))
 }
 
 fn decode_mask(data_url: Option<&str>, width: u32, height: u32) -> Result<GrayImage, String> {
@@ -1254,4 +1067,56 @@ fn now_millis() -> i64 {
 struct BuffMetric {
     confidence: f32,
     present: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use image::DynamicImage;
+
+    use super::{NormalizedRect, crop_template_from_preview};
+
+    #[test]
+    fn template_crop_is_relative_to_the_selected_search_region() {
+        let preview = DynamicImage::new_rgba8(200, 100);
+        let template = crop_template_from_preview(
+            &preview,
+            NormalizedRect {
+                x: 0.25,
+                y: 0.2,
+                width: 0.5,
+                height: 0.5,
+            },
+            NormalizedRect {
+                x: 0.1,
+                y: 0.2,
+                width: 0.4,
+                height: 0.6,
+            },
+        )
+        .expect("template crop should succeed");
+
+        assert_eq!((template.width(), template.height()), (40, 30));
+    }
+
+    #[test]
+    fn template_crop_rejects_tiny_regions() {
+        let preview = DynamicImage::new_rgba8(100, 100);
+        let result = crop_template_from_preview(
+            &preview,
+            NormalizedRect {
+                x: 0.0,
+                y: 0.0,
+                width: 0.1,
+                height: 0.1,
+            },
+            NormalizedRect {
+                x: 0.0,
+                y: 0.0,
+                width: 0.1,
+                height: 0.1,
+            },
+        );
+
+        assert!(result.is_err());
+    }
 }

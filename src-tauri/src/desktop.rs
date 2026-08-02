@@ -111,7 +111,6 @@ pub fn set_tray_workspace(app: AppHandle, workspace: Workspace) -> Result<(), St
 }
 
 pub fn show_main_window(app: &AppHandle) {
-    buff_assistant::pause_sample_capture_internal(app);
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();

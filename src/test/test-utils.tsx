@@ -219,7 +219,6 @@ export function createMacroApi(
     isMonitoring: false,
     expectedAtUnixMs: null,
     lastConfidence: 0,
-    sampleCount: 0,
     lastError: null
   }
   return {
@@ -313,11 +312,6 @@ export function createMacroApi(
     captureBuffPreview: vi.fn(async () => {
       throw new Error('not configured')
     }),
-    startBuffSampleCapture: vi.fn(async () => buffState),
-    pauseBuffSampleCapture: vi.fn(async () => buffState),
-    clearBuffSampleFrames: vi.fn(async () => buffState),
-    listBuffSampleFrames: vi.fn(async () => []),
-    getBuffSampleFrame: vi.fn(async () => ''),
     saveBuffTemplate: vi.fn(async () => buffState),
     deleteBuffTemplate: vi.fn(async () => buffState),
     updateBuffAssistantSettings: vi.fn(async () => buffState),

@@ -144,13 +144,11 @@
   background: rgb(201 151 33 / 10%);
 }
 
-.buff-assistant-status[data-status='capturingSamples'],
 .buff-assistant-status[data-status='testing'] {
   border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
   background: color-mix(in srgb, var(--color-primary) 10%, transparent);
 }
 
-.buff-assistant-status[data-status='capturingSamples'] .buff-assistant-status__dot,
 .buff-assistant-status[data-status='testing'] .buff-assistant-status__dot {
   background: var(--color-primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
@@ -430,47 +428,10 @@
   white-space: nowrap;
 }
 
-.buff-region-selector p,
-.buff-action-hint {
+.buff-region-selector p {
   margin: 6px 0 0;
   color: var(--text-muted);
   font-size: 10px;
-}
-
-.buff-sample-strip {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 3px 2px 8px;
-}
-
-.buff-sample-thumb {
-  width: 132px;
-  flex: none;
-  overflow: hidden;
-  border: 2px solid transparent;
-  border-radius: 8px;
-  padding: 0;
-  background: var(--surface-muted);
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.buff-sample-thumb[data-selected='true'] {
-  border-color: #e4ad30;
-}
-
-.buff-sample-thumb img {
-  display: block;
-  width: 100%;
-  height: 70px;
-  object-fit: cover;
-}
-
-.buff-sample-thumb span {
-  display: block;
-  padding: 4px;
-  font-size: 9px;
 }
 
 .buff-mask-editor {
