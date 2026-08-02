@@ -1,7 +1,30 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { calculateWheelZoom, ZoomableEditorViewport } from './ZoomableEditorViewport'
+import {
+  calculateFitScale,
+  calculateWheelZoom,
+  ZoomableEditorViewport
+} from './ZoomableEditorViewport'
+
+describe('calculateFitScale', () => {
+  it('fits the whole image and leaves space on the unconstrained axis', () => {
+    const landscapeScale = calculateFitScale(
+      { width: 1920, height: 1080 },
+      { width: 1000, height: 500 }
+    )
+    expect(1920 * landscapeScale).toBeLessThan(1000)
+    expect(1080 * landscapeScale).toBeCloseTo(500)
+
+    const wideScale = calculateFitScale({ width: 2000, height: 500 }, { width: 1000, height: 500 })
+    expect(2000 * wideScale).toBeCloseTo(1000)
+    expect(500 * wideScale).toBeLessThan(500)
+  })
+
+  it('can enlarge a small image while still fitting it entirely', () => {
+    expect(calculateFitScale({ width: 100, height: 50 }, { width: 1000, height: 500 })).toBe(10)
+  })
+})
 
 describe('calculateWheelZoom', () => {
   it('zooms smoothly and clamps the result between 100% and 800%', () => {

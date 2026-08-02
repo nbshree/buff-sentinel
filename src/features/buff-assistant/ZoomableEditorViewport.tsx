@@ -34,27 +34,55 @@ export function ZoomableEditorViewport({ children, label, resetKey }: ZoomableEd
   const panGestureRef = useRef<PanGesture | null>(null)
   const [zoom, setZoom] = useState(minimumZoom)
   const [dimensions, setDimensions] = useState<Dimensions>({ width: 0, height: 0 })
+  const [viewportDimensions, setViewportDimensions] = useState<Dimensions>({ width: 0, height: 0 })
   const [panning, setPanning] = useState(false)
 
   useLayoutEffect(() => {
     const content = contentRef.current
-    if (!content) return
+    const viewport = viewportRef.current
+    if (!content || !viewport) return
 
-    function updateDimensions(width: number, height: number): void {
+    function updateContentDimensions(width: number, height: number): void {
       if (width <= 0 || height <= 0) return
       setDimensions((current) =>
         current.width === width && current.height === height ? current : { width, height }
       )
     }
 
-    const bounds = content.getBoundingClientRect()
-    updateDimensions(bounds.width / zoom, bounds.height / zoom)
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry) updateDimensions(entry.contentRect.width, entry.contentRect.height)
+    function updateViewportDimensions(width: number, height: number): void {
+      if (width <= 0 || height <= 0) return
+      setViewportDimensions((current) =>
+        current.width === width && current.height === height ? current : { width, height }
+      )
+    }
+
+    const contentBounds = content.getBoundingClientRect()
+    updateContentDimensions(contentBounds.width, contentBounds.height)
+    const viewportBounds = viewport.getBoundingClientRect()
+    updateViewportDimensions(viewportBounds.width, viewportBounds.height)
+
+    const contentObserver = new ResizeObserver(([entry]) => {
+      if (entry) updateContentDimensions(entry.contentRect.width, entry.contentRect.height)
     })
-    observer.observe(content)
-    return () => observer.disconnect()
-  }, [zoom])
+    const viewportObserver = new ResizeObserver(([entry]) => {
+      if (entry) updateViewportDimensions(entry.contentRect.width, entry.contentRect.height)
+    })
+    contentObserver.observe(content)
+    viewportObserver.observe(viewport)
+    return () => {
+      contentObserver.disconnect()
+      viewportObserver.disconnect()
+    }
+  }, [])
+
+  const fitScale = calculateFitScale(dimensions, viewportDimensions)
+  const displayScale = fitScale * zoom
+  const scaledWidth = dimensions.width * displayScale
+  const scaledHeight = dimensions.height * displayScale
+  const stageWidth = Math.max(viewportDimensions.width, scaledWidth)
+  const stageHeight = Math.max(viewportDimensions.height, scaledHeight)
+  const contentLeft = Math.max(0, (stageWidth - scaledWidth) / 2)
+  const contentTop = Math.max(0, (stageHeight - scaledHeight) / 2)
 
   useLayoutEffect(() => {
     const anchor = pendingAnchorRef.current
@@ -65,7 +93,7 @@ export function ZoomableEditorViewport({ children, label, resetKey }: ZoomableEd
     const bounds = content.getBoundingClientRect()
     viewport.scrollLeft += bounds.left + anchor.x * bounds.width - anchor.clientX
     viewport.scrollTop += bounds.top + anchor.y * bounds.height - anchor.clientY
-  }, [zoom])
+  }, [displayScale])
 
   useEffect(() => {
     pendingAnchorRef.current = null
@@ -167,11 +195,7 @@ export function ZoomableEditorViewport({ children, label, resetKey }: ZoomableEd
       >
         <div
           className="buff-editor-zoom__stage"
-          style={
-            dimensions.width > 0
-              ? { width: dimensions.width * zoom, height: dimensions.height * zoom }
-              : undefined
-          }
+          style={stageWidth > 0 ? { width: stageWidth, height: stageHeight } : undefined}
         >
           <div
             className="buff-editor-zoom__content"
@@ -180,8 +204,10 @@ export function ZoomableEditorViewport({ children, label, resetKey }: ZoomableEd
             style={
               {
                 '--editor-zoom': zoom,
-                '--editor-zoom-inverse': 1 / zoom,
-                transform: `scale(${zoom})`
+                '--editor-zoom-inverse': 1 / displayScale,
+                left: contentLeft,
+                top: contentTop,
+                transform: `scale(${displayScale})`
               } as CSSProperties
             }
           >
@@ -202,6 +228,13 @@ export function ZoomableEditorViewport({ children, label, resetKey }: ZoomableEd
 export function calculateWheelZoom(current: number, deltaY: number): number {
   if (deltaY === 0) return current
   return round(clamp(current * Math.exp(-deltaY * 0.0015), minimumZoom, maximumZoom))
+}
+
+export function calculateFitScale(content: Dimensions, viewport: Dimensions): number {
+  if (content.width <= 0 || content.height <= 0 || viewport.width <= 0 || viewport.height <= 0) {
+    return 1
+  }
+  return Math.min(viewport.width / content.width, viewport.height / content.height)
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {

@@ -180,27 +180,12 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
     undo()
   }
 
-  const expandedScale = Math.min(
-    12,
-    520 / Math.max(1, Math.min(dimensions.width, dimensions.height)),
-    1600 / Math.max(1, dimensions.width),
-    1200 / Math.max(1, dimensions.height)
-  )
-
   const canvas = (
     <div className="buff-mask-editor__viewport">
       <canvas
         aria-label="模板忽略区域画笔"
         className="buff-mask-editor__canvas"
         ref={canvasRef}
-        style={
-          expanded
-            ? {
-                width: dimensions.width * expandedScale,
-                height: dimensions.height * expandedScale
-              }
-            : undefined
-        }
         onDoubleClick={(event) => {
           if (!onRequestExpand) return
           event.preventDefault()
