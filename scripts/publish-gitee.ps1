@@ -96,6 +96,7 @@ function Get-GiteeContentFile {
 function Get-PublicJsonWithRetry {
   param(
     [Parameter(Mandatory)][string]$Uri,
+    [scriptblock]$Validate,
     [int]$Attempts = 12,
     [int]$DelaySeconds = 5
   )
@@ -107,7 +108,12 @@ function Get-PublicJsonWithRetry {
       "$Uri`?attempt=$attempt"
     }
     try {
-      return (Invoke-WebRequest -Uri $requestUri -UseBasicParsing).Content | ConvertFrom-Json
+      $document = (Invoke-WebRequest -Uri $requestUri -UseBasicParsing).Content |
+        ConvertFrom-Json
+      if ($null -ne $Validate) {
+        & $Validate $document
+      }
+      return $document
     } catch {
       if ($attempt -eq $Attempts) {
         throw
@@ -654,12 +660,16 @@ try {
   }
 
   $feedVerificationUrl = "${updaterFeedUrl}?verify=$([Guid]::NewGuid().ToString('N'))"
-  $publicFeedDocument = Get-PublicJsonWithRetry -Uri $feedVerificationUrl
-  Assert-UpdaterFeedDocument `
-    -Document $publicFeedDocument `
-    -ExpectedVersion $Version `
-    -ExpectedUrl $verifiedInstaller.browser_download_url `
-    -ExpectedSignature $signatureText
+  $publicFeedDocument = Get-PublicJsonWithRetry `
+    -Uri $feedVerificationUrl `
+    -Validate {
+      param($document)
+      Assert-UpdaterFeedDocument `
+        -Document $document `
+        -ExpectedVersion $Version `
+        -ExpectedUrl $verifiedInstaller.browser_download_url `
+        -ExpectedSignature $signatureText
+    }
 
   Write-Host ''
   Write-Host "发行成功：$releasePageUrl"
