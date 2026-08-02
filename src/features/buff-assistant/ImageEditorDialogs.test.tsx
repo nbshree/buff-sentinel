@@ -69,6 +69,41 @@ describe('RegionEditorDialog', () => {
     expect(onApply).not.toHaveBeenCalled()
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
+
+  it('applies the same normalized region after the zoomed image has been panned', () => {
+    const onApply = vi.fn()
+    render(
+      <RegionEditorDialog
+        description="说明"
+        imageUrl="preview.png"
+        label="Buff 搜索区域"
+        open
+        title="精调区域"
+        value={crop}
+        onApply={onApply}
+        onOpenChange={vi.fn()}
+      />
+    )
+    const canvas = screen.getByRole('application', { name: 'Buff 搜索区域' })
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
+      x: -400,
+      y: -200,
+      top: -200,
+      left: -400,
+      right: 1600,
+      bottom: 800,
+      width: 2000,
+      height: 1000,
+      toJSON: () => ({})
+    })
+
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 0, clientY: 0, detail: 1 })
+    fireEvent.pointerMove(canvas, { clientX: 400, clientY: 200 })
+    fireEvent.pointerUp(canvas, { clientX: 400, clientY: 200, detail: 1 })
+    fireEvent.click(screen.getByRole('button', { name: '应用区域' }))
+
+    expect(onApply).toHaveBeenCalledWith({ x: 0.2, y: 0.2, width: 0.2, height: 0.2 })
+  })
 })
 
 describe('MaskEditorDialog', () => {

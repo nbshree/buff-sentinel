@@ -424,10 +424,10 @@
 
 .buff-region-selector[data-expanded='true'] .buff-region-selector__canvas img {
   width: min(82vw, 1400px);
+  height: auto;
   max-width: none;
-  max-height: calc(88vh - 220px);
+  max-height: none;
   image-rendering: auto;
-  object-fit: contain;
 }
 
 .buff-region-selector__selection {
