@@ -205,17 +205,19 @@ git config --add remote.origin.pushurl git@gitee.com:nbshree/shree-macro-flow-ta
 git config --add remote.origin.pushurl git@github.com:nbshree/shree-macro-flow-tauri.git
 ```
 
-标签到达 GitHub 后，工作流会全局串行执行：
+标签到达 GitHub 后，单次发版按以下流程执行：
 
-1. 在 Windows 节点检出完整标签历史。
-2. 安装 pnpm、Node.js 和 Rust。
-3. 执行 TypeScript 检查、前端测试、Rust 格式检查、编译检查、测试和 Clippy。
-4. 只在正式构建步骤注入 Tauri 私钥，执行 `pnpm tauri:build:release`。
-5. 只在发布步骤注入 `GITEE_TOKEN`。
-6. 创建或修复 Gitee Release，上传 ASCII 名称的 `.exe`、`.exe.sig` 和 `latest.json`。
-7. 从 Release 的公开 URL 重新下载并验证三个附件及安装包 SHA-256。
-8. 首次发布时自动创建 `updater-feed` 分支，再更新分支根目录的 `latest.json`。
-9. 最后重新读取公开 updater feed，确认版本、下载 URL 和签名已正确生效。
+1. 在两个独立 Windows job 中并行执行源码验证和正式签名构建。
+2. 验证 job 执行 TypeScript 检查、前端测试、Rust 格式检查、测试和 Clippy。Rust 测试和
+   Clippy 均会完成编译检查，因此流水线不再额外重复执行 `cargo check`；本地发版前检查仍保留
+   `cargo check`。
+3. 构建 job 只在正式构建步骤注入 Tauri 私钥，执行 `pnpm tauri:build:release`，再把 `.exe`
+   和 `.sig` 作为短期 Actions artifact 传给发布 job。
+4. 只有验证与构建同时成功后才启动发布 job，并只在该 job 注入 `GITEE_TOKEN`。
+5. 创建或修复 Gitee Release，上传 ASCII 名称的 `.exe`、`.exe.sig` 和 `latest.json`。
+6. 从 Release 的公开 URL 重新下载并验证三个附件及安装包 SHA-256。
+7. 首次发布时自动创建 `updater-feed` 分支，再更新分支根目录的 `latest.json`。
+8. 最后重新读取公开 updater feed，确认版本、下载 URL 和签名已正确生效。
 
 不同标签共用同一个 concurrency group，避免较老版本晚于较新版本更新 feed。第一次工作流
 尝试不允许覆盖同版本；手动重新运行失败的 Actions run 时，`github.run_attempt > 1` 会自动

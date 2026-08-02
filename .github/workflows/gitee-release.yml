@@ -24,32 +24,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Build and publish Windows installer
+  validate:
+    name: Validate release source
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
 
     steps:
       - name: Check out tagged source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref }}
 
-      - name: Use latest release script for a manual repair
-        if: github.event_name == 'workflow_dispatch'
-        shell: pwsh
-        run: |
-          git fetch origin main:refs/remotes/origin/main
-          git checkout origin/main -- scripts/publish-gitee.ps1
-
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 10.29.3
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
@@ -63,6 +56,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          shared-key: release
+          save-if: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -76,14 +71,46 @@ jobs:
       - name: Check Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
-      - name: Check Rust
-        run: cargo check --manifest-path src-tauri/Cargo.toml
-
       - name: Run Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Run Rust Clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+
+  build:
+    name: Build signed Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10.29.3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: release
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Build signed Windows installer and updater artifacts
         shell: pwsh
@@ -99,6 +126,42 @@ jobs:
           }
 
           pnpm tauri:build:release
+
+      - name: Upload signed release artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: signed-windows-release
+          path: src-tauri/target/release/bundle/nsis/*-setup.exe*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish and verify Gitee release
+    needs:
+      - validate
+      - build
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref }}
+
+      - name: Use latest release script for a manual repair
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          git fetch origin main:refs/remotes/origin/main
+          git checkout origin/main -- scripts/publish-gitee.ps1
+
+      - name: Download signed release artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: signed-windows-release
+          path: src-tauri/target/release/bundle/nsis
 
       - name: Publish release to Gitee
         shell: pwsh
