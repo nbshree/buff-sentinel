@@ -132,14 +132,16 @@
 
 .buff-assistant-status[data-status='waiting'] .buff-assistant-status__dot,
 .buff-assistant-status[data-status='tracking'] .buff-assistant-status__dot,
-.buff-assistant-status[data-status='prewarning'] .buff-assistant-status__dot {
+.buff-assistant-status[data-status='prewarning'] .buff-assistant-status__dot,
+.buff-assistant-status[data-status='confirming'] .buff-assistant-status__dot {
   background: #d9a632;
   box-shadow: 0 0 14px 5px rgb(217 166 50 / 30%);
 }
 
 .buff-assistant-status[data-status='waiting'],
 .buff-assistant-status[data-status='tracking'],
-.buff-assistant-status[data-status='prewarning'] {
+.buff-assistant-status[data-status='prewarning'],
+.buff-assistant-status[data-status='confirming'] {
   border-color: rgb(201 151 33 / 36%);
   background: rgb(201 151 33 / 10%);
 }
@@ -164,7 +166,8 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 18%, transparent);
 }
 
-.buff-assistant-status[data-status='prewarning'] .buff-assistant-status__dot {
+.buff-assistant-status[data-status='prewarning'] .buff-assistant-status__dot,
+.buff-assistant-status[data-status='confirming'] .buff-assistant-status__dot {
   animation: buff-pulse 0.55s ease-in-out infinite alternate;
 }
 
