@@ -46,6 +46,11 @@
   animation-duration: 0.25s;
 }
 
+.buff-overlay[data-mode='confirming'] {
+  border-color: rgb(255 224 132 / 80%);
+  animation: buff-overlay-confirming 0.7s ease-in-out infinite alternate;
+}
+
 .buff-overlay[data-mode='reset'],
 .buff-overlay[data-mode='targetUnavailable'] {
   border-color: rgb(214 205 184 / 55%);
@@ -134,6 +139,15 @@
       0 0 34px rgb(255 192 48 / 70%),
       inset 0 1px 0 rgb(255 241 190 / 42%);
     filter: brightness(1.16);
+  }
+}
+
+@keyframes buff-overlay-confirming {
+  to {
+    box-shadow:
+      0 0 30px rgb(255 192 48 / 58%),
+      inset 0 1px 0 rgb(255 241 190 / 38%);
+    filter: brightness(1.1);
   }
 }
 

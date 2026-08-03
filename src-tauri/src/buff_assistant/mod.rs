@@ -540,6 +540,7 @@ pub(crate) fn handle_detection_frame(
             TimelinePhase::Waiting => BuffAssistantActivity::Waiting,
             TimelinePhase::Tracking => BuffAssistantActivity::Tracking,
             TimelinePhase::Prewarning => BuffAssistantActivity::Prewarning,
+            TimelinePhase::Confirming => BuffAssistantActivity::Confirming,
         };
         inner.expected_at_unix_ms = inner.timeline.expected_at().map(|expected| {
             now_millis()
@@ -572,7 +573,7 @@ pub(crate) fn handle_detection_frame(
                 if sound.trigger_enabled {
                     state.audio.play(AudioCue::Triggered, sound.volume);
                 }
-                emit_execution_log(app, "真实触发已确认，新的倒计时已开始");
+                emit_execution_log(app, "真实触发已确认，已按实际触发时间校准倒计时");
                 show_countdown_overlay(app, snapshot.expected_at_unix_ms);
             }
             TimelineAction::PrewarnThree => {
@@ -592,6 +593,10 @@ pub(crate) fn handle_detection_frame(
                     state.audio.play(AudioCue::PrewarnOne, sound.volume);
                 }
                 emit_execution_log(app, "倒计时剩余 1 秒");
+            }
+            TimelineAction::ConfirmationPending => {
+                emit_execution_log(app, "倒计时已结束，正在宽限期内等待金周天确认");
+                show_confirming_overlay(app);
             }
             TimelineAction::Reset => {
                 emit_execution_log(app, "截止点未确认金周天，时间轴已重置");
@@ -886,6 +891,32 @@ fn show_countdown_overlay(app: &AppHandle, expected_at_unix_ms: Option<i64>) {
             mode: BuffOverlayMode::Countdown,
             message: "金周天即将触发".into(),
             expected_at_unix_ms,
+            emitted_at_unix_ms: now_millis(),
+            editable: false,
+        },
+    );
+}
+
+fn show_confirming_overlay(app: &AppHandle) {
+    let state = app.state::<BuffAssistant>();
+    {
+        let mut inner = state.lock();
+        if inner.overlay_editing {
+            return;
+        }
+        inner.overlay_generation = inner.overlay_generation.wrapping_add(1);
+    }
+    if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
+        let _ = overlay.set_ignore_cursor_events(true);
+        let _ = overlay.set_focusable(false);
+        let _ = overlay.show();
+    }
+    emit_overlay(
+        app,
+        BuffOverlayState {
+            mode: BuffOverlayMode::Confirming,
+            message: "等待金周天确认".into(),
+            expected_at_unix_ms: None,
             emitted_at_unix_ms: now_millis(),
             editable: false,
         },

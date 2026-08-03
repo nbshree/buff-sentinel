@@ -654,6 +654,7 @@ function describeStatus(activity: string, monitoring: boolean): string {
     waiting: '等待金周天',
     tracking: '20 秒计时中',
     prewarning: '即将触发',
+    confirming: '等待触发确认',
     testing: '模板测试中',
     targetUnavailable: '等待游戏窗口',
     error: '运行异常',

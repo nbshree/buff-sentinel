@@ -168,7 +168,14 @@ export type NormalizedRect = {
 }
 
 export type BuffAssistantActivity =
-  'stopped' | 'waiting' | 'tracking' | 'prewarning' | 'testing' | 'targetUnavailable' | 'error'
+  | 'stopped'
+  | 'waiting'
+  | 'tracking'
+  | 'prewarning'
+  | 'confirming'
+  | 'testing'
+  | 'targetUnavailable'
+  | 'error'
 
 export type BuffTarget = {
   processName: string
@@ -242,7 +249,14 @@ export type BuffCapturePreview = {
 }
 
 export type BuffOverlayMode =
-  'hidden' | 'waiting' | 'triggered' | 'countdown' | 'reset' | 'targetUnavailable' | 'editing'
+  | 'hidden'
+  | 'waiting'
+  | 'triggered'
+  | 'countdown'
+  | 'confirming'
+  | 'reset'
+  | 'targetUnavailable'
+  | 'editing'
 
 export type BuffOverlayState = {
   mode: BuffOverlayMode
