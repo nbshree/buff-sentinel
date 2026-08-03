@@ -275,8 +275,8 @@ function renderVisibleCanvas(
     canvas.width,
     canvas.height
   )
-  context.strokeStyle = 'rgb(255 74 74 / 55%)'
-  context.fillStyle = 'rgb(255 74 74 / 55%)'
+  context.strokeStyle = 'rgb(255 74 74)'
+  context.fillStyle = 'rgb(255 74 74)'
   for (const stroke of draft ? [...strokes, draft] : strokes) drawStroke(context, stroke)
 }
 

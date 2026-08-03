@@ -436,7 +436,12 @@ export function GameRecorderPage({ controller }: GameRecorderPageProps): React.J
                         id="game-loop-mode-count"
                         value="count"
                       />
-                      <Label htmlFor="game-loop-mode-count">指定次数</Label>
+                      <Label
+                        className="peer-data-[state=checked]:text-ui-primary-foreground"
+                        htmlFor="game-loop-mode-count"
+                      >
+                        指定次数
+                      </Label>
                     </div>
                     <div className="relative min-w-0">
                       <RadioGroupItem
@@ -444,7 +449,12 @@ export function GameRecorderPage({ controller }: GameRecorderPageProps): React.J
                         id="game-loop-mode-infinite"
                         value="infinite"
                       />
-                      <Label htmlFor="game-loop-mode-infinite">无限循环</Label>
+                      <Label
+                        className="peer-data-[state=checked]:text-ui-primary-foreground"
+                        htmlFor="game-loop-mode-infinite"
+                      >
+                        无限循环
+                      </Label>
                     </div>
                   </RadioGroup>
                 </div>

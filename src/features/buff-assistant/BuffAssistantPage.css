@@ -40,7 +40,7 @@
   gap: 8px;
   margin: 0;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .buff-execution-log h3 svg {
@@ -65,7 +65,7 @@
   margin: 0 0 5px;
   color: var(--text-secondary);
   font-family: Consolas, 'Courier New', monospace;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
@@ -273,7 +273,7 @@
   display: grid;
   gap: 5px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .buff-settings-grid input,
@@ -284,6 +284,7 @@
   padding: 8px 9px;
   background: var(--surface-input);
   color: var(--text-primary);
+  font-size: 13px;
   outline: none;
 }
 
@@ -310,7 +311,7 @@
   padding: 6px 9px;
   background: color-mix(in srgb, var(--surface-muted) 65%, transparent);
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .buff-toggle-row label {
@@ -326,7 +327,7 @@
   background: transparent;
   color: var(--color-primary);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -550,7 +551,7 @@
 .buff-region-selector__footer p {
   margin: 0;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .buff-region-selector__footer button {
@@ -561,7 +562,7 @@
   background: transparent;
   color: var(--color-primary);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -719,24 +720,26 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border-top: 1px solid var(--border-default);
-  padding: 7px 9px;
-  color: var(--text-muted);
-  font-size: 10px;
+  border-top: 1px solid #334155;
+  padding: 8px 10px;
+  color: #e2e8f0;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .buff-editor-zoom__toolbar button {
   border: 0;
   background: transparent;
-  color: var(--color-primary);
+  color: #93c5fd;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 
 .buff-editor-zoom__toolbar button:disabled {
+  color: #94a3b8;
   cursor: not-allowed;
-  opacity: 0.4;
+  opacity: 1;
 }
 
 .buff-image-editor-dialog__warning {
@@ -764,12 +767,12 @@
 
 .buff-template-test strong {
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .buff-template-test span {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .buff-confidence-track {
