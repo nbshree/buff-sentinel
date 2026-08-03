@@ -209,6 +209,12 @@
     min-height: 0;
   }
 
+  .workspace-switch-error {
+    z-index: 3;
+    flex: none;
+    margin: 0 8px 8px;
+  }
+
   .workspace-view:not([hidden]) {
     display: flex;
   }

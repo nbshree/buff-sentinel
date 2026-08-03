@@ -1,6 +1,6 @@
-import type { TrayWorkspace } from './macro-api'
+import type { Workspace } from './macro-api'
 
-export type WorkspaceView = TrayWorkspace
+export type WorkspaceView = Workspace
 
 export const WORKSPACE_ORDER = [
   'macro',

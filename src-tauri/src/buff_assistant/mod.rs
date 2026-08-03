@@ -414,6 +414,15 @@ pub fn set_buff_overlay_edit_mode(
     state: State<'_, BuffAssistant>,
     enabled: bool,
 ) -> Result<BuffAssistantState, String> {
+    set_buff_overlay_edit_mode_internal(&app, enabled)?;
+    Ok(state.snapshot())
+}
+
+fn set_buff_overlay_edit_mode_internal(
+    app: &AppHandle,
+    enabled: bool,
+) -> Result<BuffAssistantState, String> {
+    let state = app.state::<BuffAssistant>();
     let overlay = app
         .get_webview_window(OVERLAY_LABEL)
         .ok_or_else(|| "Buff 悬浮窗口尚未创建".to_string())?;
@@ -431,7 +440,7 @@ pub fn set_buff_overlay_edit_mode(
             .map_err(|error| error.to_string())?;
         overlay.show().map_err(|error| error.to_string())?;
         emit_overlay(
-            &app,
+            app,
             BuffOverlayState {
                 mode: BuffOverlayMode::Editing,
                 message: "拖动调整提醒位置".into(),
@@ -460,8 +469,17 @@ pub fn set_buff_overlay_edit_mode(
         overlay.hide().map_err(|error| error.to_string())?;
     }
     let snapshot = state.snapshot();
-    emit_state(&app, &snapshot);
+    emit_state(app, &snapshot);
     Ok(snapshot)
+}
+
+pub(crate) fn stop_buff_workspace_activity_internal(app: &AppHandle) -> Result<(), String> {
+    stop_buff_monitor_internal(app);
+    let editing = app.state::<BuffAssistant>().lock().overlay_editing;
+    if editing {
+        set_buff_overlay_edit_mode_internal(app, false)?;
+    }
+    Ok(())
 }
 
 pub(crate) fn handle_capture_frame(app: &AppHandle, purpose: CapturePurpose) {

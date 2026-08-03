@@ -265,7 +265,7 @@ export type WindowSize = {
   height: number
 }
 
-export type TrayWorkspace =
+export type Workspace =
   'macro' | 'gameRecorder' | 'buffAssistant' | 'calculator' | 'towerCalculator'
 
 export type WindowControlsAPI = {
@@ -280,7 +280,7 @@ export type WindowControlsAPI = {
 
 export type MacroAPI = {
   getAppVersion: () => Promise<string>
-  setTrayWorkspace: (workspace: TrayWorkspace) => Promise<void>
+  switchWorkspace: (workspace: Workspace) => Promise<void>
   getState: () => Promise<MacroState>
   startRecording: () => Promise<MacroState>
   stopRecording: () => Promise<MacroState>
@@ -467,8 +467,7 @@ const windowControls: WindowControlsAPI = {
 
 export const macroApi: MacroAPI = {
   getAppVersion: () => callTauri(() => invoke<string>('get_app_version')),
-  setTrayWorkspace: (workspace) =>
-    callTauri(() => invoke<void>('set_tray_workspace', { workspace })),
+  switchWorkspace: (workspace) => callTauri(() => invoke<void>('switch_workspace', { workspace })),
   getState: () => invokeState('get_state'),
   startRecording: () => invokeState('start_recording'),
   stopRecording: () => invokeState('stop_recording'),

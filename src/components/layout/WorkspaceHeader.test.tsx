@@ -11,7 +11,8 @@ import { WorkspaceHeader, type WorkspaceView } from './WorkspaceHeader'
 function renderHeader(
   themeId: ThemeId,
   onOpenTheme = vi.fn(),
-  activeWorkspace: WorkspaceView = 'macro'
+  activeWorkspace: WorkspaceView = 'macro',
+  isSwitchingWorkspace = false
 ) {
   const controller = createMacroController({
     state: createMacroState({ appearance: { themeId, cleanMode: false } })
@@ -27,6 +28,7 @@ function renderHeader(
       themeTriggerRef={createRef<HTMLButtonElement>()}
       updateTriggerRef={createRef<HTMLButtonElement>()}
       isCheckingUpdate={false}
+      isSwitchingWorkspace={isSwitchingWorkspace}
       onWorkspaceChange={onWorkspaceChange}
       onOpenTheme={onOpenTheme}
       onCheckForUpdate={onCheckForUpdate}
@@ -132,6 +134,12 @@ describe('WorkspaceHeader', () => {
 
     expect(onWorkspaceChange).toHaveBeenCalledWith('buffAssistant')
     expect(trigger).toHaveFocus()
+  })
+
+  it('disables the workspace menu while a switch is pending', () => {
+    renderHeader('longyin', vi.fn(), 'macro', true)
+
+    expect(screen.getByRole('button', { name: '切换工作区，当前为宏流程' })).toBeDisabled()
   })
 
   it('closes with Escape and returns focus to the trigger', async () => {

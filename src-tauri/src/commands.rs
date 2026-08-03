@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::{
-    game_recorder, input,
+    input,
     model::{
         AppearancePatch, Hotkeys, KeyModifier, LoopMode, MacroProfile, MacroState, Point,
         PointAction, PointPatch, SettingsPatch, clamp_f64, create_id, default_settings,
@@ -144,8 +144,7 @@ pub fn add_key_point(
             &normalized_key,
             &modifiers,
             &inner.state.settings.hotkeys,
-        ) || game_recorder::key_step_conflicts(&app, &normalized_key, &modifiers)
-        {
+        ) {
             Err(format!(
                 "无法添加键盘步骤：{} 与应用全局热键冲突",
                 format_key_step(&normalized_key, &modifiers)
@@ -249,8 +248,7 @@ pub fn update_point(
                     .unwrap_or_else(|| point.modifiers.clone());
                 if action == PointAction::Key
                     && (virtual_key_code(&key).is_none()
-                        || key_step_conflicts_with_hotkey(&key, &modifiers, &hotkeys)
-                        || game_recorder::key_step_conflicts(&app, &key, &modifiers))
+                        || key_step_conflicts_with_hotkey(&key, &modifiers, &hotkeys))
                 {
                     invalid_key = true;
                 } else {
@@ -416,10 +414,7 @@ pub fn update_settings(
         }
     };
 
-    let mut hotkey_errors = validate_hotkeys(&next_hotkeys);
-    hotkey_errors.extend(game_recorder::validate_macro_hotkeys(&app, &next_hotkeys));
-    hotkey_errors.sort();
-    hotkey_errors.dedup();
+    let hotkey_errors = validate_hotkeys(&next_hotkeys);
     if !hotkey_errors.is_empty() {
         state.lock().state.hotkey_errors = hotkey_errors;
         return state.log(&app, "配置未保存：热键存在冲突");
@@ -471,8 +466,8 @@ pub fn create_profile(app: AppHandle, state: State<'_, AppState>, name: String) 
         }
         let now = now_millis();
         let mut settings = default_settings();
-        // Keep the current, already validated macro hotkeys. Reusing the built-in defaults here
-        // could introduce a conflict with globally configured game-recorder hotkeys.
+        // New profiles inherit the current workspace hotkeys so switching profiles does not
+        // unexpectedly change the user's global shortcut layout.
         settings.hotkeys = inner.state.settings.hotkeys.clone();
         let profile = MacroProfile {
             id: create_id(),
@@ -512,22 +507,6 @@ pub fn switch_profile(app: AppHandle, state: State<'_, AppState>, id: String) ->
     };
     if !should_switch {
         return state.snapshot();
-    }
-    let target_profile = {
-        let inner = state.lock();
-        inner
-            .store
-            .profiles
-            .iter()
-            .find(|profile| profile.id == id)
-            .cloned()
-    };
-    if let Some(profile) = target_profile {
-        let errors = game_recorder::validate_profile(&app, &profile);
-        if !errors.is_empty() {
-            state.replace_hotkey_errors(&app, errors);
-            return state.log(&app, "无法切换方案：该方案与游戏录制热键冲突");
-        }
     }
     state.save_active_profile(&app);
 
@@ -612,14 +591,6 @@ pub fn delete_profile(app: AppHandle, state: State<'_, AppState>, id: String) ->
             })
             .flatten()
     };
-    if let Some(profile) = &fallback_profile {
-        let errors = game_recorder::validate_profile(&app, profile);
-        if !errors.is_empty() {
-            state.replace_hotkey_errors(&app, errors);
-            return state.log(&app, "无法删除当前方案：删除后切入的方案与游戏录制热键冲突");
-        }
-    }
-
     let result = {
         let mut inner = state.lock();
         if !can_edit_flow(&inner) {
@@ -759,11 +730,6 @@ pub async fn import_profile(app: AppHandle) -> MacroState {
     for point in &mut imported.points {
         point.id = create_id();
     }
-    let hotkey_errors = game_recorder::validate_profile(&app, &imported);
-    if !hotkey_errors.is_empty() {
-        state.replace_hotkey_errors(&app, hotkey_errors);
-        return state.log(&app, "导入失败：方案与游戏录制热键冲突");
-    }
     let imported_name = imported.name.clone();
 
     let (store_snapshot, path) = {
@@ -868,6 +834,23 @@ pub(crate) fn stop_run_internal(app: &AppHandle) -> MacroState {
         state.log(app, "停止执行宏流程")
     } else {
         state.snapshot()
+    }
+}
+
+pub(crate) fn stop_macro_workspace_activity_internal(app: &AppHandle) -> MacroState {
+    let state = app.state::<AppState>();
+    let was_recording = {
+        let mut inner = state.lock();
+        inner.is_capturing_key = false;
+        let was_recording = inner.state.is_recording;
+        inner.state.is_recording = false;
+        was_recording
+    };
+    let snapshot = stop_run_internal(app);
+    if was_recording {
+        state.log(app, "切换工作区，停止录制坐标")
+    } else {
+        snapshot
     }
 }
 

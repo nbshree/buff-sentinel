@@ -9,6 +9,7 @@ import { ProfilePanel } from './components/panels/ProfilePanel'
 import { SettingsPanel } from './components/panels/SettingsPanel'
 import { ThemeBackground, ThemeDialog } from './components/theme'
 import { UpdateDialog } from './components/update/UpdateDialog'
+import { Alert, AlertDescription } from './components/ui/alert'
 import { TooltipProvider } from './components/ui/tooltip'
 import { GameRecorderPage } from './features/game-recorder'
 import { InternalSkillCalculatorPage } from './features/internal-skill-calculator'
@@ -37,7 +38,9 @@ function App(): React.JSX.Element {
   const buffAssistantController = useBuffAssistantController()
   const gameActivityBusy = gameRecorderController.state.activity !== 'idle'
   const macroUiController = gameActivityBusy ? { ...controller, isEditingLocked: true } : controller
-  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>(loadWorkspacePreference)
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>('macro')
+  const [workspaceSwitching, setWorkspaceSwitching] = useState(false)
+  const [workspaceSwitchError, setWorkspaceSwitchError] = useState<string | null>(null)
   const [themeDialogOpen, setThemeDialogOpen] = useState(false)
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const themeTriggerRef = useRef<HTMLButtonElement>(null)
@@ -74,19 +77,37 @@ function App(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
-    saveWorkspacePreference(activeWorkspace)
-    void window.api.setTrayWorkspace(activeWorkspace).catch((error: unknown) => {
-      console.error('更新托盘菜单失败', error)
-    })
-  }, [activeWorkspace])
-
-  useEffect(() => {
     if (!gameActivityBusy) return
     controller.stopHotkeyCapture()
     controller.closeKeyStepEditor()
     controller.setCapturingPointKeyId(null)
     void window.api.setKeyCapture(false)
   }, [gameActivityBusy])
+
+  async function switchWorkspace(workspace: WorkspaceView): Promise<void> {
+    if (workspace === activeWorkspace || workspaceSwitching) return
+
+    setWorkspaceSwitching(true)
+    setWorkspaceSwitchError(null)
+    controller.stopHotkeyCapture()
+    gameRecorderController.stopHotkeyCapture()
+    try {
+      await window.api.switchWorkspace(workspace)
+      setActiveWorkspace(workspace)
+      saveWorkspacePreference(workspace)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      setWorkspaceSwitchError(`无法切换工作区：${message}`)
+      console.error('切换工作区失败', error)
+    } finally {
+      setWorkspaceSwitching(false)
+    }
+  }
+
+  useEffect(() => {
+    const preferredWorkspace = loadWorkspacePreference()
+    if (preferredWorkspace !== 'macro') void switchWorkspace(preferredWorkspace)
+  }, [])
 
   return (
     <ThemeProvider appearance={controller.state.appearance}>
@@ -105,10 +126,16 @@ function App(): React.JSX.Element {
                 themeTriggerRef={themeTriggerRef}
                 updateTriggerRef={updateTriggerRef}
                 isCheckingUpdate={updater.status === 'checking'}
-                onWorkspaceChange={setActiveWorkspace}
+                isSwitchingWorkspace={workspaceSwitching}
+                onWorkspaceChange={(workspace) => void switchWorkspace(workspace)}
                 onOpenTheme={() => setThemeDialogOpen(true)}
                 onCheckForUpdate={() => void updater.checkForUpdate()}
               />
+              {workspaceSwitchError ? (
+                <Alert className="workspace-switch-error" variant="destructive">
+                  <AlertDescription>{workspaceSwitchError}</AlertDescription>
+                </Alert>
+              ) : null}
               <section
                 className="workspace-view"
                 id="buff-assistant-workspace"

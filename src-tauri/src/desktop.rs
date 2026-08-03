@@ -4,6 +4,8 @@ use tauri::{
     tray::{TrayIconBuilder, TrayIconEvent},
 };
 
+use std::sync::{Mutex, MutexGuard};
+
 use serde::Deserialize;
 
 use crate::{buff_assistant, commands, game_recorder, shortcuts, state::AppState};
@@ -16,14 +18,35 @@ const MENU_STOP_BUFF_MONITOR: &str = "stop-buff-monitor";
 const MENU_QUIT: &str = "quit";
 const TRAY_ID: &str = "main-tray";
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum Workspace {
+    #[default]
     Macro,
     GameRecorder,
     BuffAssistant,
     Calculator,
     TowerCalculator,
+}
+
+pub struct WorkspaceState(Mutex<Workspace>);
+
+impl Default for WorkspaceState {
+    fn default() -> Self {
+        Self(Mutex::new(Workspace::default()))
+    }
+}
+
+impl WorkspaceState {
+    fn lock(&self) -> MutexGuard<'_, Workspace> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn active(&self) -> Workspace {
+        *self.lock()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,12 +56,27 @@ enum TrayMenuKind {
     Common,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShortcutKind {
+    Macro,
+    GameRecorder,
+    None,
+}
+
 impl Workspace {
     fn menu_kind(self) -> TrayMenuKind {
         match self {
             Self::Macro => TrayMenuKind::Macro,
             Self::BuffAssistant => TrayMenuKind::BuffAssistant,
             Self::GameRecorder | Self::Calculator | Self::TowerCalculator => TrayMenuKind::Common,
+        }
+    }
+
+    pub(crate) fn shortcut_kind(self) -> ShortcutKind {
+        match self {
+            Self::Macro => ShortcutKind::Macro,
+            Self::GameRecorder => ShortcutKind::GameRecorder,
+            Self::BuffAssistant | Self::Calculator | Self::TowerCalculator => ShortcutKind::None,
         }
     }
 }
@@ -78,9 +116,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 commands::start_run_internal(app);
             }
             MENU_STOP => {
-                commands::stop_run_internal(app);
-                game_recorder::stop_game_activity_internal(app);
-                buff_assistant::stop_buff_monitor_internal(app);
+                commands::stop_macro_workspace_activity_internal(app);
             }
             MENU_START_BUFF_MONITOR => {
                 let _ = buff_assistant::start_buff_monitor_internal(app);
@@ -102,12 +138,47 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
 }
 
 #[tauri::command]
-pub fn set_tray_workspace(app: AppHandle, workspace: Workspace) -> Result<(), String> {
+pub fn switch_workspace(app: AppHandle, workspace: Workspace) -> Result<(), String> {
+    let workspace_state = app.state::<WorkspaceState>();
+    let current = workspace_state.active();
+    if current == workspace {
+        return Ok(());
+    }
+
+    app.state::<AppState>().lock().is_capturing_key = false;
+    stop_workspace_activity(&app, current)?;
+
     let menu = create_tray_menu(&app, workspace).map_err(|error| error.to_string())?;
     let tray = app
         .tray_by_id(TRAY_ID)
         .ok_or_else(|| "主托盘图标尚未创建".to_string())?;
-    tray.set_menu(Some(menu)).map_err(|error| error.to_string())
+    tray.set_menu(Some(menu))
+        .map_err(|error| error.to_string())?;
+
+    *workspace_state.lock() = workspace;
+    shortcuts::register_shortcuts(&app);
+    Ok(())
+}
+
+fn stop_workspace_activity(app: &AppHandle, workspace: Workspace) -> Result<(), String> {
+    match workspace {
+        Workspace::Macro => {
+            commands::stop_macro_workspace_activity_internal(app);
+        }
+        Workspace::GameRecorder => {
+            let snapshot = game_recorder::stop_game_activity_internal(app);
+            if snapshot.activity != game_recorder::GameRecorderActivity::Idle {
+                return Err(snapshot.last_error.unwrap_or_else(|| {
+                    "游戏任务尚未安全停止，请再次停止或使用紧急停止热键".into()
+                }));
+            }
+        }
+        Workspace::BuffAssistant => {
+            buff_assistant::stop_buff_workspace_activity_internal(app)?;
+        }
+        Workspace::Calculator | Workspace::TowerCalculator => {}
+    }
+    Ok(())
 }
 
 pub fn show_main_window(app: &AppHandle) {
@@ -119,7 +190,7 @@ pub fn show_main_window(app: &AppHandle) {
 }
 
 pub fn quit_app(app: &AppHandle) {
-    commands::stop_run_internal(app);
+    commands::stop_macro_workspace_activity_internal(app);
     game_recorder::stop_game_activity_internal(app);
     buff_assistant::stop_buff_monitor_internal(app);
     {
@@ -132,7 +203,7 @@ pub fn quit_app(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::{TrayMenuKind, Workspace};
+    use super::{ShortcutKind, TrayMenuKind, Workspace};
 
     #[test]
     fn workspace_uses_the_expected_tray_menu() {
@@ -153,5 +224,20 @@ mod tests {
             Ok(Workspace::BuffAssistant)
         ));
         assert!(serde_json::from_str::<Workspace>("\"unknown\"").is_err());
+    }
+
+    #[test]
+    fn workspace_selects_only_its_own_shortcut_group() {
+        assert_eq!(Workspace::Macro.shortcut_kind(), ShortcutKind::Macro);
+        assert_eq!(
+            Workspace::GameRecorder.shortcut_kind(),
+            ShortcutKind::GameRecorder
+        );
+        assert_eq!(Workspace::BuffAssistant.shortcut_kind(), ShortcutKind::None);
+        assert_eq!(Workspace::Calculator.shortcut_kind(), ShortcutKind::None);
+        assert_eq!(
+            Workspace::TowerCalculator.shortcut_kind(),
+            ShortcutKind::None
+        );
     }
 }

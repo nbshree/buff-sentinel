@@ -15,8 +15,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::{
     input,
     model::{
-        EMERGENCY_STOP_HOTKEY, Hotkeys, KeyModifier, LoopMode, MacroProfile, Point, PointAction,
-        create_id, normalize_hotkey, now_millis, truncate_chars,
+        EMERGENCY_STOP_HOTKEY, LoopMode, create_id, normalize_hotkey, now_millis, truncate_chars,
     },
     raw_input::{self, RawInputEvent, RawInputKind, RawMouseButton},
     shortcuts,
@@ -635,48 +634,7 @@ pub fn update_game_recorder_hotkeys(
         stop: normalize_hotkey(&hotkeys.stop),
         playback_start: normalize_hotkey(&hotkeys.playback_start),
     };
-    let profiles = {
-        let app_state = app.state::<AppState>();
-        let inner = app_state.lock();
-        inner
-            .store
-            .profiles
-            .iter()
-            .map(|profile| {
-                if profile.id == inner.state.active_profile_id {
-                    (
-                        profile.name.clone(),
-                        inner.state.settings.hotkeys.clone(),
-                        inner.state.points.clone(),
-                    )
-                } else {
-                    (
-                        profile.name.clone(),
-                        profile.settings.hotkeys.clone(),
-                        profile.points.clone(),
-                    )
-                }
-            })
-            .collect::<Vec<_>>()
-    };
-    let mut errors = Vec::new();
-    for (profile_name, macro_hotkeys, points) in profiles {
-        errors.extend(
-            validate_hotkey_set(&macro_hotkeys, &hotkeys)
-                .into_iter()
-                .map(|error| format!("方案“{profile_name}”：{error}")),
-        );
-        if points
-            .iter()
-            .any(|point| point_conflicts_with_game_hotkeys(point, &hotkeys))
-        {
-            errors.push(format!(
-                "方案“{profile_name}”：游戏录制热键与宏流程中的键盘步骤冲突"
-            ));
-        }
-    }
-    errors.sort();
-    errors.dedup();
+    let errors = validate_game_hotkeys(&hotkeys);
     if !errors.is_empty() {
         let snapshot = {
             let mut inner = state.lock();
@@ -892,40 +850,6 @@ pub(crate) fn stop_game_activity_from_hotkey(
 
 pub(crate) fn hotkeys(app: &AppHandle) -> GameRecorderHotkeys {
     app.state::<GameRecorder>().lock().state.hotkeys.clone()
-}
-
-pub(crate) fn validate_macro_hotkeys(app: &AppHandle, macro_hotkeys: &Hotkeys) -> Vec<String> {
-    let game_hotkeys = hotkeys(app);
-    validate_hotkey_set(macro_hotkeys, &game_hotkeys)
-}
-
-pub(crate) fn validate_profile(app: &AppHandle, profile: &MacroProfile) -> Vec<String> {
-    let game_hotkeys = hotkeys(app);
-    let mut errors = validate_hotkey_set(&profile.settings.hotkeys, &game_hotkeys);
-    if profile
-        .points
-        .iter()
-        .any(|point| point_conflicts_with_game_hotkeys(point, &game_hotkeys))
-    {
-        errors.push("方案中的键盘步骤与游戏录制热键冲突".into());
-    }
-    errors.sort();
-    errors.dedup();
-    errors
-}
-
-pub(crate) fn key_step_conflicts(app: &AppHandle, key: &str, modifiers: &[KeyModifier]) -> bool {
-    let accelerator = modifiers
-        .iter()
-        .map(|modifier| modifier.accelerator_label())
-        .chain(std::iter::once(key))
-        .collect::<Vec<_>>()
-        .join("+");
-    let requested = canonical_hotkey(&accelerator);
-    let hotkeys = hotkeys(app);
-    [hotkeys.record_start, hotkeys.stop, hotkeys.playback_start]
-        .iter()
-        .any(|hotkey| canonical_hotkey(hotkey) == requested)
 }
 
 fn recording_countdown(app: AppHandle, token: u64) {
@@ -1754,11 +1678,8 @@ fn sanitize_speed(speed: f64) -> f64 {
         .unwrap_or(1.0)
 }
 
-fn validate_hotkey_set(macro_hotkeys: &Hotkeys, game_hotkeys: &GameRecorderHotkeys) -> Vec<String> {
+fn validate_game_hotkeys(game_hotkeys: &GameRecorderHotkeys) -> Vec<String> {
     let entries = [
-        ("采集坐标", macro_hotkeys.capture.as_str()),
-        ("开始执行宏", macro_hotkeys.start.as_str()),
-        ("停止执行宏", macro_hotkeys.stop.as_str()),
         ("开始游戏录制", game_hotkeys.record_start.as_str()),
         ("停止游戏任务", game_hotkeys.stop.as_str()),
         ("开始游戏回放", game_hotkeys.playback_start.as_str()),
@@ -1801,27 +1722,6 @@ fn canonical_hotkey(accelerator: &str) -> String {
         .collect::<Vec<_>>();
     parts.sort();
     parts.join("+")
-}
-
-fn point_conflicts_with_game_hotkeys(point: &Point, game_hotkeys: &GameRecorderHotkeys) -> bool {
-    if point.action != PointAction::Key {
-        return false;
-    }
-    let accelerator = point
-        .modifiers
-        .iter()
-        .map(|modifier| modifier.accelerator_label())
-        .chain(std::iter::once(point.key.as_str()))
-        .collect::<Vec<_>>()
-        .join("+");
-    let requested = canonical_hotkey(&accelerator);
-    [
-        &game_hotkeys.record_start,
-        &game_hotkeys.stop,
-        &game_hotkeys.playback_start,
-    ]
-    .iter()
-    .any(|hotkey| canonical_hotkey(hotkey) == requested)
 }
 
 fn trim_hotkey_tail(events: &mut Vec<GameRecordedEvent>, hotkey: &str, duration_ms: u64) {
@@ -3033,13 +2933,14 @@ mod tests {
     }
 
     #[test]
-    fn game_hotkeys_conflict_with_macro_and_reserved_shortcuts() {
+    fn game_hotkeys_allow_macro_shortcuts_but_reject_reserved_shortcuts() {
         let macro_hotkeys = crate::model::default_settings().hotkeys;
         let mut game = default_hotkeys();
         game.record_start = macro_hotkeys.start.clone();
         game.stop = EMERGENCY_STOP_HOTKEY.into();
-        let errors = validate_hotkey_set(&macro_hotkeys, &game);
-        assert_eq!(errors.len(), 2);
+        let errors = validate_game_hotkeys(&game);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("紧急停止"));
     }
 
     #[test]
@@ -3754,11 +3655,10 @@ mod tests {
             canonical_hotkey("Control+Alt+Escape"),
             canonical_hotkey("Alt+Ctrl+Esc")
         );
-        let macro_hotkeys = crate::model::default_settings().hotkeys;
         let mut game = default_hotkeys();
         game.stop = "Control+Alt+Escape".into();
         assert!(
-            validate_hotkey_set(&macro_hotkeys, &game)
+            validate_game_hotkeys(&game)
                 .iter()
                 .any(|error| error.contains("紧急停止"))
         );

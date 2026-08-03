@@ -41,6 +41,7 @@ pub fn run() {
             app.manage(AppState::new(profile_file, loaded.store));
             app.manage(game_state);
             app.manage(buff_state);
+            app.manage(desktop::WorkspaceState::default());
             app.manage(updater::PendingUpdate::default());
 
             let state = app.state::<AppState>();
@@ -73,7 +74,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_app_version,
-            desktop::set_tray_workspace,
+            desktop::switch_workspace,
             commands::get_state,
             commands::update_appearance,
             commands::start_recording,
@@ -133,7 +134,7 @@ pub fn run() {
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => desktop::show_main_window(app),
         RunEvent::Exit => {
-            commands::stop_run_internal(app);
+            commands::stop_macro_workspace_activity_internal(app);
             game_recorder::stop_game_activity_internal(app);
             buff_assistant::stop_buff_monitor_internal(app);
             shortcuts::unregister_all(app);

@@ -38,6 +38,7 @@ type WorkspaceHeaderProps = {
   themeTriggerRef: RefObject<HTMLButtonElement | null>
   updateTriggerRef: RefObject<HTMLButtonElement | null>
   isCheckingUpdate: boolean
+  isSwitchingWorkspace: boolean
   onWorkspaceChange: (workspace: WorkspaceView) => void
   onOpenTheme: () => void
   onCheckForUpdate: () => void
@@ -86,6 +87,7 @@ export function WorkspaceHeader({
   themeTriggerRef,
   updateTriggerRef,
   isCheckingUpdate,
+  isSwitchingWorkspace,
   onWorkspaceChange,
   onOpenTheme,
   onCheckForUpdate
@@ -96,7 +98,7 @@ export function WorkspaceHeader({
   const label = workspaceLabels[activeWorkspace]
 
   function handleWorkspaceChange(workspace: string): void {
-    if (isWorkspaceView(workspace)) onWorkspaceChange(workspace)
+    if (!isSwitchingWorkspace && isWorkspaceView(workspace)) onWorkspaceChange(workspace)
   }
 
   return (
@@ -116,6 +118,7 @@ export function WorkspaceHeader({
                 variant="ghost"
                 size="icon-lg"
                 aria-label={`切换工作区，当前为${label.menuLabel}`}
+                disabled={isSwitchingWorkspace}
               >
                 <ChevronDown aria-hidden="true" />
               </Button>
@@ -127,7 +130,11 @@ export function WorkspaceHeader({
                   const Icon = item.icon
 
                   return (
-                    <DropdownMenuRadioItem key={workspace} value={workspace}>
+                    <DropdownMenuRadioItem
+                      key={workspace}
+                      value={workspace}
+                      disabled={isSwitchingWorkspace}
+                    >
                       <Icon aria-hidden="true" />
                       <span>{item.menuLabel}</span>
                     </DropdownMenuRadioItem>

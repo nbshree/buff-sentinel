@@ -224,7 +224,7 @@ export function createMacroApi(
   }
   return {
     getAppVersion: vi.fn<MacroAPI['getAppVersion']>(async () => '1.8.1'),
-    setTrayWorkspace: vi.fn<MacroAPI['setTrayWorkspace']>(async () => undefined),
+    switchWorkspace: vi.fn<MacroAPI['switchWorkspace']>(async () => undefined),
     getState: vi.fn(async () => state),
     startRecording: vi.fn(async () => state),
     stopRecording: vi.fn(async () => state),
