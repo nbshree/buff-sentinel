@@ -1,19 +1,35 @@
 import {
   Calculator,
   Castle,
+  ChevronDown,
   Gamepad2,
   LoaderCircle,
   Palette,
   Radar,
   RefreshCw,
   Sparkles,
-  Workflow
+  Workflow,
+  type LucideIcon
 } from 'lucide-react'
-import type { KeyboardEvent, RefObject } from 'react'
+import type { RefObject } from 'react'
 
 import type { MacroController } from '../../hooks/useMacroController'
+import {
+  isWorkspaceView,
+  WORKSPACE_ORDER,
+  type WorkspaceView
+} from '../../lib/workspace-preference'
 import { getThemeDefinition, normalizeAppearance } from '../../themes'
 import { Button } from '../ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger
+} from '../ui/dropdown-menu'
+
+export type { WorkspaceView } from '../../lib/workspace-preference'
 
 type WorkspaceHeaderProps = {
   controller: MacroController
@@ -27,44 +43,39 @@ type WorkspaceHeaderProps = {
   onCheckForUpdate: () => void
 }
 
-export type WorkspaceView =
-  'macro' | 'gameRecorder' | 'buffAssistant' | 'calculator' | 'towerCalculator'
-
-const workspaceOrder: readonly WorkspaceView[] = [
-  'macro',
-  'gameRecorder',
-  'buffAssistant',
-  'calculator',
-  'towerCalculator'
-]
-const workspaceTabIds: Record<WorkspaceView, string> = {
-  macro: 'workspace-tab-macro',
-  gameRecorder: 'workspace-tab-game-recorder',
-  buffAssistant: 'workspace-tab-buff-assistant',
-  calculator: 'workspace-tab-calculator',
-  towerCalculator: 'workspace-tab-tower-calculator'
-}
-
-const workspaceLabels: Record<WorkspaceView, { title: string; subtitle: string }> = {
+const workspaceLabels: Record<
+  WorkspaceView,
+  { title: string; subtitle: string; menuLabel: string; icon: LucideIcon }
+> = {
   macro: {
     title: '自动点击流程台',
-    subtitle: '自动化流程管理'
+    subtitle: '自动化流程管理',
+    menuLabel: '宏流程',
+    icon: Workflow
   },
   gameRecorder: {
     title: '游戏操作录制',
-    subtitle: '相对鼠标与键盘时间轴录制回放'
+    subtitle: '相对鼠标与键盘时间轴录制回放',
+    menuLabel: '游戏录制',
+    icon: Gamepad2
   },
   buffAssistant: {
     title: '金周天 Buff 助手',
-    subtitle: '屏幕识别、固定时间轴与悬浮预警'
+    subtitle: '屏幕识别、固定时间轴与悬浮预警',
+    menuLabel: 'Buff 助手',
+    icon: Radar
   },
   calculator: {
     title: '防守内功评估',
-    subtitle: '词条、特性与周天收益分析'
+    subtitle: '词条、特性与周天收益分析',
+    menuLabel: '防守内功',
+    icon: Calculator
   },
   towerCalculator: {
     title: '拆塔内功评估',
-    subtitle: '双套抗拆、空拆与周天收益对比'
+    subtitle: '双套抗拆、空拆与周天收益对比',
+    menuLabel: '拆塔评估',
+    icon: Castle
   }
 }
 
@@ -84,23 +95,8 @@ export function WorkspaceHeader({
   const theme = getThemeDefinition(appearance.themeId)
   const label = workspaceLabels[activeWorkspace]
 
-  function handleWorkspaceKeyDown(event: KeyboardEvent<HTMLButtonElement>): void {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-
-    event.preventDefault()
-    const currentIndex = workspaceOrder.indexOf(activeWorkspace)
-    const nextWorkspace =
-      event.key === 'Home'
-        ? workspaceOrder[0]
-        : event.key === 'End'
-          ? workspaceOrder[workspaceOrder.length - 1]
-          : workspaceOrder[
-              (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + workspaceOrder.length) %
-                workspaceOrder.length
-            ]
-
-    onWorkspaceChange(nextWorkspace)
-    document.getElementById(workspaceTabIds[nextWorkspace])?.focus()
+  function handleWorkspaceChange(workspace: string): void {
+    if (isWorkspaceView(workspace)) onWorkspaceChange(workspace)
   }
 
   return (
@@ -110,91 +106,38 @@ export function WorkspaceHeader({
           <span>Shree Macro Flow</span>
           <span className="workspace-brand__author">作者 小踢踢</span>
         </div>
-        <h1>{label.title}</h1>
-        <p>{label.subtitle}</p>
-      </div>
+        <h1 id="workspace-title">
+          <span>{label.title}</span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                className="workspace-menu-trigger"
+                type="button"
+                variant="ghost"
+                size="icon-lg"
+                aria-label={`切换工作区，当前为${label.menuLabel}`}
+              >
+                <ChevronDown aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" aria-label="工作区">
+              <DropdownMenuRadioGroup value={activeWorkspace} onValueChange={handleWorkspaceChange}>
+                {WORKSPACE_ORDER.map((workspace) => {
+                  const item = workspaceLabels[workspace]
+                  const Icon = item.icon
 
-      <div className="workspace-switcher" role="tablist" aria-label="工作区">
-        <Button
-          className="workspace-switcher__tab"
-          data-active={activeWorkspace === 'macro'}
-          id="workspace-tab-macro"
-          type="button"
-          role="tab"
-          variant="ghost"
-          aria-controls="macro-workspace"
-          aria-selected={activeWorkspace === 'macro'}
-          tabIndex={activeWorkspace === 'macro' ? 0 : -1}
-          onKeyDown={handleWorkspaceKeyDown}
-          onClick={() => onWorkspaceChange('macro')}
-        >
-          <Workflow aria-hidden="true" />
-          <span>宏流程</span>
-        </Button>
-        <Button
-          className="workspace-switcher__tab"
-          data-active={activeWorkspace === 'gameRecorder'}
-          id="workspace-tab-game-recorder"
-          type="button"
-          role="tab"
-          variant="ghost"
-          aria-controls="game-recorder-workspace"
-          aria-selected={activeWorkspace === 'gameRecorder'}
-          tabIndex={activeWorkspace === 'gameRecorder' ? 0 : -1}
-          onKeyDown={handleWorkspaceKeyDown}
-          onClick={() => onWorkspaceChange('gameRecorder')}
-        >
-          <Gamepad2 aria-hidden="true" />
-          <span>游戏录制</span>
-        </Button>
-        <Button
-          className="workspace-switcher__tab"
-          data-active={activeWorkspace === 'buffAssistant'}
-          id="workspace-tab-buff-assistant"
-          type="button"
-          role="tab"
-          variant="ghost"
-          aria-controls="buff-assistant-workspace"
-          aria-selected={activeWorkspace === 'buffAssistant'}
-          tabIndex={activeWorkspace === 'buffAssistant' ? 0 : -1}
-          onKeyDown={handleWorkspaceKeyDown}
-          onClick={() => onWorkspaceChange('buffAssistant')}
-        >
-          <Radar aria-hidden="true" />
-          <span>Buff 助手</span>
-        </Button>
-        <Button
-          className="workspace-switcher__tab"
-          data-active={activeWorkspace === 'calculator'}
-          id="workspace-tab-calculator"
-          type="button"
-          role="tab"
-          variant="ghost"
-          aria-controls="calculator-workspace"
-          aria-selected={activeWorkspace === 'calculator'}
-          tabIndex={activeWorkspace === 'calculator' ? 0 : -1}
-          onKeyDown={handleWorkspaceKeyDown}
-          onClick={() => onWorkspaceChange('calculator')}
-        >
-          <Calculator aria-hidden="true" />
-          <span>防守内功</span>
-        </Button>
-        <Button
-          className="workspace-switcher__tab"
-          data-active={activeWorkspace === 'towerCalculator'}
-          id="workspace-tab-tower-calculator"
-          type="button"
-          role="tab"
-          variant="ghost"
-          aria-controls="tower-calculator-workspace"
-          aria-selected={activeWorkspace === 'towerCalculator'}
-          tabIndex={activeWorkspace === 'towerCalculator' ? 0 : -1}
-          onKeyDown={handleWorkspaceKeyDown}
-          onClick={() => onWorkspaceChange('towerCalculator')}
-        >
-          <Castle aria-hidden="true" />
-          <span>拆塔评估</span>
-        </Button>
+                  return (
+                    <DropdownMenuRadioItem key={workspace} value={workspace}>
+                      <Icon aria-hidden="true" />
+                      <span>{item.menuLabel}</span>
+                    </DropdownMenuRadioItem>
+                  )
+                })}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </h1>
+        <p>{label.subtitle}</p>
       </div>
 
       <div className="workspace-header__actions">

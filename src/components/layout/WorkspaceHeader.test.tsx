@@ -77,99 +77,79 @@ describe('WorkspaceHeader', () => {
     expect(onCheckForUpdate).toHaveBeenCalledTimes(1)
   })
 
-  it('switches to the calculator workspace from the top-level tabs', async () => {
+  it('opens the workspace menu from the title arrow', async () => {
     const user = userEvent.setup()
-    const { onWorkspaceChange } = renderHeader('longyin')
+    renderHeader('longyin')
 
-    await user.click(screen.getByRole('tab', { name: '防守内功' }))
+    await user.click(screen.getByRole('button', { name: '切换工作区，当前为宏流程' }))
 
-    expect(onWorkspaceChange).toHaveBeenCalledWith('calculator')
+    expect(screen.getByRole('menu')).toBeInTheDocument()
   })
 
-  it('switches to the game recorder workspace from the top-level tabs', async () => {
+  it('shows workspaces in the requested order', async () => {
     const user = userEvent.setup()
-    const { onWorkspaceChange } = renderHeader('longyin')
+    renderHeader('longyin')
 
-    await user.click(screen.getByRole('tab', { name: '游戏录制' }))
+    await user.click(screen.getByRole('button', { name: '切换工作区，当前为宏流程' }))
 
-    expect(onWorkspaceChange).toHaveBeenCalledWith('gameRecorder')
+    expect(screen.getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
+      '宏流程',
+      'Buff 助手',
+      '游戏录制',
+      '防守内功',
+      '拆塔评估'
+    ])
   })
 
-  it('switches to the tower calculator workspace from the top-level tabs', async () => {
+  it('marks the active workspace and switches from a menu item', async () => {
     const user = userEvent.setup()
     const { onWorkspaceChange } = renderHeader('longyin')
 
-    await user.click(screen.getByRole('tab', { name: '拆塔评估' }))
+    await user.click(screen.getByRole('button', { name: '切换工作区，当前为宏流程' }))
+
+    expect(screen.getByRole('menuitemradio', { name: '宏流程' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    )
+    expect(screen.getByRole('menuitemradio', { name: 'Buff 助手' })).toHaveAttribute(
+      'aria-checked',
+      'false'
+    )
+
+    await user.click(screen.getByRole('menuitemradio', { name: '拆塔评估' }))
 
     expect(onWorkspaceChange).toHaveBeenCalledWith('towerCalculator')
   })
 
-  it('supports arrow-key navigation between workspace tabs', async () => {
+  it('supports keyboard navigation and selection', async () => {
     const user = userEvent.setup()
     const { onWorkspaceChange } = renderHeader('longyin')
+    const trigger = screen.getByRole('button', { name: '切换工作区，当前为宏流程' })
 
-    const macroTab = screen.getByRole('tab', { name: '宏流程' })
-    macroTab.focus()
-    await user.keyboard('{ArrowRight}')
+    trigger.focus()
+    await user.keyboard('{Enter}')
+    await user.keyboard('{ArrowDown}{Enter}')
 
-    expect(onWorkspaceChange).toHaveBeenCalledWith('gameRecorder')
-    expect(screen.getByRole('tab', { name: '游戏录制' })).toHaveFocus()
+    expect(onWorkspaceChange).toHaveBeenCalledWith('buffAssistant')
+    expect(trigger).toHaveFocus()
   })
 
-  it('cycles through four workspace tabs with the arrow keys', async () => {
+  it('closes with Escape and returns focus to the trigger', async () => {
     const user = userEvent.setup()
-    const { onWorkspaceChange } = renderHeader('longyin', vi.fn(), 'towerCalculator')
+    renderHeader('longyin')
+    const trigger = screen.getByRole('button', { name: '切换工作区，当前为宏流程' })
 
-    const towerTab = screen.getByRole('tab', { name: '拆塔评估' })
-    towerTab.focus()
-    await user.keyboard('{ArrowRight}')
+    await user.click(trigger)
+    await user.keyboard('{Escape}')
 
-    expect(onWorkspaceChange).toHaveBeenLastCalledWith('macro')
-    expect(screen.getByRole('tab', { name: '宏流程' })).toHaveFocus()
-
-    towerTab.focus()
-    await user.keyboard('{ArrowLeft}')
-
-    expect(onWorkspaceChange).toHaveBeenLastCalledWith('calculator')
-    expect(screen.getByRole('tab', { name: '防守内功' })).toHaveFocus()
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
   })
 
-  it('moves to the first and last workspace tabs with Home and End', async () => {
-    const user = userEvent.setup()
-    const { onWorkspaceChange } = renderHeader('longyin', vi.fn(), 'calculator')
-    const calculatorTab = screen.getByRole('tab', { name: '防守内功' })
-
-    calculatorTab.focus()
-    await user.keyboard('{Home}')
-
-    expect(onWorkspaceChange).toHaveBeenLastCalledWith('macro')
-    expect(screen.getByRole('tab', { name: '宏流程' })).toHaveFocus()
-
-    calculatorTab.focus()
-    await user.keyboard('{End}')
-
-    expect(onWorkspaceChange).toHaveBeenLastCalledWith('towerCalculator')
-    expect(screen.getByRole('tab', { name: '拆塔评估' })).toHaveFocus()
-  })
-
-  it('exposes a roving tab stop and matching panel relationships', () => {
+  it('uses the active workspace label in the heading and trigger name', () => {
     renderHeader('longyin', vi.fn(), 'towerCalculator')
 
-    const tabs = screen.getAllByRole('tab')
-    expect(tabs).toHaveLength(5)
-    expect(tabs.map((tab) => tab.getAttribute('aria-controls'))).toEqual([
-      'macro-workspace',
-      'game-recorder-workspace',
-      'buff-assistant-workspace',
-      'calculator-workspace',
-      'tower-calculator-workspace'
-    ])
-    expect(screen.getByRole('tab', { name: '拆塔评估' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tab', { name: '拆塔评估' })).toHaveAttribute('tabindex', '0')
-    expect(screen.getByRole('tab', { name: '宏流程' })).toHaveAttribute('tabindex', '-1')
-    expect(screen.getByRole('tab', { name: '游戏录制' })).toHaveAttribute('tabindex', '-1')
-    expect(screen.getByRole('tab', { name: 'Buff 助手' })).toHaveAttribute('tabindex', '-1')
-    expect(screen.getByRole('tab', { name: '防守内功' })).toHaveAttribute('tabindex', '-1')
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('拆塔内功评估')
+    expect(screen.getByRole('button', { name: '切换工作区，当前为拆塔评估' })).toBeInTheDocument()
   })
 })

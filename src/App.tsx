@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import { WindowTitleBar } from './components/layout/WindowTitleBar'
-import { WorkspaceHeader, type WorkspaceView } from './components/layout/WorkspaceHeader'
+import { WorkspaceHeader } from './components/layout/WorkspaceHeader'
 import { ControlPanel } from './components/panels/ControlPanel'
 import { FlowPanel } from './components/panels/FlowPanel'
 import { LogPanel } from './components/panels/LogPanel'
@@ -18,6 +18,11 @@ import { useBuffAssistantController } from './hooks/useBuffAssistantController'
 import { useGameRecorderController } from './hooks/useGameRecorderController'
 import { useMacroController } from './hooks/useMacroController'
 import { getInstallBlockedReason } from './lib/install-blocking'
+import {
+  loadWorkspacePreference,
+  saveWorkspacePreference,
+  type WorkspaceView
+} from './lib/workspace-preference'
 import { ThemeProvider } from './themes'
 
 const BuffAssistantPage = lazy(() =>
@@ -32,7 +37,7 @@ function App(): React.JSX.Element {
   const buffAssistantController = useBuffAssistantController()
   const gameActivityBusy = gameRecorderController.state.activity !== 'idle'
   const macroUiController = gameActivityBusy ? { ...controller, isEditingLocked: true } : controller
-  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>('macro')
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>(loadWorkspacePreference)
   const [themeDialogOpen, setThemeDialogOpen] = useState(false)
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const themeTriggerRef = useRef<HTMLButtonElement>(null)
@@ -69,6 +74,7 @@ function App(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
+    saveWorkspacePreference(activeWorkspace)
     void window.api.setTrayWorkspace(activeWorkspace).catch((error: unknown) => {
       console.error('更新托盘菜单失败', error)
     })
@@ -106,8 +112,8 @@ function App(): React.JSX.Element {
               <section
                 className="workspace-view"
                 id="buff-assistant-workspace"
-                role="tabpanel"
-                aria-labelledby="workspace-tab-buff-assistant"
+                role="region"
+                aria-labelledby="workspace-title"
                 hidden={activeWorkspace !== 'buffAssistant'}
               >
                 <Suspense fallback={<div className="workspace-loading">正在载入 Buff 助手…</div>}>
@@ -117,8 +123,8 @@ function App(): React.JSX.Element {
               <section
                 className="workspace-view"
                 id="macro-workspace"
-                role="tabpanel"
-                aria-labelledby="workspace-tab-macro"
+                role="region"
+                aria-labelledby="workspace-title"
                 hidden={activeWorkspace !== 'macro'}
               >
                 <section className="workspace-grid">
@@ -136,8 +142,8 @@ function App(): React.JSX.Element {
               <section
                 className="workspace-view"
                 id="game-recorder-workspace"
-                role="tabpanel"
-                aria-labelledby="workspace-tab-game-recorder"
+                role="region"
+                aria-labelledby="workspace-title"
                 hidden={activeWorkspace !== 'gameRecorder'}
               >
                 <GameRecorderPage controller={gameRecorderController} />
@@ -145,8 +151,8 @@ function App(): React.JSX.Element {
               <section
                 className="workspace-view"
                 id="calculator-workspace"
-                role="tabpanel"
-                aria-labelledby="workspace-tab-calculator"
+                role="region"
+                aria-labelledby="workspace-title"
                 hidden={activeWorkspace !== 'calculator'}
               >
                 <InternalSkillCalculatorPage active={activeWorkspace === 'calculator'} />
@@ -154,8 +160,8 @@ function App(): React.JSX.Element {
               <section
                 className="workspace-view"
                 id="tower-calculator-workspace"
-                role="tabpanel"
-                aria-labelledby="workspace-tab-tower-calculator"
+                role="region"
+                aria-labelledby="workspace-title"
                 hidden={activeWorkspace !== 'towerCalculator'}
               >
                 <TowerDemolitionCalculatorPage />

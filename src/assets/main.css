@@ -154,6 +154,9 @@
   }
 
   .workspace-brand h1 {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     margin: 4px 0 0;
     color: var(--text-primary);
     font-family: var(--heading-font);
@@ -162,6 +165,28 @@
     letter-spacing: 0.04em;
     line-height: 1.12;
     text-shadow: 0 1px 0 color-mix(in srgb, var(--surface-panel-strong) 75%, transparent);
+  }
+
+  [data-slot='button'].workspace-menu-trigger {
+    flex: none;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    color: var(--text-secondary);
+  }
+
+  [data-slot='button'].workspace-menu-trigger:hover,
+  [data-slot='button'].workspace-menu-trigger[data-state='open'] {
+    border-color: color-mix(in srgb, var(--border-strong) 72%, transparent);
+    background: color-mix(in srgb, var(--surface-muted) 78%, transparent);
+    color: var(--text-primary);
+  }
+
+  [data-slot='button'].workspace-menu-trigger svg {
+    transition: transform var(--motion-fast) var(--ease-standard);
+  }
+
+  [data-slot='button'].workspace-menu-trigger[data-state='open'] svg {
+    transform: rotate(180deg);
   }
 
   .workspace-brand p {
@@ -177,52 +202,6 @@
     flex: none;
     align-items: center;
     gap: 9px;
-  }
-
-  .workspace-switcher {
-    display: flex;
-    flex: none;
-    align-items: center;
-    gap: 3px;
-    padding: 3px;
-    border: 1px solid color-mix(in srgb, var(--border-strong) 78%, transparent);
-    border-radius: calc(var(--radius-panel) + 2px);
-    background: color-mix(in srgb, var(--surface-muted) 82%, var(--surface-panel-strong));
-    box-shadow:
-      0 6px 18px color-mix(in srgb, var(--text-primary) 9%, transparent),
-      inset 0 1px 0 color-mix(in srgb, var(--surface-panel-strong) 88%, transparent);
-  }
-
-  [data-slot='button'].workspace-switcher__tab {
-    min-width: 108px;
-    height: 36px;
-    border: 1px solid transparent;
-    border-radius: var(--radius-control);
-    color: var(--text-secondary);
-    transition:
-      border-color var(--motion-fast) var(--ease-standard),
-      background-color var(--motion-fast) var(--ease-standard),
-      color var(--motion-fast) var(--ease-standard),
-      box-shadow var(--motion-fast) var(--ease-standard);
-  }
-
-  [data-slot='button'].workspace-switcher__tab:hover:not([data-active='true']) {
-    border-color: color-mix(in srgb, var(--border-strong) 70%, transparent);
-    background: var(--surface-panel-strong);
-    color: var(--text-primary);
-  }
-
-  [data-slot='button'].workspace-switcher__tab[data-active='true'] {
-    border-color: var(--color-primary);
-    background: var(--color-primary);
-    color: var(--text-on-primary);
-    box-shadow: 0 4px 12px color-mix(in srgb, var(--color-primary) 28%, transparent);
-  }
-
-  [data-slot='button'].workspace-switcher__tab[data-active='true']:hover {
-    border-color: var(--color-primary-hover);
-    background: var(--color-primary-hover);
-    color: var(--text-on-primary);
   }
 
   .workspace-view {
@@ -1058,10 +1037,6 @@
   .workspace-brand p,
   .workspace-brand__eyebrow > span:first-child {
     display: none;
-  }
-
-  [data-slot='button'].workspace-switcher__tab {
-    min-width: 100px;
   }
 
   .workspace-grid {
