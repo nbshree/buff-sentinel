@@ -280,6 +280,7 @@
 }
 
 .buff-settings-grid input,
+.buff-settings-grid select,
 .buff-window-row select {
   width: 100%;
   border: 1px solid var(--border-default);

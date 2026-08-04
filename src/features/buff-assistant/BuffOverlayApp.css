@@ -11,7 +11,7 @@
   width: 100%;
   height: 100%;
   box-sizing: border-box;
-  padding: calc(13px * var(--buff-overlay-scale, 1)) calc(15px * var(--buff-overlay-scale, 1));
+  padding: calc(5px * var(--buff-overlay-scale, 1)) calc(7px * var(--buff-overlay-scale, 1));
   place-items: center;
 }
 
@@ -25,8 +25,8 @@
   box-sizing: border-box;
   align-items: center;
   justify-content: center;
-  gap: calc(14px * var(--buff-overlay-scale, 1));
-  padding: 0 calc(8px * var(--buff-overlay-scale, 1));
+  gap: calc(11px * var(--buff-overlay-scale, 1));
+  padding: 0 calc(6px * var(--buff-overlay-scale, 1));
   overflow: hidden;
   border: 1px solid transparent;
   border-radius: calc(16px * var(--buff-overlay-scale, 1));
@@ -41,6 +41,18 @@
 
 .buff-overlay[data-show-border='true'] {
   border-color: rgb(255 215 111 / 66%);
+}
+
+.buff-overlay[data-color-scheme='blackWhite'] {
+  background: rgb(8 8 8 / 95%);
+  box-shadow:
+    0 0 20px rgb(0 0 0 / 58%),
+    inset 0 1px 0 rgb(255 255 255 / 18%);
+  color: #fff;
+}
+
+.buff-overlay[data-color-scheme='blackWhite'][data-show-border='true'] {
+  border-color: rgb(255 255 255 / 68%);
 }
 
 .buff-overlay[data-mode='triggered'] {
@@ -75,6 +87,30 @@
   border-style: dashed;
 }
 
+.buff-overlay[data-color-scheme='blackWhite'][data-mode='editing'] {
+  border-color: rgb(255 255 255 / 88%);
+}
+
+.buff-overlay[data-color-scheme='blackWhite'][data-mode='countdown'][data-warning='true'] {
+  animation-name: buff-overlay-warning-monochrome;
+}
+
+.buff-overlay[data-color-scheme='blackWhite'][data-mode='countdown'][data-intense='true'],
+.buff-overlay[data-color-scheme='blackWhite'][data-mode='confirming'] {
+  border-color: rgb(255 255 255 / 86%);
+}
+
+.buff-overlay[data-color-scheme='blackWhite'][data-mode='confirming'] {
+  animation-name: buff-overlay-confirming-monochrome;
+}
+
+.buff-overlay[data-color-scheme='blackWhite'][data-mode='reset'],
+.buff-overlay[data-color-scheme='blackWhite'][data-mode='targetUnavailable'] {
+  background: rgb(8 8 8 / 95%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  color: #fff;
+}
+
 .buff-overlay[data-show-border='false']:not([data-mode='editing']) {
   border-color: transparent;
 }
@@ -95,7 +131,7 @@
 }
 
 .buff-overlay__label {
-  font-size: calc(15px * var(--buff-overlay-scale, 1));
+  font-size: calc(18px * var(--buff-overlay-scale, 1));
   font-weight: 800;
   letter-spacing: 0.04em;
   text-shadow: 0 1px 6px rgb(0 0 0 / 60%);
@@ -110,7 +146,7 @@
 .buff-overlay__countdown strong {
   min-width: calc(54px * var(--buff-overlay-scale, 1));
   color: #ffe17d;
-  font-size: calc(27px * var(--buff-overlay-scale, 1));
+  font-size: calc(32px * var(--buff-overlay-scale, 1));
   font-variant-numeric: tabular-nums;
   line-height: 1;
   text-align: right;
@@ -120,7 +156,7 @@
 .buff-overlay__countdown span,
 .buff-overlay small {
   color: #d4c79c;
-  font-size: calc(10px * var(--buff-overlay-scale, 1));
+  font-size: calc(12px * var(--buff-overlay-scale, 1));
 }
 
 .buff-overlay__waiting {
@@ -128,8 +164,25 @@
   align-items: center;
   gap: calc(8px * var(--buff-overlay-scale, 1));
   color: #ead89a;
-  font-size: calc(12px * var(--buff-overlay-scale, 1));
+  font-size: calc(16px * var(--buff-overlay-scale, 1));
   font-weight: 700;
+}
+
+.buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__label,
+.buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__countdown strong,
+.buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__countdown span,
+.buff-overlay[data-color-scheme='blackWhite'] small,
+.buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__waiting {
+  color: #fff;
+}
+
+.buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__glow {
+  background: radial-gradient(circle, rgb(255 255 255 / 12%), transparent 62%);
+}
+
+.buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__waiting span {
+  background: #fff;
+  box-shadow: 0 0 9px rgb(255 255 255 / 65%);
 }
 
 .buff-overlay__waiting span {
@@ -177,6 +230,10 @@
   cursor: nwse-resize;
 }
 
+.buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__resize-handle--south-east {
+  border-color: rgb(255 255 255 / 92%);
+}
+
 @keyframes buff-overlay-trigger {
   to {
     filter: brightness(1.32);
@@ -199,6 +256,24 @@
       0 0 30px rgb(255 192 48 / 58%),
       inset 0 1px 0 rgb(255 241 190 / 38%);
     filter: brightness(1.1);
+  }
+}
+
+@keyframes buff-overlay-warning-monochrome {
+  to {
+    box-shadow:
+      0 0 34px rgb(255 255 255 / 36%),
+      inset 0 1px 0 rgb(255 255 255 / 32%);
+    filter: brightness(1.14);
+  }
+}
+
+@keyframes buff-overlay-confirming-monochrome {
+  to {
+    box-shadow:
+      0 0 30px rgb(255 255 255 / 28%),
+      inset 0 1px 0 rgb(255 255 255 / 28%);
+    filter: brightness(1.08);
   }
 }
 

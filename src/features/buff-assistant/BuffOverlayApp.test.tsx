@@ -42,7 +42,8 @@ describe('BuffOverlayApp', () => {
       expectedAtUnixMs: null,
       emittedAtUnixMs: Date.now(),
       editable: false,
-      showBorder: true
+      showBorder: true,
+      colorScheme: 'gold'
     })
 
     expect(screen.getByText('等待金周天确认')).toBeInTheDocument()
@@ -59,7 +60,8 @@ describe('BuffOverlayApp', () => {
       expectedAtUnixMs: null,
       emittedAtUnixMs: Date.now(),
       editable: false,
-      showBorder: true
+      showBorder: true,
+      colorScheme: 'gold'
     })
     emit({
       mode: 'countdown',
@@ -67,7 +69,8 @@ describe('BuffOverlayApp', () => {
       expectedAtUnixMs: Date.now() + 20_000,
       emittedAtUnixMs: Date.now(),
       editable: false,
-      showBorder: true
+      showBorder: true,
+      colorScheme: 'gold'
     })
 
     expect(screen.getByText('距离下一次金周天')).toBeInTheDocument()
@@ -87,7 +90,8 @@ describe('BuffOverlayApp', () => {
       expectedAtUnixMs: null,
       emittedAtUnixMs: Date.now(),
       editable: false,
-      showBorder: true
+      showBorder: true,
+      colorScheme: 'gold'
     })
 
     expect(screen.getByText('等待金周天')).toBeInTheDocument()
@@ -103,7 +107,8 @@ describe('BuffOverlayApp', () => {
       expectedAtUnixMs: null,
       emittedAtUnixMs: Date.now(),
       editable: true,
-      showBorder: false
+      showBorder: false,
+      colorScheme: 'blackWhite'
     })
 
     fireEvent.pointerDown(screen.getByRole('button', { name: '调整浮窗宽度' }), { button: 0 })
@@ -115,6 +120,10 @@ describe('BuffOverlayApp', () => {
     expect(api.window.startResizeDragging).toHaveBeenNthCalledWith(3, 'SouthEast')
     expect(api.window.startDragging).not.toHaveBeenCalled()
     expect(document.querySelector('.buff-overlay')).toHaveAttribute('data-show-border', 'false')
+    expect(document.querySelector('.buff-overlay')).toHaveAttribute(
+      'data-color-scheme',
+      'blackWhite'
+    )
 
     emit({
       mode: 'waiting',
@@ -122,7 +131,8 @@ describe('BuffOverlayApp', () => {
       expectedAtUnixMs: null,
       emittedAtUnixMs: Date.now(),
       editable: false,
-      showBorder: false
+      showBorder: false,
+      colorScheme: 'blackWhite'
     })
     fireEvent.pointerDown(screen.getByText('等待金周天'), { button: 0 })
 

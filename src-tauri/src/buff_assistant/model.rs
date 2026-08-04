@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 6;
+pub const CONFIG_SCHEMA_VERSION: u32 = 7;
 pub const DEFAULT_CYCLE_MS: u64 = 20_000;
 pub const DEFAULT_DEADLINE_GRACE_MS: u64 = 600;
 const PREVIOUS_DEFAULT_CYCLE_MS: u64 = 20_180;
@@ -110,6 +110,8 @@ pub struct BuffOverlaySettings {
     pub height: u32,
     #[serde(default = "enabled_by_default")]
     pub show_border: bool,
+    #[serde(default)]
+    pub color_scheme: BuffOverlayColorScheme,
 }
 
 impl Default for BuffOverlaySettings {
@@ -121,8 +123,17 @@ impl Default for BuffOverlaySettings {
             width: DEFAULT_OVERLAY_WIDTH,
             height: DEFAULT_OVERLAY_HEIGHT,
             show_border: true,
+            color_scheme: BuffOverlayColorScheme::Gold,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BuffOverlayColorScheme {
+    #[default]
+    Gold,
+    BlackWhite,
 }
 
 const fn default_overlay_width() -> u32 {
@@ -302,6 +313,7 @@ pub struct BuffOverlayState {
     pub emitted_at_unix_ms: i64,
     pub editable: bool,
     pub show_border: bool,
+    pub color_scheme: BuffOverlayColorScheme,
 }
 
 fn finite_or(value: f64, fallback: f64) -> f64 {
@@ -424,6 +436,7 @@ mod tests {
         assert_eq!(settings.overlay.width, DEFAULT_OVERLAY_WIDTH);
         assert_eq!(settings.overlay.height, DEFAULT_OVERLAY_HEIGHT);
         assert!(settings.overlay.show_border);
+        assert_eq!(settings.overlay.color_scheme, BuffOverlayColorScheme::Gold);
     }
 
     #[test]

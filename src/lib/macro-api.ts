@@ -206,6 +206,7 @@ export type BuffOverlaySettings = {
   width: number
   height: number
   showBorder: boolean
+  colorScheme: 'gold' | 'blackWhite'
 }
 
 export type BuffAssistantSettings = {
@@ -268,6 +269,7 @@ export type BuffOverlayState = {
   emittedAtUnixMs: number
   editable: boolean
   showBorder: boolean
+  colorScheme: BuffOverlaySettings['colorScheme']
 }
 
 export type BuffMetric = {

@@ -34,7 +34,8 @@ const defaultState: BuffAssistantState = {
         showWaitingDot: false,
         width: 330,
         height: 92,
-        showBorder: true
+        showBorder: true,
+        colorScheme: 'gold'
       }
     }
   },

@@ -10,7 +10,8 @@ const hiddenState: BuffOverlayState = {
   expectedAtUnixMs: null,
   emittedAtUnixMs: 0,
   editable: false,
-  showBorder: true
+  showBorder: true,
+  colorScheme: 'gold'
 }
 
 const defaultOverlayWidth = 330
@@ -86,6 +87,7 @@ export function BuffOverlayApp() {
       data-editable={state.editable}
       data-intense={intense}
       data-mode={state.mode}
+      data-color-scheme={state.colorScheme}
       data-show-border={state.showBorder}
       data-warning={warning}
       onPointerDown={handlePointerDown}

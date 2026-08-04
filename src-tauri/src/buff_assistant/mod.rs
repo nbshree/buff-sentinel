@@ -23,8 +23,9 @@ use capture::{
 use image::{DynamicImage, GrayImage, Luma, RgbaImage};
 pub use model::{
     BuffAssistantActivity, BuffAssistantConfig, BuffAssistantSettings, BuffAssistantState,
-    BuffOverlayMode, BuffOverlayState, BuffTarget, CapturePreview, CaptureWindowCandidate,
-    MAX_OVERLAY_HEIGHT, MAX_OVERLAY_WIDTH, MIN_OVERLAY_HEIGHT, MIN_OVERLAY_WIDTH, NormalizedRect,
+    BuffOverlayColorScheme, BuffOverlayMode, BuffOverlayState, BuffTarget, CapturePreview,
+    CaptureWindowCandidate, MAX_OVERLAY_HEIGHT, MAX_OVERLAY_WIDTH, MIN_OVERLAY_HEIGHT,
+    MIN_OVERLAY_WIDTH, NormalizedRect,
 };
 use serde::Serialize;
 use tauri::{
@@ -457,6 +458,7 @@ fn set_buff_overlay_edit_mode_internal(
                 emitted_at_unix_ms: now_millis(),
                 editable: true,
                 show_border: overlay_border_setting(app),
+                color_scheme: overlay_color_scheme(app),
             },
         );
     } else {
@@ -932,6 +934,7 @@ fn show_countdown_overlay(app: &AppHandle, expected_at_unix_ms: Option<i64>) {
             emitted_at_unix_ms: now_millis(),
             editable: false,
             show_border: overlay_border_setting(app),
+            color_scheme: overlay_color_scheme(app),
         },
     );
 }
@@ -959,6 +962,7 @@ fn show_confirming_overlay(app: &AppHandle) {
             emitted_at_unix_ms: now_millis(),
             editable: false,
             show_border: overlay_border_setting(app),
+            color_scheme: overlay_color_scheme(app),
         },
     );
 }
@@ -993,6 +997,7 @@ fn show_transient_overlay(
             emitted_at_unix_ms: now_millis(),
             editable: false,
             show_border: overlay_border_setting(app),
+            color_scheme: overlay_color_scheme(app),
         },
     );
     let app_handle = app.clone();
@@ -1039,6 +1044,7 @@ fn show_waiting_overlay(app: &AppHandle) {
             emitted_at_unix_ms: now_millis(),
             editable: false,
             show_border: overlay_border_setting(app),
+            color_scheme: overlay_color_scheme(app),
         },
     );
 }
@@ -1066,6 +1072,7 @@ fn show_target_unavailable_overlay(app: &AppHandle) {
             emitted_at_unix_ms: now_millis(),
             editable: false,
             show_border: overlay_border_setting(app),
+            color_scheme: overlay_color_scheme(app),
         },
     );
 }
@@ -1080,6 +1087,7 @@ fn hide_overlay(app: &AppHandle) {
             emitted_at_unix_ms: now_millis(),
             editable: false,
             show_border: overlay_border_setting(app),
+            color_scheme: overlay_color_scheme(app),
         },
     );
     if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
@@ -1106,6 +1114,15 @@ fn overlay_border_setting(app: &AppHandle) -> bool {
         .settings
         .overlay
         .show_border
+}
+
+fn overlay_color_scheme(app: &AppHandle) -> BuffOverlayColorScheme {
+    app.state::<BuffAssistant>()
+        .lock()
+        .config
+        .settings
+        .overlay
+        .color_scheme
 }
 
 fn encode_png(image: &CapturedImage) -> Result<Vec<u8>, String> {

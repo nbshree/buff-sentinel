@@ -222,6 +222,26 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           </header>
           <div className="buff-settings-grid">
             <label>
+              <span>浮窗配色</span>
+              <select
+                aria-label="浮窗配色"
+                value={settings.overlay.colorScheme}
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    overlay: {
+                      ...current.overlay,
+                      colorScheme: event.target
+                        .value as BuffAssistantSettings['overlay']['colorScheme']
+                    }
+                  }))
+                }
+              >
+                <option value="gold">金色（当前）</option>
+                <option value="blackWhite">黑底白字</option>
+              </select>
+            </label>
+            <label>
               <span>周期（秒）</span>
               <input
                 max={120}

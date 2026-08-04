@@ -23,12 +23,13 @@ describe('BuffAssistantPage', () => {
     expect(borderToggle).toBeChecked()
 
     await user.click(borderToggle)
+    await user.selectOptions(screen.getByRole('combobox', { name: '浮窗配色' }), 'blackWhite')
     await user.click(screen.getByRole('button', { name: '保存设置' }))
 
     await waitFor(() => {
       expect(api.updateBuffAssistantSettings).toHaveBeenCalledWith(
         expect.objectContaining({
-          overlay: expect.objectContaining({ showBorder: false })
+          overlay: expect.objectContaining({ showBorder: false, colorScheme: 'blackWhite' })
         })
       )
     })
