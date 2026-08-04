@@ -213,7 +213,14 @@ export function createMacroApi(
           prewarnOneEnabled: true,
           volume: 0.45
         },
-        overlay: { x: 40, y: 100, showWaitingDot: false }
+        overlay: {
+          x: 40,
+          y: 100,
+          showWaitingDot: false,
+          width: 330,
+          height: 92,
+          showBorder: true
+        }
       }
     },
     activity: 'stopped',

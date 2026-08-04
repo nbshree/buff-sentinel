@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 5;
+pub const CONFIG_SCHEMA_VERSION: u32 = 6;
 pub const DEFAULT_CYCLE_MS: u64 = 20_000;
 pub const DEFAULT_DEADLINE_GRACE_MS: u64 = 600;
 const PREVIOUS_DEFAULT_CYCLE_MS: u64 = 20_180;
@@ -8,6 +8,12 @@ pub const DEFAULT_THRESHOLD: f32 = 0.95;
 const LEGACY_DEFAULT_THRESHOLD: f32 = 0.86;
 pub const DEFAULT_CONFIRM_FRAMES: u32 = 3;
 pub const DEFAULT_MISSING_FRAMES: u32 = 5;
+pub const DEFAULT_OVERLAY_WIDTH: u32 = 330;
+pub const DEFAULT_OVERLAY_HEIGHT: u32 = 92;
+pub const MIN_OVERLAY_WIDTH: u32 = 75;
+pub const MIN_OVERLAY_HEIGHT: u32 = 30;
+pub const MAX_OVERLAY_WIDTH: u32 = 800;
+pub const MAX_OVERLAY_HEIGHT: u32 = 300;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,6 +104,12 @@ pub struct BuffOverlaySettings {
     pub x: i32,
     pub y: i32,
     pub show_waiting_dot: bool,
+    #[serde(default = "default_overlay_width")]
+    pub width: u32,
+    #[serde(default = "default_overlay_height")]
+    pub height: u32,
+    #[serde(default = "enabled_by_default")]
+    pub show_border: bool,
 }
 
 impl Default for BuffOverlaySettings {
@@ -106,8 +118,19 @@ impl Default for BuffOverlaySettings {
             x: 40,
             y: 100,
             show_waiting_dot: false,
+            width: DEFAULT_OVERLAY_WIDTH,
+            height: DEFAULT_OVERLAY_HEIGHT,
+            show_border: true,
         }
     }
+}
+
+const fn default_overlay_width() -> u32 {
+    DEFAULT_OVERLAY_WIDTH
+}
+
+const fn default_overlay_height() -> u32 {
+    DEFAULT_OVERLAY_HEIGHT
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -153,6 +176,14 @@ impl BuffAssistantSettings {
         } else {
             BuffSoundSettings::default().volume
         };
+        self.overlay.width = self
+            .overlay
+            .width
+            .clamp(MIN_OVERLAY_WIDTH, MAX_OVERLAY_WIDTH);
+        self.overlay.height = self
+            .overlay
+            .height
+            .clamp(MIN_OVERLAY_HEIGHT, MAX_OVERLAY_HEIGHT);
     }
 }
 
@@ -270,6 +301,7 @@ pub struct BuffOverlayState {
     pub expected_at_unix_ms: Option<i64>,
     pub emitted_at_unix_ms: i64,
     pub editable: bool,
+    pub show_border: bool,
 }
 
 fn finite_or(value: f64, fallback: f64) -> f64 {
@@ -317,6 +349,8 @@ mod tests {
         assert_eq!(settings.confirm_frames, 1);
         assert_eq!(settings.missing_frames, 30);
         assert_eq!(settings.sound.volume, 1.0);
+        assert_eq!(settings.overlay.width, DEFAULT_OVERLAY_WIDTH);
+        assert_eq!(settings.overlay.height, DEFAULT_OVERLAY_HEIGHT);
     }
 
     #[test]
@@ -387,5 +421,18 @@ mod tests {
         .unwrap();
 
         assert_eq!(settings.deadline_grace_ms, DEFAULT_DEADLINE_GRACE_MS);
+        assert_eq!(settings.overlay.width, DEFAULT_OVERLAY_WIDTH);
+        assert_eq!(settings.overlay.height, DEFAULT_OVERLAY_HEIGHT);
+        assert!(settings.overlay.show_border);
+    }
+
+    #[test]
+    fn overlay_size_is_clamped_to_supported_bounds() {
+        let mut settings = BuffAssistantSettings::default();
+        settings.overlay.width = 1;
+        settings.overlay.height = 1_000;
+        settings.sanitize();
+        assert_eq!(settings.overlay.width, MIN_OVERLAY_WIDTH);
+        assert_eq!(settings.overlay.height, MAX_OVERLAY_HEIGHT);
     }
 }

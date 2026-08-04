@@ -203,6 +203,9 @@ export type BuffOverlaySettings = {
   x: number
   y: number
   showWaitingDot: boolean
+  width: number
+  height: number
+  showBorder: boolean
 }
 
 export type BuffAssistantSettings = {
@@ -264,6 +267,7 @@ export type BuffOverlayState = {
   expectedAtUnixMs: number | null
   emittedAtUnixMs: number
   editable: boolean
+  showBorder: boolean
 }
 
 export type BuffMetric = {

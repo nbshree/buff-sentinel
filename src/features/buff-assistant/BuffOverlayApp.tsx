@@ -1,7 +1,6 @@
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useEffect, useState, type PointerEvent } from 'react'
 
-import type { BuffOverlayState } from '../../lib/macro-api'
+import type { BuffOverlayState, WindowResizeDirection } from '../../lib/macro-api'
 
 import './BuffOverlayApp.css'
 
@@ -10,7 +9,15 @@ const hiddenState: BuffOverlayState = {
   message: '',
   expectedAtUnixMs: null,
   emittedAtUnixMs: 0,
-  editable: false
+  editable: false,
+  showBorder: true
+}
+
+const defaultOverlayWidth = 330
+const defaultOverlayHeight = 92
+
+export function calculateOverlayScale(width: number, height: number): number {
+  return Math.min(width / defaultOverlayWidth, height / defaultOverlayHeight)
 }
 
 export function BuffOverlayApp() {
@@ -25,6 +32,20 @@ export function BuffOverlayApp() {
       stop()
       document.documentElement.classList.remove('buff-overlay-document')
       document.body.classList.remove('buff-overlay-document')
+    }
+  }, [])
+
+  useEffect(() => {
+    const updateScale = () => {
+      const scale = calculateOverlayScale(window.innerWidth, window.innerHeight)
+      document.documentElement.style.setProperty('--buff-overlay-scale', String(scale))
+    }
+    updateScale()
+    const observer = new ResizeObserver(updateScale)
+    observer.observe(document.documentElement)
+    return () => {
+      observer.disconnect()
+      document.documentElement.style.removeProperty('--buff-overlay-scale')
     }
   }, [])
 
@@ -47,7 +68,16 @@ export function BuffOverlayApp() {
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>): void {
     if (!state.editable || event.button !== 0) return
-    void getCurrentWindow().startDragging()
+    void window.api.window.startDragging()
+  }
+
+  function handleResizePointerDown(
+    direction: WindowResizeDirection,
+    event: PointerEvent<HTMLButtonElement>
+  ): void {
+    event.stopPropagation()
+    if (!state.editable || event.button !== 0) return
+    void window.api.window.startResizeDragging(direction)
   }
 
   return (
@@ -56,6 +86,7 @@ export function BuffOverlayApp() {
       data-editable={state.editable}
       data-intense={intense}
       data-mode={state.mode}
+      data-show-border={state.showBorder}
       data-warning={warning}
       onPointerDown={handlePointerDown}
     >
@@ -63,7 +94,7 @@ export function BuffOverlayApp() {
       {state.mode === 'waiting' ? (
         <div className="buff-overlay__waiting">
           <span />
-          等待金周天（脱战）
+          {state.message}
         </div>
       ) : (
         <>
@@ -77,6 +108,28 @@ export function BuffOverlayApp() {
           {state.mode === 'editing' ? <small>按住拖动</small> : null}
         </>
       )}
+      {state.editable ? (
+        <>
+          <button
+            aria-label="调整浮窗宽度"
+            className="buff-overlay__resize-handle buff-overlay__resize-handle--east"
+            type="button"
+            onPointerDown={(event) => handleResizePointerDown('East', event)}
+          />
+          <button
+            aria-label="调整浮窗高度"
+            className="buff-overlay__resize-handle buff-overlay__resize-handle--south"
+            type="button"
+            onPointerDown={(event) => handleResizePointerDown('South', event)}
+          />
+          <button
+            aria-label="调整浮窗大小"
+            className="buff-overlay__resize-handle buff-overlay__resize-handle--south-east"
+            type="button"
+            onPointerDown={(event) => handleResizePointerDown('SouthEast', event)}
+          />
+        </>
+      ) : null}
     </div>
   )
 }

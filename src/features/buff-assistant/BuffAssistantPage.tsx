@@ -301,6 +301,19 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
             </label>
           </div>
           <div className="buff-sound-options">
+            <label className="buff-check-row">
+              <input
+                checked={settings.overlay.showBorder}
+                type="checkbox"
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    overlay: { ...current.overlay, showBorder: event.target.checked }
+                  }))
+                }
+              />
+              显示浮窗边框
+            </label>
             <ToggleRow
               checked={settings.sound.triggerEnabled}
               label="真实触发确认音"

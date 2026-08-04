@@ -24,11 +24,12 @@ use image::{DynamicImage, GrayImage, Luma, RgbaImage};
 pub use model::{
     BuffAssistantActivity, BuffAssistantConfig, BuffAssistantSettings, BuffAssistantState,
     BuffOverlayMode, BuffOverlayState, BuffTarget, CapturePreview, CaptureWindowCandidate,
-    NormalizedRect,
+    MAX_OVERLAY_HEIGHT, MAX_OVERLAY_WIDTH, MIN_OVERLAY_HEIGHT, MIN_OVERLAY_WIDTH, NormalizedRect,
 };
 use serde::Serialize;
 use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl,
+    WebviewWindowBuilder,
 };
 use timeline::{BuffTimeline, TimelineAction, TimelinePhase};
 
@@ -118,7 +119,12 @@ pub fn create_overlay(app: &AppHandle) -> tauri::Result<()> {
         WebviewUrl::App("index.html?window=buff-overlay".into()),
     )
     .title("金周天提醒")
-    .inner_size(330.0, 92.0)
+    .inner_size(
+        f64::from(config.settings.overlay.width),
+        f64::from(config.settings.overlay.height),
+    )
+    .min_inner_size(f64::from(MIN_OVERLAY_WIDTH), f64::from(MIN_OVERLAY_HEIGHT))
+    .max_inner_size(f64::from(MAX_OVERLAY_WIDTH), f64::from(MAX_OVERLAY_HEIGHT))
     .resizable(false)
     .decorations(false)
     .transparent(true)
@@ -252,7 +258,7 @@ pub fn update_buff_assistant_settings(
         storage::save_config(&inner.storage_directory, &inner.config)?;
         inner.monitor_requested
     };
-    apply_overlay_position(&app);
+    apply_overlay_geometry(&app);
     if was_monitoring {
         start_buff_monitor_internal(&app)?;
         return Ok(state.snapshot());
@@ -433,6 +439,9 @@ fn set_buff_overlay_edit_mode_internal(
             inner.overlay_generation = inner.overlay_generation.wrapping_add(1);
         }
         overlay
+            .set_resizable(true)
+            .map_err(|error| error.to_string())?;
+        overlay
             .set_focusable(true)
             .map_err(|error| error.to_string())?;
         overlay
@@ -443,34 +452,63 @@ fn set_buff_overlay_edit_mode_internal(
             app,
             BuffOverlayState {
                 mode: BuffOverlayMode::Editing,
-                message: "拖动调整提醒位置".into(),
+                message: "拖动调整位置与大小".into(),
                 expected_at_unix_ms: None,
                 emitted_at_unix_ms: now_millis(),
                 editable: true,
+                show_border: overlay_border_setting(app),
             },
         );
     } else {
         let position = overlay
             .outer_position()
             .map_err(|error| error.to_string())?;
+        let size = overlay.inner_size().map_err(|error| error.to_string())?;
+        let scale_factor = overlay.scale_factor().map_err(|error| error.to_string())?;
         {
             let mut inner = state.lock();
             inner.overlay_editing = false;
             inner.config.settings.overlay.x = position.x;
             inner.config.settings.overlay.y = position.y;
+            inner.config.settings.overlay.width =
+                (f64::from(size.width) / scale_factor).round() as u32;
+            inner.config.settings.overlay.height =
+                (f64::from(size.height) / scale_factor).round() as u32;
+            inner.config.settings.sanitize();
             storage::save_config(&inner.storage_directory, &inner.config)?;
         }
+        overlay
+            .set_resizable(false)
+            .map_err(|error| error.to_string())?;
         overlay
             .set_ignore_cursor_events(true)
             .map_err(|error| error.to_string())?;
         overlay
             .set_focusable(false)
             .map_err(|error| error.to_string())?;
-        overlay.hide().map_err(|error| error.to_string())?;
     }
     let snapshot = state.snapshot();
     emit_state(app, &snapshot);
+    if !enabled {
+        restore_overlay_after_edit(app, &snapshot);
+    }
     Ok(snapshot)
+}
+
+fn restore_overlay_after_edit(app: &AppHandle, snapshot: &BuffAssistantState) {
+    if !snapshot.is_monitoring {
+        hide_overlay(app);
+        return;
+    }
+    match snapshot.activity {
+        BuffAssistantActivity::Waiting => show_waiting_overlay(app),
+        BuffAssistantActivity::Tracking | BuffAssistantActivity::Prewarning => {
+            show_countdown_overlay(app, snapshot.expected_at_unix_ms);
+        }
+        BuffAssistantActivity::Confirming => show_confirming_overlay(app),
+        BuffAssistantActivity::TargetUnavailable => show_target_unavailable_overlay(app),
+        _ => hide_overlay(app),
+    }
 }
 
 pub(crate) fn stop_buff_workspace_activity_internal(app: &AppHandle) -> Result<(), String> {
@@ -893,6 +931,7 @@ fn show_countdown_overlay(app: &AppHandle, expected_at_unix_ms: Option<i64>) {
             expected_at_unix_ms,
             emitted_at_unix_ms: now_millis(),
             editable: false,
+            show_border: overlay_border_setting(app),
         },
     );
 }
@@ -919,6 +958,7 @@ fn show_confirming_overlay(app: &AppHandle) {
             expected_at_unix_ms: None,
             emitted_at_unix_ms: now_millis(),
             editable: false,
+            show_border: overlay_border_setting(app),
         },
     );
 }
@@ -952,6 +992,7 @@ fn show_transient_overlay(
             expected_at_unix_ms,
             emitted_at_unix_ms: now_millis(),
             editable: false,
+            show_border: overlay_border_setting(app),
         },
     );
     let app_handle = app.clone();
@@ -993,10 +1034,11 @@ fn show_waiting_overlay(app: &AppHandle) {
         app,
         BuffOverlayState {
             mode: BuffOverlayMode::Waiting,
-            message: "等待金周天（脱战）".into(),
+            message: "等待金周天".into(),
             expected_at_unix_ms: None,
             emitted_at_unix_ms: now_millis(),
             editable: false,
+            show_border: overlay_border_setting(app),
         },
     );
 }
@@ -1023,6 +1065,7 @@ fn show_target_unavailable_overlay(app: &AppHandle) {
             expected_at_unix_ms: None,
             emitted_at_unix_ms: now_millis(),
             editable: false,
+            show_border: overlay_border_setting(app),
         },
     );
 }
@@ -1036,6 +1079,7 @@ fn hide_overlay(app: &AppHandle) {
             expected_at_unix_ms: None,
             emitted_at_unix_ms: now_millis(),
             editable: false,
+            show_border: overlay_border_setting(app),
         },
     );
     if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
@@ -1043,12 +1087,25 @@ fn hide_overlay(app: &AppHandle) {
     }
 }
 
-fn apply_overlay_position(app: &AppHandle) {
+fn apply_overlay_geometry(app: &AppHandle) {
     let state = app.state::<BuffAssistant>();
-    let position = state.lock().config.settings.overlay.clone();
+    let settings = state.lock().config.settings.overlay.clone();
     if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
-        let _ = overlay.set_position(PhysicalPosition::new(position.x, position.y));
+        let _ = overlay.set_position(PhysicalPosition::new(settings.x, settings.y));
+        let _ = overlay.set_size(LogicalSize::new(
+            f64::from(settings.width),
+            f64::from(settings.height),
+        ));
     }
+}
+
+fn overlay_border_setting(app: &AppHandle) -> bool {
+    app.state::<BuffAssistant>()
+        .lock()
+        .config
+        .settings
+        .overlay
+        .show_border
 }
 
 fn encode_png(image: &CapturedImage) -> Result<Vec<u8>, String> {
