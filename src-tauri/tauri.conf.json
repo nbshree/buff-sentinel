@@ -51,6 +51,7 @@
         "installMode": "currentUser",
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
+        "installerHooks": "windows/installer-hooks.nsh",
         "languages": ["SimpChinese", "English"],
         "startMenuFolder": "shree盒子"
       },
