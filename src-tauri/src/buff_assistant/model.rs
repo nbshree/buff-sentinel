@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 7;
+pub const CONFIG_SCHEMA_VERSION: u32 = 8;
 pub const DEFAULT_CYCLE_MS: u64 = 20_000;
 pub const DEFAULT_DEADLINE_GRACE_MS: u64 = 600;
 const PREVIOUS_DEFAULT_CYCLE_MS: u64 = 20_180;
@@ -71,6 +71,46 @@ pub struct BuffTemplateSummary {
     pub height: u32,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BuffSoundCue {
+    Triggered,
+    PrewarnThree,
+    PrewarnTwo,
+    PrewarnOne,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuffSoundTemplateSummary {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuffCustomSoundAsset {
+    pub asset_id: String,
+    pub file_name: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum BuffSoundSource {
+    #[default]
+    Sine,
+    Template {
+        #[serde(rename = "templateId")]
+        template_id: String,
+    },
+    Custom {
+        #[serde(rename = "assetId")]
+        asset_id: String,
+        #[serde(rename = "fileName")]
+        file_name: String,
+    },
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuffSoundSettings {
@@ -79,6 +119,14 @@ pub struct BuffSoundSettings {
     #[serde(default = "enabled_by_default")]
     pub prewarn_two_enabled: bool,
     pub prewarn_one_enabled: bool,
+    #[serde(default)]
+    pub trigger_source: BuffSoundSource,
+    #[serde(default)]
+    pub prewarn_three_source: BuffSoundSource,
+    #[serde(default)]
+    pub prewarn_two_source: BuffSoundSource,
+    #[serde(default)]
+    pub prewarn_one_source: BuffSoundSource,
     pub volume: f32,
 }
 
@@ -89,7 +137,31 @@ impl Default for BuffSoundSettings {
             prewarn_three_enabled: true,
             prewarn_two_enabled: true,
             prewarn_one_enabled: true,
+            trigger_source: BuffSoundSource::Sine,
+            prewarn_three_source: BuffSoundSource::Sine,
+            prewarn_two_source: BuffSoundSource::Sine,
+            prewarn_one_source: BuffSoundSource::Sine,
             volume: 0.45,
+        }
+    }
+}
+
+impl BuffSoundSettings {
+    pub fn source(&self, cue: BuffSoundCue) -> &BuffSoundSource {
+        match cue {
+            BuffSoundCue::Triggered => &self.trigger_source,
+            BuffSoundCue::PrewarnThree => &self.prewarn_three_source,
+            BuffSoundCue::PrewarnTwo => &self.prewarn_two_source,
+            BuffSoundCue::PrewarnOne => &self.prewarn_one_source,
+        }
+    }
+
+    pub fn source_mut(&mut self, cue: BuffSoundCue) -> &mut BuffSoundSource {
+        match cue {
+            BuffSoundCue::Triggered => &mut self.trigger_source,
+            BuffSoundCue::PrewarnThree => &mut self.prewarn_three_source,
+            BuffSoundCue::PrewarnTwo => &mut self.prewarn_two_source,
+            BuffSoundCue::PrewarnOne => &mut self.prewarn_one_source,
         }
     }
 }
@@ -410,6 +482,35 @@ mod tests {
         )
         .unwrap();
         assert!(settings.prewarn_two_enabled);
+        assert_eq!(settings.trigger_source, BuffSoundSource::Sine);
+        assert_eq!(settings.prewarn_three_source, BuffSoundSource::Sine);
+        assert_eq!(settings.prewarn_two_source, BuffSoundSource::Sine);
+        assert_eq!(settings.prewarn_one_source, BuffSoundSource::Sine);
+    }
+
+    #[test]
+    fn sound_sources_use_the_frontend_discriminated_union_shape() {
+        let template = serde_json::to_value(BuffSoundSource::Template {
+            template_id: "template-1".into(),
+        })
+        .unwrap();
+        let custom = serde_json::to_value(BuffSoundSource::Custom {
+            asset_id: "sound-1".into(),
+            file_name: "提示.wav".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            template,
+            serde_json::json!({ "type": "template", "templateId": "template-1" })
+        );
+        assert_eq!(
+            custom,
+            serde_json::json!({
+                "type": "custom",
+                "assetId": "sound-1",
+                "fileName": "提示.wav"
+            })
+        );
     }
 
     #[test]

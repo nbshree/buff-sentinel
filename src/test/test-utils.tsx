@@ -211,6 +211,10 @@ export function createMacroApi(
           prewarnThreeEnabled: true,
           prewarnTwoEnabled: true,
           prewarnOneEnabled: true,
+          triggerSource: { type: 'sine' },
+          prewarnThreeSource: { type: 'sine' },
+          prewarnTwoSource: { type: 'sine' },
+          prewarnOneSource: { type: 'sine' },
           volume: 0.45
         },
         overlay: {
@@ -318,6 +322,7 @@ export function createMacroApi(
     ),
     getBuffAssistantState: vi.fn(async () => buffState),
     listBuffCaptureWindows: vi.fn(async () => []),
+    listBuffSoundTemplates: vi.fn(async () => [{ id: 'template-1', name: '模板一' }]),
     captureBuffPreview: vi.fn(async () => {
       throw new Error('not configured')
     }),
@@ -328,7 +333,9 @@ export function createMacroApi(
     stopBuffMonitor: vi.fn(async () => buffState),
     startBuffTemplateTest: vi.fn(async () => buffState),
     stopBuffTemplateTest: vi.fn(async () => buffState),
+    importBuffAssistantSound: vi.fn<MacroAPI['importBuffAssistantSound']>(async () => null),
     playBuffAssistantSound: vi.fn(async () => undefined),
+    openTtsOnline: vi.fn(async () => undefined),
     setBuffOverlayEditMode: vi.fn(async () => buffState),
     onBuffAssistantState: vi.fn(() => () => undefined),
     onBuffMetric: vi.fn(() => () => undefined),

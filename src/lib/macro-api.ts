@@ -191,11 +191,32 @@ export type BuffTemplateSummary = {
   height: number
 }
 
+export type BuffSoundCue = 'triggered' | 'prewarnThree' | 'prewarnTwo' | 'prewarnOne'
+
+export type BuffSoundTemplateSummary = {
+  id: string
+  name: string
+}
+
+export type BuffCustomSoundAsset = {
+  assetId: string
+  fileName: string
+}
+
+export type BuffSoundSource =
+  | { type: 'sine' }
+  | { type: 'template'; templateId: string }
+  | { type: 'custom'; assetId: string; fileName: string }
+
 export type BuffSoundSettings = {
   triggerEnabled: boolean
   prewarnThreeEnabled: boolean
   prewarnTwoEnabled: boolean
   prewarnOneEnabled: boolean
+  triggerSource: BuffSoundSource
+  prewarnThreeSource: BuffSoundSource
+  prewarnTwoSource: BuffSoundSource
+  prewarnOneSource: BuffSoundSource
   volume: number
 }
 
@@ -351,6 +372,7 @@ export type MacroAPI = {
   onGameRecorderState: (callback: (state: GameRecorderState) => void) => () => void
   getBuffAssistantState: () => Promise<BuffAssistantState>
   listBuffCaptureWindows: () => Promise<CaptureWindowCandidate[]>
+  listBuffSoundTemplates: () => Promise<BuffSoundTemplateSummary[]>
   captureBuffPreview: (windowId: string) => Promise<BuffCapturePreview>
   saveBuffTemplate: (
     searchRegion: NormalizedRect,
@@ -363,9 +385,13 @@ export type MacroAPI = {
   stopBuffMonitor: () => Promise<BuffAssistantState>
   startBuffTemplateTest: (windowId: string) => Promise<BuffAssistantState>
   stopBuffTemplateTest: () => Promise<BuffAssistantState>
+  importBuffAssistantSound: (cue: BuffSoundCue) => Promise<BuffCustomSoundAsset | null>
   playBuffAssistantSound: (
-    cue: 'triggered' | 'prewarnThree' | 'prewarnTwo' | 'prewarnOne'
+    cue: BuffSoundCue,
+    source: BuffSoundSource,
+    volume: number
   ) => Promise<void>
+  openTtsOnline: () => Promise<void>
   setBuffOverlayEditMode: (enabled: boolean) => Promise<BuffAssistantState>
   onBuffAssistantState: (callback: (state: BuffAssistantState) => void) => () => void
   onBuffMetric: (callback: (metric: BuffMetric) => void) => () => void
@@ -594,6 +620,8 @@ export const macroApi: MacroAPI = {
     callTauri(() => invoke<BuffAssistantState>('get_buff_assistant_state')),
   listBuffCaptureWindows: () =>
     callTauri(() => invoke<CaptureWindowCandidate[]>('list_buff_capture_windows')),
+  listBuffSoundTemplates: () =>
+    callTauri(() => invoke<BuffSoundTemplateSummary[]>('list_buff_sound_templates')),
   captureBuffPreview: (windowId) =>
     callTauri(() => invoke<BuffCapturePreview>('capture_buff_preview', { windowId })),
   saveBuffTemplate: (searchRegion, crop, maskDataUrl) =>
@@ -609,8 +637,11 @@ export const macroApi: MacroAPI = {
     callTauri(() => invoke<BuffAssistantState>('start_buff_template_test', { windowId })),
   stopBuffTemplateTest: () =>
     callTauri(() => invoke<BuffAssistantState>('stop_buff_template_test')),
-  playBuffAssistantSound: (cue) =>
-    callTauri(() => invoke<void>('play_buff_assistant_sound', { cue })),
+  importBuffAssistantSound: (cue) =>
+    callTauri(() => invoke<BuffCustomSoundAsset | null>('import_buff_assistant_sound', { cue })),
+  playBuffAssistantSound: (cue, source, volume) =>
+    callTauri(() => invoke<void>('play_buff_assistant_sound', { cue, source, volume })),
+  openTtsOnline: () => callTauri(() => invoke<void>('open_tts_online')),
   setBuffOverlayEditMode: (enabled) =>
     callTauri(() => invoke<BuffAssistantState>('set_buff_overlay_edit_mode', { enabled })),
   onBuffAssistantState: (callback) => createEventListener('buff-assistant-state', callback),

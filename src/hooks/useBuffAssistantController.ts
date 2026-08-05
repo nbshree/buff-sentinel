@@ -26,6 +26,10 @@ const defaultState: BuffAssistantState = {
         prewarnThreeEnabled: true,
         prewarnTwoEnabled: true,
         prewarnOneEnabled: true,
+        triggerSource: { type: 'sine' },
+        prewarnThreeSource: { type: 'sine' },
+        prewarnTwoSource: { type: 'sine' },
+        prewarnOneSource: { type: 'sine' },
         volume: 0.45
       },
       overlay: {

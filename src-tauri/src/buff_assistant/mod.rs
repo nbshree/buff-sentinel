@@ -14,7 +14,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use audio::{AudioCue, AudioEngine};
+use audio::{AudioEngine, ResolvedSoundSource};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use capture::{
     CapturePurpose, CapturedImage, RuntimeCaptureControl, RuntimeCaptureFlags, capture_snapshot,
@@ -23,19 +23,21 @@ use capture::{
 use image::{DynamicImage, GrayImage, Luma, RgbaImage};
 pub use model::{
     BuffAssistantActivity, BuffAssistantConfig, BuffAssistantSettings, BuffAssistantState,
-    BuffOverlayColorScheme, BuffOverlayMode, BuffOverlayState, BuffTarget, CapturePreview,
-    CaptureWindowCandidate, MAX_OVERLAY_HEIGHT, MAX_OVERLAY_WIDTH, MIN_OVERLAY_HEIGHT,
-    MIN_OVERLAY_WIDTH, NormalizedRect,
+    BuffCustomSoundAsset, BuffOverlayColorScheme, BuffOverlayMode, BuffOverlayState, BuffSoundCue,
+    BuffSoundSource, BuffSoundTemplateSummary, BuffTarget, CapturePreview, CaptureWindowCandidate,
+    MAX_OVERLAY_HEIGHT, MAX_OVERLAY_WIDTH, MIN_OVERLAY_HEIGHT, MIN_OVERLAY_WIDTH, NormalizedRect,
 };
 use serde::Serialize;
 use tauri::{
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl,
     WebviewWindowBuilder,
 };
+use tauri_plugin_dialog::DialogExt;
 use timeline::{BuffTimeline, TimelineAction, TimelinePhase};
 
 const MONITOR_FRAME_TIMEOUT: Duration = Duration::from_secs(3);
 const OVERLAY_LABEL: &str = "buff-overlay";
+const TTS_ONLINE_URL: &str = "https://www.ttsonline.cn/";
 
 struct StoredPreview {
     png: Vec<u8>,
@@ -50,6 +52,7 @@ struct RuntimeData {
     last_confidence: f32,
     last_error: Option<String>,
     storage_directory: PathBuf,
+    sound_templates: Vec<storage::SoundTemplate>,
     capture: Option<RuntimeCaptureControl>,
     capture_purpose: Option<CapturePurpose>,
     timeline: BuffTimeline,
@@ -68,7 +71,16 @@ pub struct BuffAssistant {
 impl BuffAssistant {
     pub fn load(app: &AppHandle) -> Result<(Self, Vec<String>), String> {
         let directory = storage::storage_directory(app)?;
-        let (config, mut notices) = storage::load_config(&directory);
+        let templates_directory = storage::sound_templates_directory(app)?;
+        let (sound_templates, template_notices) =
+            storage::load_sound_templates(&templates_directory);
+        let (mut config, mut notices) = storage::load_config(&directory);
+        notices.extend(template_notices);
+        if repair_missing_sound_sources(&directory, &sound_templates, &mut config, &mut notices)
+            && let Err(error) = storage::save_config(&directory, &config)
+        {
+            notices.push(error);
+        }
         let (audio, audio_warning) = AudioEngine::start();
         if let Some(warning) = audio_warning {
             notices.push(warning);
@@ -84,6 +96,7 @@ impl BuffAssistant {
                     last_confidence: 0.0,
                     last_error: None,
                     storage_directory: directory,
+                    sound_templates,
                     capture: None,
                     capture_purpose: None,
                     template_preview: None,
@@ -151,6 +164,16 @@ pub fn get_buff_assistant_state(state: State<'_, BuffAssistant>) -> BuffAssistan
 #[tauri::command]
 pub fn list_buff_capture_windows() -> Result<Vec<CaptureWindowCandidate>, String> {
     windows::enumerate_candidates()
+}
+
+#[tauri::command]
+pub fn list_buff_sound_templates(state: State<'_, BuffAssistant>) -> Vec<BuffSoundTemplateSummary> {
+    state
+        .lock()
+        .sound_templates
+        .iter()
+        .map(|template| template.summary.clone())
+        .collect()
 }
 
 #[tauri::command]
@@ -255,8 +278,16 @@ pub fn update_buff_assistant_settings(
     settings.sanitize();
     let was_monitoring = {
         let mut inner = state.lock();
-        inner.config.settings = settings;
+        let mut next_config = inner.config.clone();
+        next_config.settings = settings;
+        storage::validate_sound_sources(
+            &inner.storage_directory,
+            &inner.sound_templates,
+            &next_config,
+        )?;
+        inner.config = next_config;
         storage::save_config(&inner.storage_directory, &inner.config)?;
+        storage::cleanup_unused_sound_assets(&inner.storage_directory, &inner.config);
         inner.monitor_requested
     };
     apply_overlay_geometry(&app);
@@ -399,20 +430,52 @@ pub fn stop_buff_template_test(
 #[tauri::command]
 pub fn play_buff_assistant_sound(
     state: State<'_, BuffAssistant>,
-    cue: String,
+    cue: BuffSoundCue,
+    source: BuffSoundSource,
+    volume: f32,
 ) -> Result<(), String> {
     let inner = state.lock();
-    let audio_cue = match cue.as_str() {
-        "triggered" => AudioCue::Triggered,
-        "prewarnThree" => AudioCue::PrewarnThree,
-        "prewarnTwo" => AudioCue::PrewarnTwo,
-        "prewarnOne" => AudioCue::PrewarnOne,
-        _ => return Err("未知提示音类型".into()),
-    };
-    state
-        .audio
-        .play(audio_cue, inner.config.settings.sound.volume);
+    let resolved = resolve_sound_source(&inner, cue, &source)?;
+    state.audio.play(cue, resolved, volume);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn import_buff_assistant_sound(
+    app: AppHandle,
+    state: State<'_, BuffAssistant>,
+    cue: BuffSoundCue,
+) -> Result<Option<BuffCustomSoundAsset>, String> {
+    let mut dialog = app
+        .dialog()
+        .file()
+        .set_title(format!("选择{} WAV", sound_cue_label(cue)))
+        .add_filter("WAV 音频", &["wav"]);
+    if let Some(window) = app.get_webview_window("main") {
+        dialog = dialog.set_parent(&window);
+    }
+    let Some(path) = dialog.blocking_pick_file() else {
+        return Ok(None);
+    };
+    let path = path
+        .into_path()
+        .map_err(|error| format!("读取所选 WAV 路径失败：{error}"))?;
+    storage::validate_sound_asset_candidate(&path)?;
+    audio::validate_wav_file(&path)?;
+    let directory = state.lock().storage_directory.clone();
+    let asset_id = format!("{}-{}", sound_cue_id(cue), now_millis());
+    let asset = storage::import_sound_asset(&directory, &path, &asset_id)?;
+    let copied = storage::custom_sound_path(&directory, &asset.asset_id)?;
+    if let Err(error) = audio::validate_wav_file(&copied) {
+        let _ = std::fs::remove_file(copied);
+        return Err(error);
+    }
+    Ok(Some(asset))
+}
+
+#[tauri::command]
+pub fn open_tts_online() -> Result<(), String> {
+    open_fixed_url(TTS_ONLINE_URL)
 }
 
 #[tauri::command]
@@ -611,26 +674,26 @@ pub(crate) fn handle_detection_frame(
         match action {
             TimelineAction::Triggered => {
                 if sound.trigger_enabled {
-                    state.audio.play(AudioCue::Triggered, sound.volume);
+                    play_configured_sound(&state, BuffSoundCue::Triggered, &sound);
                 }
                 emit_execution_log(app, "真实触发已确认，已按实际触发时间校准倒计时");
                 show_countdown_overlay(app, snapshot.expected_at_unix_ms);
             }
             TimelineAction::PrewarnThree => {
                 if sound.prewarn_three_enabled {
-                    state.audio.play(AudioCue::PrewarnThree, sound.volume);
+                    play_configured_sound(&state, BuffSoundCue::PrewarnThree, &sound);
                 }
                 emit_execution_log(app, "倒计时剩余 3 秒");
             }
             TimelineAction::PrewarnTwo => {
                 if sound.prewarn_two_enabled {
-                    state.audio.play(AudioCue::PrewarnTwo, sound.volume);
+                    play_configured_sound(&state, BuffSoundCue::PrewarnTwo, &sound);
                 }
                 emit_execution_log(app, "倒计时剩余 2 秒");
             }
             TimelineAction::PrewarnOne => {
                 if sound.prewarn_one_enabled {
-                    state.audio.play(AudioCue::PrewarnOne, sound.volume);
+                    play_configured_sound(&state, BuffSoundCue::PrewarnOne, &sound);
                 }
                 emit_execution_log(app, "倒计时剩余 1 秒");
             }
@@ -886,6 +949,125 @@ fn stop_current_capture(state: &BuffAssistant) {
     if let Some(control) = control {
         let _ = control.stop();
     }
+}
+
+fn play_configured_sound(
+    state: &BuffAssistant,
+    cue: BuffSoundCue,
+    sound: &model::BuffSoundSettings,
+) {
+    let resolved = {
+        let inner = state.lock();
+        resolve_sound_source(&inner, cue, sound.source(cue)).unwrap_or(ResolvedSoundSource::Sine)
+    };
+    state.audio.play(cue, resolved, sound.volume);
+}
+
+fn resolve_sound_source(
+    inner: &RuntimeData,
+    cue: BuffSoundCue,
+    source: &BuffSoundSource,
+) -> Result<ResolvedSoundSource, String> {
+    match source {
+        BuffSoundSource::Sine => Ok(ResolvedSoundSource::Sine),
+        BuffSoundSource::Template { template_id } => {
+            storage::template_sound_path(&inner.sound_templates, template_id, cue)
+                .map(ResolvedSoundSource::Wav)
+                .ok_or_else(|| format!("提示音模板不存在：{template_id}"))
+        }
+        BuffSoundSource::Custom { asset_id, .. } => {
+            let path = storage::custom_sound_path(&inner.storage_directory, asset_id)?;
+            if path.is_file() {
+                Ok(ResolvedSoundSource::Wav(path))
+            } else {
+                Err("自定义提示音文件不存在，请重新上传".into())
+            }
+        }
+    }
+}
+
+fn repair_missing_sound_sources(
+    directory: &std::path::Path,
+    templates: &[storage::SoundTemplate],
+    config: &mut BuffAssistantConfig,
+    notices: &mut Vec<String>,
+) -> bool {
+    let mut repaired = false;
+    for cue in [
+        BuffSoundCue::Triggered,
+        BuffSoundCue::PrewarnThree,
+        BuffSoundCue::PrewarnTwo,
+        BuffSoundCue::PrewarnOne,
+    ] {
+        let valid = match config.settings.sound.source(cue) {
+            BuffSoundSource::Sine => true,
+            BuffSoundSource::Template { template_id } => templates
+                .iter()
+                .any(|template| template.summary.id == *template_id),
+            BuffSoundSource::Custom { asset_id, .. } => {
+                storage::custom_sound_path(directory, asset_id).is_ok_and(|path| path.is_file())
+            }
+        };
+        if !valid {
+            *config.settings.sound.source_mut(cue) = BuffSoundSource::Sine;
+            repaired = true;
+            notices.push(format!("{}不可用，已恢复为正弦波", sound_cue_label(cue)));
+        }
+    }
+    repaired
+}
+
+fn sound_cue_label(cue: BuffSoundCue) -> &'static str {
+    match cue {
+        BuffSoundCue::Triggered => "真实触发确认音",
+        BuffSoundCue::PrewarnThree => "倒计时 3 秒提示音",
+        BuffSoundCue::PrewarnTwo => "倒计时 2 秒提示音",
+        BuffSoundCue::PrewarnOne => "倒计时 1 秒提示音",
+    }
+}
+
+fn sound_cue_id(cue: BuffSoundCue) -> &'static str {
+    match cue {
+        BuffSoundCue::Triggered => "triggered",
+        BuffSoundCue::PrewarnThree => "prewarn-three",
+        BuffSoundCue::PrewarnTwo => "prewarn-two",
+        BuffSoundCue::PrewarnOne => "prewarn-one",
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn open_fixed_url(url: &str) -> Result<(), String> {
+    use std::{ffi::OsStr, os::windows::ffi::OsStrExt, ptr};
+    use windows_sys::Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL};
+
+    let operation = OsStr::new("open")
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let url = OsStr::new(url)
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let result = unsafe {
+        ShellExecuteW(
+            ptr::null_mut(),
+            operation.as_ptr(),
+            url.as_ptr(),
+            ptr::null(),
+            ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if result as isize <= 32 {
+        Err("无法打开 TTS Online，请检查系统默认浏览器设置。".into())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn open_fixed_url(_url: &str) -> Result<(), String> {
+    Err("当前系统不支持打开 TTS Online。".into())
 }
 
 fn snapshot_from_runtime(inner: &RuntimeData) -> BuffAssistantState {

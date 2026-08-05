@@ -1,5 +1,6 @@
 import {
   BellRing,
+  ExternalLink,
   Eye,
   ImagePlus,
   MonitorPlay,
@@ -10,13 +11,20 @@ import {
   Settings2,
   Square,
   Trash2,
+  Upload,
   Volume2
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '../../components/ui/button'
 import type { BuffAssistantController } from '../../hooks/useBuffAssistantController'
-import type { BuffAssistantSettings, NormalizedRect } from '../../lib/macro-api'
+import type {
+  BuffAssistantSettings,
+  BuffSoundCue,
+  BuffSoundSource,
+  BuffSoundTemplateSummary,
+  NormalizedRect
+} from '../../lib/macro-api'
 import {
   createMaskHistory,
   MaskEditor,
@@ -66,6 +74,9 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const [maskEditorOpen, setMaskEditorOpen] = useState(false)
   const [settings, setSettings] = useState<BuffAssistantSettings>(state.config.settings)
   const [overlayEditing, setOverlayEditingState] = useState(false)
+  const [soundTemplates, setSoundTemplates] = useState<BuffSoundTemplateSummary[]>([])
+  const [soundError, setSoundError] = useState<string | null>(null)
+  const [uploadingCue, setUploadingCue] = useState<BuffSoundCue | null>(null)
   const maskRef = useRef<MaskEditorHandle>(null)
 
   useEffect(() => {
@@ -75,6 +86,59 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   useEffect(() => {
     void refreshWindows().catch(() => undefined)
   }, [refreshWindows])
+
+  useEffect(() => {
+    let disposed = false
+    void window.api
+      .listBuffSoundTemplates()
+      .then((templates) => {
+        if (!disposed) setSoundTemplates(templates)
+      })
+      .catch((reason: unknown) => {
+        if (!disposed) setSoundError(toMessage(reason))
+      })
+    return () => {
+      disposed = true
+    }
+  }, [])
+
+  async function importSound(cue: BuffSoundCue, field: SoundSourceField): Promise<void> {
+    setUploadingCue(cue)
+    setSoundError(null)
+    try {
+      const asset = await window.api.importBuffAssistantSound(cue)
+      if (!asset) return
+      setSettings((current) => ({
+        ...current,
+        sound: {
+          ...current.sound,
+          [field]: { type: 'custom', assetId: asset.assetId, fileName: asset.fileName }
+        }
+      }))
+    } catch (reason) {
+      setSoundError(toMessage(reason))
+    } finally {
+      setUploadingCue(null)
+    }
+  }
+
+  async function previewSound(cue: BuffSoundCue, source: BuffSoundSource): Promise<void> {
+    setSoundError(null)
+    try {
+      await window.api.playBuffAssistantSound(cue, source, settings.sound.volume)
+    } catch (reason) {
+      setSoundError(toMessage(reason))
+    }
+  }
+
+  async function openTtsOnline(): Promise<void> {
+    setSoundError(null)
+    try {
+      await window.api.openTtsOnline()
+    } catch (reason) {
+      setSoundError(toMessage(reason))
+    }
+  }
 
   useEffect(() => {
     if (selectedWindowId || windows.length === 0) return
@@ -334,36 +398,93 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               />
               显示浮窗边框
             </label>
-            <ToggleRow
+            <SoundRow
               checked={settings.sound.triggerEnabled}
+              cue="triggered"
               label="真实触发确认音"
+              source={settings.sound.triggerSource}
+              templates={soundTemplates}
+              uploading={uploadingCue === 'triggered'}
               onChange={(checked) =>
                 setSettings((current) => ({
                   ...current,
                   sound: { ...current.sound, triggerEnabled: checked }
                 }))
               }
-              onTest={() => void window.api.playBuffAssistantSound('triggered')}
-            />
-            <ToggleRow
-              checked={
-                settings.sound.prewarnThreeEnabled &&
-                settings.sound.prewarnTwoEnabled &&
-                settings.sound.prewarnOneEnabled
+              onSourceChange={(source) =>
+                setSettings((current) => ({
+                  ...current,
+                  sound: { ...current.sound, triggerSource: source }
+                }))
               }
-              label="提前 3、2、1 秒提示音"
+              onTest={() => void previewSound('triggered', settings.sound.triggerSource)}
+              onUpload={() => void importSound('triggered', 'triggerSource')}
+            />
+            <SoundRow
+              checked={settings.sound.prewarnThreeEnabled}
+              cue="prewarnThree"
+              label="倒计时 3 秒提示音"
+              source={settings.sound.prewarnThreeSource}
+              templates={soundTemplates}
+              uploading={uploadingCue === 'prewarnThree'}
               onChange={(checked) =>
                 setSettings((current) => ({
                   ...current,
-                  sound: {
-                    ...current.sound,
-                    prewarnThreeEnabled: checked,
-                    prewarnTwoEnabled: checked,
-                    prewarnOneEnabled: checked
-                  }
+                  sound: { ...current.sound, prewarnThreeEnabled: checked }
                 }))
               }
-              onTest={() => void window.api.playBuffAssistantSound('prewarnThree')}
+              onSourceChange={(source) =>
+                setSettings((current) => ({
+                  ...current,
+                  sound: { ...current.sound, prewarnThreeSource: source }
+                }))
+              }
+              onTest={() => void previewSound('prewarnThree', settings.sound.prewarnThreeSource)}
+              onUpload={() => void importSound('prewarnThree', 'prewarnThreeSource')}
+            />
+            <SoundRow
+              checked={settings.sound.prewarnTwoEnabled}
+              cue="prewarnTwo"
+              label="倒计时 2 秒提示音"
+              source={settings.sound.prewarnTwoSource}
+              templates={soundTemplates}
+              uploading={uploadingCue === 'prewarnTwo'}
+              onChange={(checked) =>
+                setSettings((current) => ({
+                  ...current,
+                  sound: { ...current.sound, prewarnTwoEnabled: checked }
+                }))
+              }
+              onSourceChange={(source) =>
+                setSettings((current) => ({
+                  ...current,
+                  sound: { ...current.sound, prewarnTwoSource: source }
+                }))
+              }
+              onTest={() => void previewSound('prewarnTwo', settings.sound.prewarnTwoSource)}
+              onUpload={() => void importSound('prewarnTwo', 'prewarnTwoSource')}
+            />
+            <SoundRow
+              checked={settings.sound.prewarnOneEnabled}
+              cue="prewarnOne"
+              label="倒计时 1 秒提示音"
+              source={settings.sound.prewarnOneSource}
+              templates={soundTemplates}
+              uploading={uploadingCue === 'prewarnOne'}
+              onChange={(checked) =>
+                setSettings((current) => ({
+                  ...current,
+                  sound: { ...current.sound, prewarnOneEnabled: checked }
+                }))
+              }
+              onSourceChange={(source) =>
+                setSettings((current) => ({
+                  ...current,
+                  sound: { ...current.sound, prewarnOneSource: source }
+                }))
+              }
+              onTest={() => void previewSound('prewarnOne', settings.sound.prewarnOneSource)}
+              onUpload={() => void importSound('prewarnOne', 'prewarnOneSource')}
             />
             <label className="buff-volume-row">
               <Volume2 aria-hidden="true" />
@@ -383,6 +504,14 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               />
               <strong>{Math.round(settings.sound.volume * 100)}%</strong>
             </label>
+            <div className="buff-sound-tip">
+              <p>没有合适的提示音？可前往 TTS Online 将文本转换为语音，再下载 WAV 上传。</p>
+              <button type="button" onClick={() => void openTtsOnline()}>
+                <ExternalLink aria-hidden="true" />
+                前往 TTS Online
+              </button>
+            </div>
+            {soundError ? <p className="buff-sound-error">{soundError}</p> : null}
           </div>
           <div className="buff-card__actions">
             <Button disabled={busy} onClick={() => void updateSettings(settings)}>
@@ -609,16 +738,43 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   )
 }
 
-type ToggleRowProps = {
+type SoundSourceField =
+  'triggerSource' | 'prewarnThreeSource' | 'prewarnTwoSource' | 'prewarnOneSource'
+
+type SoundRowProps = {
   checked: boolean
+  cue: BuffSoundCue
   label: string
+  source: BuffSoundSource
+  templates: BuffSoundTemplateSummary[]
+  uploading: boolean
   onChange: (checked: boolean) => void
+  onSourceChange: (source: BuffSoundSource) => void
   onTest: () => void
+  onUpload: () => void
 }
 
-function ToggleRow({ checked, label, onChange, onTest }: ToggleRowProps) {
+function SoundRow({
+  checked,
+  cue,
+  label,
+  source,
+  templates,
+  uploading,
+  onChange,
+  onSourceChange,
+  onTest,
+  onUpload
+}: SoundRowProps) {
+  const value =
+    source.type === 'template'
+      ? `template:${source.templateId}`
+      : source.type === 'custom'
+        ? `custom:${source.assetId}`
+        : 'sine'
+
   return (
-    <div className="buff-toggle-row">
+    <div className="buff-sound-row" data-cue={cue}>
       <label>
         <input
           checked={checked}
@@ -627,6 +783,38 @@ function ToggleRow({ checked, label, onChange, onTest }: ToggleRowProps) {
         />
         {label}
       </label>
+      <select
+        aria-label={`${label}来源`}
+        value={value}
+        onChange={(event) => {
+          const next = event.target.value
+          if (next === 'sine') {
+            onSourceChange({ type: 'sine' })
+          } else if (next.startsWith('template:')) {
+            onSourceChange({ type: 'template', templateId: next.slice('template:'.length) })
+          }
+        }}
+      >
+        <option value="sine">正弦波</option>
+        {templates.map((template) => (
+          <option key={template.id} value={`template:${template.id}`}>
+            {template.name}
+          </option>
+        ))}
+        {source.type === 'custom' ? (
+          <option value={`custom:${source.assetId}`}>自定义：{source.fileName}</option>
+        ) : null}
+      </select>
+      <button
+        aria-label={`上传${label} WAV`}
+        className="buff-sound-row__upload"
+        disabled={uploading}
+        type="button"
+        onClick={onUpload}
+      >
+        <Upload aria-hidden="true" />
+        {uploading ? '选择中' : '上传'}
+      </button>
       <button aria-label={`试听${label}`} type="button" onClick={onTest}>
         试听
       </button>
@@ -694,4 +882,8 @@ function describeStatus(activity: string, monitoring: boolean): string {
     stopped: '已停止'
   }
   return labels[activity] ?? '未知状态'
+}
+
+function toMessage(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason)
 }

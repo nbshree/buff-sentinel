@@ -1,0 +1,10 @@
+{
+  "id": "template-1",
+  "name": "模板一",
+  "files": {
+    "triggered": "triggered.wav",
+    "prewarnThree": "prewarn-three.wav",
+    "prewarnTwo": "prewarn-two.wav",
+    "prewarnOne": "prewarn-one.wav"
+  }
+}

@@ -46,6 +46,9 @@
     "shortDescription": "自动点击与键盘宏流程工具",
     "longDescription": "支持坐标采集、鼠标点击、键盘输入、循环执行、全局热键和多方案管理。",
     "createUpdaterArtifacts": false,
+    "resources": {
+      "resources/buff-sounds/": "buff-sounds/"
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser",
