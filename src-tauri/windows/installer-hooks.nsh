@@ -1,21 +1,18 @@
-Var LegacyUninstallString
 Var LegacyInstallDir
-Var CurrentUninstallString
-Var CurrentInstallDir
+Var PreviousInstallDir
+Var IncorrectDefaultInstallDir
 Var MigrateDesktopShortcut
 
 !macro NSIS_HOOK_PREINSTALL
-  StrCpy $LegacyUninstallString ""
   StrCpy $LegacyInstallDir ""
-  StrCpy $CurrentUninstallString ""
-  StrCpy $CurrentInstallDir ""
+  StrCpy $PreviousInstallDir ""
   StrCpy $MigrateDesktopShortcut 0
 
-  ReadRegStr $LegacyUninstallString HKCU \
-    "Software\Microsoft\Windows\CurrentVersion\Uninstall\自动点击流程台" \
-    "UninstallString"
   ReadRegStr $LegacyInstallDir HKCU \
     "Software\Microsoft\Windows\CurrentVersion\Uninstall\自动点击流程台" \
+    "InstallLocation"
+  ReadRegStr $PreviousInstallDir HKCU \
+    "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}" \
     "InstallLocation"
 
   ${If} $LegacyInstallDir != ""
@@ -29,53 +26,63 @@ Var MigrateDesktopShortcut
     ${EndIf}
   ${EndIf}
 
+  ${If} $PreviousInstallDir != ""
+    StrCpy $R0 $PreviousInstallDir 1
+    ${If} $R0 == '$\"'
+      StrCpy $PreviousInstallDir $PreviousInstallDir "" 1
+    ${EndIf}
+    StrCpy $R0 $PreviousInstallDir 1 -1
+    ${If} $R0 == '$\"'
+      StrCpy $PreviousInstallDir $PreviousInstallDir -1
+    ${EndIf}
+  ${EndIf}
+
   IfFileExists "$DESKTOP\自动点击流程台.lnk" 0 +2
     StrCpy $MigrateDesktopShortcut 1
   IfFileExists "$DESKTOP\${PRODUCTNAME}.lnk" 0 +2
     StrCpy $MigrateDesktopShortcut 1
 
+  ; Never run either old uninstaller here. An NSIS uninstaller can return before its
+  ; cleanup process finishes and delete files copied by the new installer afterwards.
   ${If} $LegacyInstallDir != ""
-    ReadRegStr $CurrentUninstallString HKCU \
-      "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}" \
-      "UninstallString"
-    ReadRegStr $CurrentInstallDir HKCU \
-      "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCTNAME}" \
-      "InstallLocation"
-
-    ${If} $CurrentInstallDir != ""
-      StrCpy $R0 $CurrentInstallDir 1
-      ${If} $R0 == '$\"'
-        StrCpy $CurrentInstallDir $CurrentInstallDir "" 1
-      ${EndIf}
-      StrCpy $R0 $CurrentInstallDir 1 -1
-      ${If} $R0 == '$\"'
-        StrCpy $CurrentInstallDir $CurrentInstallDir -1
-      ${EndIf}
-    ${EndIf}
-
-    ${If} $CurrentUninstallString != ""
-    ${AndIf} $CurrentInstallDir != $LegacyInstallDir
-      DetailPrint "正在移除错误目录中的 ${PRODUCTNAME}"
-      ExecWait '$CurrentUninstallString /S' $R0
-    ${EndIf}
-
-    ${If} $LegacyUninstallString != ""
-      DetailPrint "正在迁移旧版自动点击流程台"
-      ExecWait '$LegacyUninstallString /S' $R0
-    ${EndIf}
-
     StrCpy $INSTDIR $LegacyInstallDir
     DetailPrint "新版将安装到原目录：$INSTDIR"
+  ${ElseIf} $PreviousInstallDir != ""
+    StrCpy $INSTDIR $PreviousInstallDir
   ${EndIf}
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  ; The new installer now owns the destination. Remove only stale registration and
+  ; known executable files from incorrect directories; do not run an old uninstaller.
+  DeleteRegKey HKCU \
+    "Software\Microsoft\Windows\CurrentVersion\Uninstall\自动点击流程台"
+
+  ${If} $PreviousInstallDir != ""
+  ${AndIf} $PreviousInstallDir != $INSTDIR
+    Delete /REBOOTOK "$PreviousInstallDir\${MAINBINARYNAME}.exe"
+    Delete /REBOOTOK "$PreviousInstallDir\uninstall.exe"
+    RMDir "$PreviousInstallDir"
+  ${EndIf}
+
+  ; v2.0.0-v2.0.2 could leave the executable in this default directory while the
+  ; registry and shortcut pointed elsewhere. Clean that exact known location too.
+  StrCpy $IncorrectDefaultInstallDir "$LOCALAPPDATA\${PRODUCTNAME}"
+  ${If} $IncorrectDefaultInstallDir != $INSTDIR
+    Delete /REBOOTOK "$IncorrectDefaultInstallDir\${MAINBINARYNAME}.exe"
+    Delete /REBOOTOK "$IncorrectDefaultInstallDir\uninstall.exe"
+    RMDir "$IncorrectDefaultInstallDir"
+  ${EndIf}
+
   Delete "$DESKTOP\自动点击流程台.lnk"
+  Delete "$DESKTOP\${PRODUCTNAME}.lnk"
   Delete "$SMPROGRAMS\自动点击流程台.lnk"
   Delete "$SMPROGRAMS\自动点击流程台\自动点击流程台.lnk"
   RMDir "$SMPROGRAMS\自动点击流程台"
 
+  SetOutPath "$INSTDIR"
   CreateDirectory "$SMPROGRAMS\${STARTMENUFOLDER}"
+  Delete "$SMPROGRAMS\${STARTMENUFOLDER}\${PRODUCTNAME}.lnk"
   CreateShortcut \
     "$SMPROGRAMS\${STARTMENUFOLDER}\${PRODUCTNAME}.lnk" \
     "$INSTDIR\${MAINBINARYNAME}.exe"
