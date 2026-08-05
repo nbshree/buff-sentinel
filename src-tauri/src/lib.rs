@@ -43,6 +43,7 @@ pub fn run() {
             app.manage(buff_state);
             app.manage(desktop::WorkspaceState::default());
             app.manage(updater::PendingUpdate::default());
+            updater::schedule_installer_cleanup(app.package_info().name.clone());
 
             let state = app.state::<AppState>();
             state.persist_current_store(app.handle());

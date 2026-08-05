@@ -1,4 +1,11 @@
-use std::sync::{Mutex, MutexGuard};
+use std::{
+    ffi::OsStr,
+    fs, io,
+    path::Path,
+    sync::{Mutex, MutexGuard},
+    thread,
+    time::Duration,
+};
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State, ipc::Channel};
@@ -6,6 +13,79 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 use time::format_description::well_known::Rfc3339;
 
 use crate::state::AppState;
+
+const LEGACY_UPDATER_APP_NAMES: &[&str] = &["自动点击流程台"];
+const INSTALLER_CLEANUP_RETRY_DELAY: Duration = Duration::from_secs(2);
+const INSTALLER_CLEANUP_ATTEMPTS: usize = 10;
+
+pub fn schedule_installer_cleanup(app_name: String) {
+    thread::spawn(move || {
+        let mut app_names = vec![app_name];
+        for legacy_name in LEGACY_UPDATER_APP_NAMES {
+            if !app_names.iter().any(|name| name == legacy_name) {
+                app_names.push((*legacy_name).to_owned());
+            }
+        }
+
+        let temp_dir = std::env::temp_dir();
+        for attempt in 0..INSTALLER_CLEANUP_ATTEMPTS {
+            if attempt > 0 {
+                thread::sleep(INSTALLER_CLEANUP_RETRY_DELAY);
+            }
+            let _ = cleanup_installer_directories(&temp_dir, &app_names);
+        }
+    });
+}
+
+fn cleanup_installer_directories(temp_dir: &Path, app_names: &[String]) -> io::Result<usize> {
+    let mut removed = 0;
+    for entry in fs::read_dir(temp_dir)? {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_dir()
+            || file_type.is_symlink()
+            || !is_installer_directory_name(&entry.file_name(), app_names)
+        {
+            continue;
+        }
+
+        if fs::remove_dir_all(entry.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+fn is_installer_directory_name(name: &OsStr, app_names: &[String]) -> bool {
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+
+    app_names.iter().any(|app_name| {
+        if app_name.is_empty() {
+            return false;
+        }
+        let Some(remainder) = name
+            .strip_prefix(app_name)
+            .and_then(|remainder| remainder.strip_prefix('-'))
+        else {
+            return false;
+        };
+        let Some((version, random_suffix)) = remainder.rsplit_once("-updater-") else {
+            return false;
+        };
+
+        !version.is_empty()
+            && (6..=16).contains(&random_suffix.len())
+            && random_suffix
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric())
+    })
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -358,6 +438,63 @@ fn install_in_progress_error() -> AppUpdateError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_test_directory(label: &str) -> std::path::PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("macro-flow-updater-test-{label}-{nonce}"))
+    }
+
+    #[test]
+    fn installer_directory_matching_is_scoped_to_known_app_names() {
+        let app_names = vec!["shree盒子".to_owned(), "自动点击流程台".to_owned()];
+
+        assert!(is_installer_directory_name(
+            OsStr::new("shree盒子-2.0.10-updater-a1B2c3"),
+            &app_names
+        ));
+        assert!(is_installer_directory_name(
+            OsStr::new("自动点击流程台-1.8.0-updater-deaMb3"),
+            &app_names
+        ));
+        assert!(!is_installer_directory_name(
+            OsStr::new("其他应用-2.0.10-updater-a1B2c3"),
+            &app_names
+        ));
+        assert!(!is_installer_directory_name(
+            OsStr::new("shree盒子-updater-a1B2c3"),
+            &app_names
+        ));
+        assert!(!is_installer_directory_name(
+            OsStr::new("shree盒子-2.0.10-updater-../../bad"),
+            &app_names
+        ));
+    }
+
+    #[test]
+    fn cleanup_removes_only_matching_installer_directories() {
+        let base = unique_test_directory("cleanup");
+        let matching = base.join("shree盒子-2.0.10-updater-a1B2c3");
+        let legacy = base.join("自动点击流程台-1.8.0-updater-deaMb3");
+        let unrelated = base.join("其他应用-2.0.10-updater-a1B2c3");
+        fs::create_dir_all(&matching).expect("create matching updater directory");
+        fs::create_dir_all(&legacy).expect("create legacy updater directory");
+        fs::create_dir_all(&unrelated).expect("create unrelated directory");
+        fs::write(matching.join("installer.exe"), b"test").expect("write installer");
+        fs::write(legacy.join("installer.exe"), b"test").expect("write legacy installer");
+
+        let app_names = vec!["shree盒子".to_owned(), "自动点击流程台".to_owned()];
+        let removed = cleanup_installer_directories(&base, &app_names).expect("cleanup installers");
+
+        assert_eq!(removed, 2);
+        assert!(!matching.exists());
+        assert!(!legacy.exists());
+        assert!(unrelated.exists());
+        fs::remove_dir_all(base).expect("remove test directory");
+    }
 
     #[test]
     fn update_metadata_uses_camel_case_and_plain_text_notes() {
