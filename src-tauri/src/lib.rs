@@ -21,11 +21,6 @@ use state::AppState;
 pub fn run() {
     input::enable_per_monitor_dpi_awareness();
 
-    let context = tauri::generate_context!();
-    #[cfg(windows)]
-    desktop::set_process_app_user_model_id(&context.config().identifier)
-        .expect("failed to set Windows AppUserModelID");
-
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             desktop::show_main_window(app);
@@ -132,18 +127,12 @@ pub fn run() {
             updater::check_for_update,
             updater::install_update,
         ])
-        .build(context)
+        .build(tauri::generate_context!())
         .expect("error while building Tauri application");
 
     app.run(|app, event| match event {
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => desktop::show_main_window(app),
-        RunEvent::Ready => {
-            if let Err(error) = desktop::set_main_window_icons(app) {
-                app.state::<AppState>()
-                    .log(app, format!("任务栏图标设置失败：{error}"));
-            }
-        }
         RunEvent::Exit => {
             commands::stop_macro_workspace_activity_internal(app);
             game_recorder::stop_game_activity_internal(app);
