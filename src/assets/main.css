@@ -1040,8 +1040,7 @@
     font-size: 23px;
   }
 
-  .workspace-brand p,
-  .workspace-brand__eyebrow > span:first-child {
+  .workspace-brand p {
     display: none;
   }
 

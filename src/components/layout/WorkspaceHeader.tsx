@@ -49,7 +49,7 @@ const workspaceLabels: Record<
   { title: string; subtitle: string; menuLabel: string; icon: LucideIcon }
 > = {
   macro: {
-    title: 'shree盒子',
+    title: '宏流程',
     subtitle: '自动化流程管理',
     menuLabel: '宏流程',
     icon: Workflow
@@ -105,7 +105,6 @@ export function WorkspaceHeader({
     <header className="workspace-header">
       <div className="workspace-brand">
         <div className="workspace-brand__eyebrow">
-          <span>shree盒子</span>
           <span className="workspace-brand__author">作者 小踢踢</span>
         </div>
         <h1 id="workspace-title">

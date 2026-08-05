@@ -39,6 +39,13 @@ function renderHeader(
 }
 
 describe('WorkspaceHeader', () => {
+  it('uses 宏流程 as the macro workspace heading', () => {
+    renderHeader('longyin')
+
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('宏流程')
+    expect(screen.getByRole('heading', { level: 1 })).not.toHaveTextContent('shree盒子')
+  })
+
   it('shows the current app version beside the update action', () => {
     renderHeader('longyin')
 
