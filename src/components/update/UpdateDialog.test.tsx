@@ -22,6 +22,7 @@ function createUpdater(overrides: Partial<AppUpdaterController> = {}): AppUpdate
     installBlockedReason: null,
     retryBlockedReason: null,
     isBusy: false,
+    checkOnStartup: vi.fn().mockResolvedValue(undefined),
     checkForUpdate: vi.fn().mockResolvedValue(undefined),
     installUpdate: vi.fn().mockResolvedValue(undefined),
     retry: vi.fn().mockResolvedValue(undefined),

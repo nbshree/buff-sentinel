@@ -60,6 +60,10 @@ function App(): React.JSX.Element {
   const updater = useAppUpdater({ installBlockedReason })
 
   useEffect(() => {
+    void updater.checkOnStartup()
+  }, [updater.checkOnStartup])
+
+  useEffect(() => {
     let disposed = false
 
     void window.api

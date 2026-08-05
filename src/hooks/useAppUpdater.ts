@@ -19,6 +19,7 @@ export type AppUpdaterController = {
   installBlockedReason: string | null
   retryBlockedReason: string | null
   isBusy: boolean
+  checkOnStartup: () => Promise<void>
   checkForUpdate: () => Promise<void>
   installUpdate: () => Promise<void>
   retry: () => Promise<void>
@@ -74,12 +75,12 @@ export function useAppUpdater({
     [status]
   )
 
-  const checkForUpdate = useCallback(async () => {
+  const performCheck = useCallback(async (openBeforeCheck: boolean) => {
     if (operationInProgressRef.current) return
 
     operationInProgressRef.current = true
     failedOperationRef.current = 'check'
-    setOpenState(true)
+    if (openBeforeCheck) setOpenState(true)
     setStatus('checking')
     setResult(null)
     setDownloaded(0)
@@ -90,13 +91,23 @@ export function useAppUpdater({
       const nextResult = await window.api.checkForUpdate()
       setResult(nextResult)
       setStatus(nextResult.update ? 'available' : 'upToDate')
+      if (nextResult.update) setOpenState(true)
     } catch (nextError) {
       setStatus('error')
       setError(describeFailure('检查更新失败', nextError))
+      if (openBeforeCheck) setOpenState(true)
     } finally {
       operationInProgressRef.current = false
     }
   }, [])
+
+  const checkOnStartup = useCallback(async () => {
+    await performCheck(false)
+  }, [performCheck])
+
+  const checkForUpdate = useCallback(async () => {
+    await performCheck(true)
+  }, [performCheck])
 
   const installUpdate = useCallback(async () => {
     if (operationInProgressRef.current || !result?.update || installBlockedReason) return
@@ -143,6 +154,7 @@ export function useAppUpdater({
     retryBlockedReason:
       status === 'error' && failedOperationRef.current === 'install' ? installBlockedReason : null,
     isBusy: status === 'checking' || status === 'downloading' || status === 'installing',
+    checkOnStartup,
     checkForUpdate,
     installUpdate,
     retry,

@@ -1,6 +1,6 @@
 [package]
 name = "macro-flow"
-version = "2.0.1"
+version = "2.0.2"
 description = "A lightweight Windows macro workflow tool"
 authors = ["shree"]
 edition = "2024"

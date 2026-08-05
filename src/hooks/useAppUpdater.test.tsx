@@ -19,21 +19,50 @@ describe('useAppUpdater', () => {
     installMacroApi(createMacroApi())
   })
 
-  it('only checks for updates after an explicit user action and reports up-to-date', async () => {
+  it('checks on startup without opening when the app is up-to-date', async () => {
     const api = createMacroApi()
     installMacroApi(api)
     const { result } = renderHook(() => useAppUpdater({ installBlockedReason: null }))
 
-    expect(api.checkForUpdate).not.toHaveBeenCalled()
-
     await act(async () => {
-      await result.current.checkForUpdate()
+      await result.current.checkOnStartup()
     })
 
     expect(api.checkForUpdate).toHaveBeenCalledTimes(1)
-    expect(result.current.open).toBe(true)
+    expect(result.current.open).toBe(false)
     expect(result.current.status).toBe('upToDate')
     expect(result.current.currentVersion).toBe('1.7.1')
+  })
+
+  it('opens the dialog when the startup check finds an update', async () => {
+    const api = createMacroApi()
+    api.checkForUpdate.mockResolvedValue({
+      currentVersion: '1.7.1',
+      update: { version: '1.8.0', notes: '新增应用内更新', publishedAt: null }
+    })
+    installMacroApi(api)
+    const { result } = renderHook(() => useAppUpdater({ installBlockedReason: null }))
+
+    await act(async () => {
+      await result.current.checkOnStartup()
+    })
+
+    expect(result.current.open).toBe(true)
+    expect(result.current.status).toBe('available')
+  })
+
+  it('keeps startup check failures in the background', async () => {
+    const api = createMacroApi()
+    api.checkForUpdate.mockRejectedValue({ code: 'checkFailed', message: '网络不可用' })
+    installMacroApi(api)
+    const { result } = renderHook(() => useAppUpdater({ installBlockedReason: null }))
+
+    await act(async () => {
+      await result.current.checkOnStartup()
+    })
+
+    expect(result.current.open).toBe(false)
+    expect(result.current.status).toBe('error')
   })
 
   it('keeps the new version metadata returned by the backend', async () => {
