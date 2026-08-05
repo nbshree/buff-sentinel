@@ -8,6 +8,14 @@ use std::sync::{Mutex, MutexGuard};
 
 use serde::Deserialize;
 
+#[cfg(windows)]
+use windows_sys::Win32::{
+    System::LibraryLoader::GetModuleHandleW,
+    UI::WindowsAndMessaging::{
+        ICON_BIG, IMAGE_ICON, LR_DEFAULTSIZE, LR_SHARED, LoadImageW, SendMessageW, WM_SETICON,
+    },
+};
+
 use crate::{buff_assistant, commands, game_recorder, shortcuts, state::AppState};
 
 const MENU_SHOW: &str = "show-window";
@@ -134,6 +142,47 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         tray = tray.icon(icon);
     }
     tray.build(app)?;
+    Ok(())
+}
+
+pub fn set_main_window_icons(app: &AppHandle) -> tauri::Result<()> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    let Some(icon) = app.default_window_icon().cloned() else {
+        return Ok(());
+    };
+
+    window.set_icon(icon)?;
+
+    #[cfg(windows)]
+    {
+        const APP_ICON_RESOURCE_ID: usize = 32512;
+
+        let module = unsafe { GetModuleHandleW(std::ptr::null()) };
+        if module.is_null() {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        let taskbar_icon = unsafe {
+            LoadImageW(
+                module,
+                APP_ICON_RESOURCE_ID as *const u16,
+                IMAGE_ICON,
+                0,
+                0,
+                LR_DEFAULTSIZE | LR_SHARED,
+            )
+        };
+        if taskbar_icon.is_null() {
+            return Err(std::io::Error::last_os_error().into());
+        }
+
+        let hwnd = window.hwnd()?;
+        unsafe {
+            SendMessageW(hwnd.0 as _, WM_SETICON, ICON_BIG as _, taskbar_icon as _);
+        }
+    }
+
     Ok(())
 }
 

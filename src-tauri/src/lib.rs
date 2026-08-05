@@ -133,6 +133,12 @@ pub fn run() {
     app.run(|app, event| match event {
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => desktop::show_main_window(app),
+        RunEvent::Ready => {
+            if let Err(error) = desktop::set_main_window_icons(app) {
+                app.state::<AppState>()
+                    .log(app, format!("任务栏图标设置失败：{error}"));
+            }
+        }
         RunEvent::Exit => {
             commands::stop_macro_workspace_activity_internal(app);
             game_recorder::stop_game_activity_internal(app);
