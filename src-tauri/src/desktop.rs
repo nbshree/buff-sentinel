@@ -9,6 +9,11 @@ use std::sync::{Mutex, MutexGuard};
 use serde::Deserialize;
 
 #[cfg(windows)]
+use windows::Win32::{
+    System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance},
+    UI::Shell::{ITaskbarList, TaskbarList},
+};
+#[cfg(windows)]
 use windows_sys::Win32::{
     System::LibraryLoader::GetModuleHandleW,
     UI::{
@@ -184,8 +189,25 @@ pub fn set_main_window_icons(app: &AppHandle) -> tauri::Result<()> {
         unsafe {
             SendMessageW(hwnd.0 as _, WM_SETICON, ICON_BIG as _, taskbar_icon as _);
         }
+        refresh_taskbar_button(hwnd).map_err(std::io::Error::other)?;
     }
 
+    Ok(())
+}
+
+#[cfg(windows)]
+fn refresh_taskbar_button(hwnd: windows::Win32::Foundation::HWND) -> windows::core::Result<()> {
+    let taskbar: ITaskbarList =
+        unsafe { CoCreateInstance(&TaskbarList, None, CLSCTX_INPROC_SERVER)? };
+    unsafe {
+        taskbar.HrInit()?;
+        taskbar.DeleteTab(hwnd)?;
+    }
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    unsafe {
+        taskbar.AddTab(hwnd)?;
+        taskbar.ActivateTab(hwnd)?;
+    }
     Ok(())
 }
 

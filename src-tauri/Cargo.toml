@@ -1,6 +1,6 @@
 [package]
 name = "macro-flow"
-version = "2.0.7"
+version = "2.0.8"
 description = "A lightweight Windows macro workflow tool"
 authors = ["shree"]
 edition = "2024"
@@ -34,6 +34,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 time = { version = "0.3", features = ["formatting"] }
 windows-capture = "2"
+windows = { version = "0.61.3", features = ["Win32_System_Com", "Win32_UI_Shell"] }
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",

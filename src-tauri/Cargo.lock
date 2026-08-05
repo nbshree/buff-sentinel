@@ -2231,7 +2231,7 @@ dependencies = [
 
 [[package]]
 name = "macro-flow"
-version = "2.0.7"
+version = "2.0.8"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2249,6 +2249,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "time",
+ "windows 0.61.3",
  "windows-capture",
  "windows-sys 0.61.2",
 ]
