@@ -103,4 +103,14 @@ Var MigrateDesktopShortcut
       "$INSTDIR\${MAINBINARYNAME}.exe" \
       0
   ${EndIf}
+
+  ; Explorer caches icons by file path, so replacing the EXE at the same location can
+  ; keep showing the previous icon. Notify the shell about both updated items and
+  ; rebuild the visible icon cache without restarting Explorer.
+  System::Call \
+    'shell32::SHChangeNotify(i 0x00002000, i 0x0005, w "$INSTDIR\${MAINBINARYNAME}.exe", i 0)'
+  System::Call \
+    'shell32::SHChangeNotify(i 0x00002000, i 0x0005, w "$DESKTOP\${PRODUCTNAME}.lnk", i 0)'
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x0000, i 0, i 0)'
+  ExecWait '"$SYSDIR\ie4uinit.exe" -show' $R0
 !macroend
