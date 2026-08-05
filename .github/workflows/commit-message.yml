@@ -1,0 +1,25 @@
+name: Check Chinese commit messages
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate commit messages
+    runs-on: windows-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out source history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Check Chinese commit messages
+        shell: pwsh
+        run: ./scripts/check-commit-messages.ps1 -SincePolicyStart -ToRef HEAD

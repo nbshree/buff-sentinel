@@ -1,0 +1,3 @@
+#!/bin/sh
+
+exec pwsh -NoProfile -File scripts/check-commit-messages.ps1 -MessageFile "$1"
