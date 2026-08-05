@@ -50,6 +50,11 @@ Var MigrateDesktopShortcut
   ${ElseIf} $PreviousInstallDir != ""
     StrCpy $INSTDIR $PreviousInstallDir
   ${EndIf}
+
+  ; Tauri calls SetOutPath before this hook. Keep NSIS' output directory in sync
+  ; after changing $INSTDIR, otherwise the first migrated update copies the EXE to
+  ; the old default directory while registry entries point at the legacy directory.
+  SetOutPath "$INSTDIR"
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
@@ -85,11 +90,17 @@ Var MigrateDesktopShortcut
   Delete "$SMPROGRAMS\${STARTMENUFOLDER}\${PRODUCTNAME}.lnk"
   CreateShortcut \
     "$SMPROGRAMS\${STARTMENUFOLDER}\${PRODUCTNAME}.lnk" \
-    "$INSTDIR\${MAINBINARYNAME}.exe"
+    "$INSTDIR\${MAINBINARYNAME}.exe" \
+    "" \
+    "$INSTDIR\${MAINBINARYNAME}.exe" \
+    0
 
   ${If} $MigrateDesktopShortcut = 1
     CreateShortcut \
       "$DESKTOP\${PRODUCTNAME}.lnk" \
-      "$INSTDIR\${MAINBINARYNAME}.exe"
+      "$INSTDIR\${MAINBINARYNAME}.exe" \
+      "" \
+      "$INSTDIR\${MAINBINARYNAME}.exe" \
+      0
   ${EndIf}
 !macroend
