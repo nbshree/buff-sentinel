@@ -94,6 +94,8 @@ Var MigrateDesktopShortcut
     "" \
     "$INSTDIR\${MAINBINARYNAME}.exe" \
     0
+  !insertmacro SetLnkAppUserModelId \
+    "$SMPROGRAMS\${STARTMENUFOLDER}\${PRODUCTNAME}.lnk"
 
   ${If} $MigrateDesktopShortcut = 1
     CreateShortcut \
@@ -102,6 +104,7 @@ Var MigrateDesktopShortcut
       "" \
       "$INSTDIR\${MAINBINARYNAME}.exe" \
       0
+    !insertmacro SetLnkAppUserModelId "$DESKTOP\${PRODUCTNAME}.lnk"
   ${EndIf}
 
   ; Explorer caches icons by file path, so replacing the EXE at the same location can

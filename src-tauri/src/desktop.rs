@@ -11,8 +11,11 @@ use serde::Deserialize;
 #[cfg(windows)]
 use windows_sys::Win32::{
     System::LibraryLoader::GetModuleHandleW,
-    UI::WindowsAndMessaging::{
-        ICON_BIG, IMAGE_ICON, LR_DEFAULTSIZE, LR_SHARED, LoadImageW, SendMessageW, WM_SETICON,
+    UI::{
+        Shell::SetCurrentProcessExplicitAppUserModelID,
+        WindowsAndMessaging::{
+            ICON_BIG, IMAGE_ICON, LR_DEFAULTSIZE, LR_SHARED, LoadImageW, SendMessageW, WM_SETICON,
+        },
     },
 };
 
@@ -181,6 +184,30 @@ pub fn set_main_window_icons(app: &AppHandle) -> tauri::Result<()> {
         unsafe {
             SendMessageW(hwnd.0 as _, WM_SETICON, ICON_BIG as _, taskbar_icon as _);
         }
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn set_process_app_user_model_id(app_id: &str) -> std::io::Result<()> {
+    if app_id.encode_utf16().any(|unit| unit == 0) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "AppUserModelID 不能包含空字符",
+        ));
+    }
+
+    let app_id = app_id
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let result = unsafe { SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr()) };
+    if result < 0 {
+        return Err(std::io::Error::other(format!(
+            "SetCurrentProcessExplicitAppUserModelID 返回 HRESULT 0x{:08X}",
+            result as u32
+        )));
     }
 
     Ok(())

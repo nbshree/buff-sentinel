@@ -21,6 +21,11 @@ use state::AppState;
 pub fn run() {
     input::enable_per_monitor_dpi_awareness();
 
+    let context = tauri::generate_context!();
+    #[cfg(windows)]
+    desktop::set_process_app_user_model_id(&context.config().identifier)
+        .expect("failed to set Windows AppUserModelID");
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             desktop::show_main_window(app);
@@ -127,7 +132,7 @@ pub fn run() {
             updater::check_for_update,
             updater::install_update,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building Tauri application");
 
     app.run(|app, event| match event {
