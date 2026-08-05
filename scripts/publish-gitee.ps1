@@ -273,7 +273,7 @@ if ($Version -ne [string]$cargoPackageMatch.Groups[1].Value) {
 $semanticVersion = ConvertTo-SemanticVersion $Version
 
 $tagName = "v$Version"
-$productName = '自动点击流程台'
+$productName = 'shree盒子'
 $repositoryPath = 'nbshree/shree-macro-flow-tauri'
 $apiBase = "https://gitee.com/api/v5/repos/$repositoryPath"
 $releasePageUrl = "https://gitee.com/$repositoryPath/releases/tag/$tagName"

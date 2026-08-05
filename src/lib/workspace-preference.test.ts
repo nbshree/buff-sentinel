@@ -19,6 +19,13 @@ describe('workspace preference', () => {
     expect(loadWorkspacePreference({ getItem: () => value })).toBe(DEFAULT_WORKSPACE)
   })
 
+  it.each(['calculator', 'towerCalculator'])(
+    'falls back when the stored workspace %s is hidden',
+    (value) => {
+      expect(loadWorkspacePreference({ getItem: () => value })).toBe(DEFAULT_WORKSPACE)
+    }
+  )
+
   it('falls back when storage cannot be read', () => {
     expect(
       loadWorkspacePreference({

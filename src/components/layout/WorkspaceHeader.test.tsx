@@ -97,10 +97,10 @@ describe('WorkspaceHeader', () => {
     expect(screen.getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
       '宏流程',
       'Buff 助手',
-      '游戏录制',
-      '防守内功',
-      '拆塔评估'
+      '游戏录制'
     ])
+    expect(screen.queryByRole('menuitemradio', { name: '防守内功' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitemradio', { name: '拆塔评估' })).not.toBeInTheDocument()
   })
 
   it('marks the active workspace and switches from a menu item', async () => {
@@ -118,9 +118,9 @@ describe('WorkspaceHeader', () => {
       'false'
     )
 
-    await user.click(screen.getByRole('menuitemradio', { name: '拆塔评估' }))
+    await user.click(screen.getByRole('menuitemradio', { name: '游戏录制' }))
 
-    expect(onWorkspaceChange).toHaveBeenCalledWith('towerCalculator')
+    expect(onWorkspaceChange).toHaveBeenCalledWith('gameRecorder')
   })
 
   it('supports keyboard navigation and selection', async () => {

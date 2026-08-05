@@ -16,7 +16,7 @@ import type { RefObject } from 'react'
 import type { MacroController } from '../../hooks/useMacroController'
 import {
   isWorkspaceView,
-  WORKSPACE_ORDER,
+  VISIBLE_WORKSPACE_ORDER,
   type WorkspaceView
 } from '../../lib/workspace-preference'
 import { getThemeDefinition, normalizeAppearance } from '../../themes'
@@ -49,7 +49,7 @@ const workspaceLabels: Record<
   { title: string; subtitle: string; menuLabel: string; icon: LucideIcon }
 > = {
   macro: {
-    title: '自动点击流程台',
+    title: 'shree盒子',
     subtitle: '自动化流程管理',
     menuLabel: '宏流程',
     icon: Workflow
@@ -105,7 +105,7 @@ export function WorkspaceHeader({
     <header className="workspace-header">
       <div className="workspace-brand">
         <div className="workspace-brand__eyebrow">
-          <span>Shree Macro Flow</span>
+          <span>shree盒子</span>
           <span className="workspace-brand__author">作者 小踢踢</span>
         </div>
         <h1 id="workspace-title">
@@ -125,7 +125,7 @@ export function WorkspaceHeader({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" aria-label="工作区">
               <DropdownMenuRadioGroup value={activeWorkspace} onValueChange={handleWorkspaceChange}>
-                {WORKSPACE_ORDER.map((workspace) => {
+                {VISIBLE_WORKSPACE_ORDER.map((workspace) => {
                   const item = workspaceLabels[workspace]
                   const Icon = item.icon
 

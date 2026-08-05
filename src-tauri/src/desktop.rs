@@ -108,7 +108,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
 
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
-        .tooltip("Shree Macro Flow")
+        .tooltip("shree盒子")
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().0.as_str() {
             MENU_SHOW => show_main_window(app),

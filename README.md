@@ -1,4 +1,4 @@
-# Shree Macro Flow
+# shree盒子
 
 基于 Tauri 2、React、TypeScript 和 Rust 开发的 Windows 桌面工具，集自动化宏流程与
 《逆水寒》手游新世界内功评估于一体。

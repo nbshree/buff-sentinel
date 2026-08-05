@@ -124,8 +124,8 @@ try {
 
 正式构建会在 `src-tauri/target/release/bundle/nsis/` 生成：
 
-- `自动点击流程台_<版本>_x64-setup.exe`
-- `自动点击流程台_<版本>_x64-setup.exe.sig`
+- `shree盒子_<版本>_x64-setup.exe`
+- `shree盒子_<版本>_x64-setup.exe.sig`
 
 不要用普通 `pnpm tauri:build` 的产物创建正式发行版。发布脚本会拒绝缺少 `.sig` 的构建。
 

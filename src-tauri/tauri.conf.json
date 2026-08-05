@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "自动点击流程台",
+  "productName": "shree盒子",
   "version": "1.14.0",
   "identifier": "com.shree.clickflow",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "自动点击流程台",
+        "title": "shree盒子",
         "width": 1280,
         "height": 820,
         "minWidth": 1080,
@@ -42,7 +42,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
-    "publisher": "Shree Macro Flow",
+    "publisher": "shree",
     "shortDescription": "自动点击与键盘宏流程工具",
     "longDescription": "支持坐标采集、鼠标点击、键盘输入、循环执行、全局热键和多方案管理。",
     "createUpdaterArtifacts": false,
@@ -52,7 +52,7 @@
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
         "languages": ["SimpChinese", "English"],
-        "startMenuFolder": "自动点击流程台"
+        "startMenuFolder": "shree盒子"
       },
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

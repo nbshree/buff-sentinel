@@ -24,7 +24,7 @@ function reportWindowError(action: string, error: unknown) {
   console.error(`${action}失败`, error)
 }
 
-export function WindowTitleBar({ title = '自动点击流程台', className = '' }: WindowTitleBarProps) {
+export function WindowTitleBar({ title = 'shree盒子', className = '' }: WindowTitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false)
 
   const refreshMaximizedState = useCallback(async () => {
