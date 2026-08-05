@@ -52,6 +52,18 @@ describe('WorkspaceHeader', () => {
     expect(screen.getByLabelText('当前版本 v1.8.1')).toHaveTextContent('v1.8.1')
   })
 
+  it('shows the author beside the workspace title', () => {
+    renderHeader('longyin')
+
+    const heading = screen.getByRole('heading', { level: 1 })
+    const author = screen.getByText('作者 小踢踢')
+
+    expect(heading).toContainElement(author)
+    expect(heading.firstElementChild?.compareDocumentPosition(author)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    )
+  })
+
   it.each([
     ['longyin', '主题：龙吟'],
     ['chaoguang', '主题：潮光'],

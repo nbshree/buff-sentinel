@@ -104,11 +104,9 @@ export function WorkspaceHeader({
   return (
     <header className="workspace-header">
       <div className="workspace-brand">
-        <div className="workspace-brand__eyebrow">
-          <span className="workspace-brand__author">作者 小踢踢</span>
-        </div>
         <h1 id="workspace-title">
           <span>{label.title}</span>
+          <span className="workspace-brand__author">作者 小踢踢</span>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button

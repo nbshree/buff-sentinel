@@ -131,28 +131,6 @@
     min-width: 0;
   }
 
-  .workspace-brand__eyebrow {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--text-muted);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.13em;
-    line-height: 1.2;
-    text-transform: uppercase;
-  }
-
-  .workspace-brand__author {
-    padding: 2px 7px;
-    border: 1px solid var(--border-default);
-    border-radius: 999px;
-    background: var(--surface-muted);
-    color: var(--text-secondary);
-    font-size: 10px;
-    letter-spacing: 0;
-  }
-
   .workspace-brand h1 {
     display: flex;
     align-items: center;
@@ -202,6 +180,22 @@
     flex: none;
     align-items: center;
     gap: 9px;
+  }
+
+  .workspace-brand__author {
+    display: inline-flex;
+    align-items: center;
+    align-self: center;
+    padding: 2px 8px;
+    border: 1px solid var(--border-default);
+    border-radius: 999px;
+    background: var(--surface-muted);
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1.2;
+    white-space: nowrap;
   }
 
   .workspace-view {
