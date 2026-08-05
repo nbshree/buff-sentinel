@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { useBuffAssistantController } from '@/hooks/useBuffAssistantController'
 import { createMacroApi, installMacroApi } from '@/test/test-utils'
@@ -13,13 +13,15 @@ function BuffAssistantHarness() {
 }
 
 describe('BuffAssistantPage', () => {
-  it('saves the overlay border preference with the other settings', async () => {
+  it('requests access and saves the system capture border preference', async () => {
     const user = userEvent.setup()
     const api = createMacroApi()
     installMacroApi(api)
     render(<BuffAssistantHarness />)
 
-    const borderToggle = await screen.findByRole('checkbox', { name: '显示浮窗边框' })
+    const borderToggle = await screen.findByRole('checkbox', {
+      name: '显示系统捕获黄色边框'
+    })
     expect(borderToggle).toBeChecked()
 
     await user.click(borderToggle)
@@ -29,10 +31,43 @@ describe('BuffAssistantPage', () => {
     await waitFor(() => {
       expect(api.updateBuffAssistantSettings).toHaveBeenCalledWith(
         expect.objectContaining({
-          overlay: expect.objectContaining({ showBorder: false, colorScheme: 'blackWhite' })
+          capture: expect.objectContaining({ showSystemBorder: false }),
+          overlay: expect.objectContaining({ colorScheme: 'blackWhite' })
         })
       )
     })
+    expect(api.requestBuffBorderlessCaptureAccess).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the border enabled when Windows denies borderless access', async () => {
+    const user = userEvent.setup()
+    const api = createMacroApi()
+    api.requestBuffBorderlessCaptureAccess = vi.fn(async () => 'deniedByUser')
+    installMacroApi(api)
+    render(<BuffAssistantHarness />)
+
+    const borderToggle = await screen.findByRole('checkbox', {
+      name: '显示系统捕获黄色边框'
+    })
+    await user.click(borderToggle)
+
+    expect(borderToggle).toBeChecked()
+    expect(
+      await screen.findByText('未获得隐藏系统捕获边框的用户授权，已继续显示黄色边框')
+    ).toBeVisible()
+  })
+
+  it('disables the border switch when the system API is unavailable', async () => {
+    const api = createMacroApi()
+    api.getBuffAssistantState = vi.fn(async () => ({
+      ...(await createMacroApi().getBuffAssistantState()),
+      captureBorderSupported: false
+    }))
+    installMacroApi(api)
+    render(<BuffAssistantHarness />)
+
+    expect(await screen.findByRole('checkbox', { name: '显示系统捕获黄色边框' })).toBeDisabled()
+    expect(screen.getByText('当前 Windows 版本不支持隐藏系统捕获黄色边框。')).toBeVisible()
   })
 
   it('configures and previews each sound cue independently', async () => {

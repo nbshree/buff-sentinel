@@ -192,11 +192,12 @@ export function createGameRecorderController(
 
 export function createMacroApi(
   state: MacroState = createMacroState(),
-  gameRecorderState: GameRecorderState = createGameRecorderState()
+  gameRecorderState: GameRecorderState = createGameRecorderState(),
+  buffStateOverride?: BuffAssistantState
 ) {
-  const buffState: BuffAssistantState = {
+  const buffState: BuffAssistantState = buffStateOverride ?? {
     config: {
-      schemaVersion: 5,
+      schemaVersion: 8,
       target: null,
       searchRegion: null,
       template: null,
@@ -223,8 +224,10 @@ export function createMacroApi(
           showWaitingDot: false,
           width: 330,
           height: 92,
-          showBorder: true,
           colorScheme: 'gold'
+        },
+        capture: {
+          showSystemBorder: true
         }
       }
     },
@@ -232,7 +235,9 @@ export function createMacroApi(
     isMonitoring: false,
     expectedAtUnixMs: null,
     lastConfidence: 0,
-    lastError: null
+    lastError: null,
+    captureBorderSupported: true,
+    captureBorderNotice: null
   }
   return {
     getAppVersion: vi.fn<MacroAPI['getAppVersion']>(async () => '1.8.1'),
@@ -329,6 +334,9 @@ export function createMacroApi(
     saveBuffTemplate: vi.fn(async () => buffState),
     deleteBuffTemplate: vi.fn(async () => buffState),
     updateBuffAssistantSettings: vi.fn(async () => buffState),
+    requestBuffBorderlessCaptureAccess: vi.fn<MacroAPI['requestBuffBorderlessCaptureAccess']>(
+      async () => 'allowed'
+    ),
     startBuffMonitor: vi.fn(async () => buffState),
     stopBuffMonitor: vi.fn(async () => buffState),
     startBuffTemplateTest: vi.fn(async () => buffState),

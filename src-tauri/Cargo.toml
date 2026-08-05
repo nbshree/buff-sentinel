@@ -34,6 +34,12 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 time = { version = "0.3", features = ["formatting"] }
 windows-capture = "2"
+windows = { version = "0.62.2", features = [
+  "Foundation",
+  "Graphics_Capture",
+  "Security_Authorization_AppCapabilityAccess",
+  "Win32_System_WinRT",
+] }
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",

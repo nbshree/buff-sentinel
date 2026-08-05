@@ -42,7 +42,6 @@ describe('BuffOverlayApp', () => {
       expectedAtUnixMs: null,
       emittedAtUnixMs: Date.now(),
       editable: false,
-      showBorder: true,
       colorScheme: 'gold'
     })
 
@@ -60,7 +59,6 @@ describe('BuffOverlayApp', () => {
       expectedAtUnixMs: null,
       emittedAtUnixMs: Date.now(),
       editable: false,
-      showBorder: true,
       colorScheme: 'gold'
     })
     emit({
@@ -69,7 +67,6 @@ describe('BuffOverlayApp', () => {
       expectedAtUnixMs: Date.now() + 20_000,
       emittedAtUnixMs: Date.now(),
       editable: false,
-      showBorder: true,
       colorScheme: 'gold'
     })
 
@@ -90,7 +87,6 @@ describe('BuffOverlayApp', () => {
       expectedAtUnixMs: null,
       emittedAtUnixMs: Date.now(),
       editable: false,
-      showBorder: true,
       colorScheme: 'gold'
     })
 
@@ -107,7 +103,6 @@ describe('BuffOverlayApp', () => {
       expectedAtUnixMs: null,
       emittedAtUnixMs: Date.now(),
       editable: true,
-      showBorder: false,
       colorScheme: 'blackWhite'
     })
 
@@ -119,7 +114,7 @@ describe('BuffOverlayApp', () => {
     expect(api.window.startResizeDragging).toHaveBeenNthCalledWith(2, 'South')
     expect(api.window.startResizeDragging).toHaveBeenNthCalledWith(3, 'SouthEast')
     expect(api.window.startDragging).not.toHaveBeenCalled()
-    expect(document.querySelector('.buff-overlay')).toHaveAttribute('data-show-border', 'false')
+    expect(document.querySelector('.buff-overlay')).not.toHaveAttribute('data-show-border')
     expect(document.querySelector('.buff-overlay')).toHaveAttribute(
       'data-color-scheme',
       'blackWhite'
@@ -131,7 +126,6 @@ describe('BuffOverlayApp', () => {
       expectedAtUnixMs: null,
       emittedAtUnixMs: Date.now(),
       editable: false,
-      showBorder: false,
       colorScheme: 'blackWhite'
     })
     fireEvent.pointerDown(screen.getByText('等待金周天'), { button: 0 })

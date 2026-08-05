@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type {
+  BorderlessCaptureAccessResult,
   BuffAssistantSettings,
   BuffAssistantState,
   BuffCapturePreview,
@@ -11,7 +12,7 @@ import type {
 
 const defaultState: BuffAssistantState = {
   config: {
-    schemaVersion: 5,
+    schemaVersion: 8,
     target: null,
     searchRegion: null,
     template: null,
@@ -38,8 +39,10 @@ const defaultState: BuffAssistantState = {
         showWaitingDot: false,
         width: 330,
         height: 92,
-        showBorder: true,
         colorScheme: 'gold'
+      },
+      capture: {
+        showSystemBorder: true
       }
     }
   },
@@ -47,7 +50,9 @@ const defaultState: BuffAssistantState = {
   isMonitoring: false,
   expectedAtUnixMs: null,
   lastConfidence: 0,
-  lastError: null
+  lastError: null,
+  captureBorderSupported: false,
+  captureBorderNotice: null
 }
 
 export type BuffAssistantController = ReturnType<typeof useBuffAssistantController>
@@ -174,6 +179,15 @@ export function useBuffAssistantController() {
     [run]
   )
 
+  const requestBorderlessCaptureAccess = useCallback(async () => {
+    const result = await run(() => window.api.requestBuffBorderlessCaptureAccess())
+    setState((current) => ({
+      ...current,
+      captureBorderNotice: borderlessAccessNotice(result)
+    }))
+    return result
+  }, [run])
+
   const startMonitor = useCallback(async () => {
     const result = await run(() => window.api.startBuffMonitor())
     stateRef.current = result
@@ -237,6 +251,7 @@ export function useBuffAssistantController() {
     saveTemplate,
     deleteTemplate,
     updateSettings,
+    requestBorderlessCaptureAccess,
     startMonitor,
     stopMonitor,
     startTest,
@@ -255,4 +270,15 @@ function formatLogTime(date: Date): string {
 function toMessage(reason: unknown): string {
   if (reason instanceof Error) return reason.message
   return String(reason)
+}
+
+function borderlessAccessNotice(result: BorderlessCaptureAccessResult): string | null {
+  const notices = {
+    allowed: null,
+    unsupported: '当前 Windows 版本不支持隐藏系统捕获黄色边框',
+    deniedByUser: '未获得隐藏系统捕获边框的用户授权，已继续显示黄色边框',
+    deniedBySystem: 'Windows 未允许隐藏系统捕获边框，已继续显示黄色边框',
+    notDeclared: '当前应用安装方式不允许隐藏系统捕获边框'
+  } satisfies Record<typeof result, string | null>
+  return notices[result]
 }

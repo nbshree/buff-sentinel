@@ -6,10 +6,11 @@ use std::{
 
 use crossbeam_channel::{Receiver, Sender as FrameSender, TrySendError, bounded};
 use tauri::AppHandle;
+use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize, RoUninitialize};
 use windows_capture::{
     capture::{CaptureControl, Context, GraphicsCaptureApiHandler},
     frame::Frame,
-    graphics_capture_api::InternalCaptureControl,
+    graphics_capture_api::{GraphicsCaptureApi, InternalCaptureControl},
     settings::{
         ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
         MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
@@ -36,6 +37,11 @@ pub enum CapturePurpose {
 }
 
 pub type RuntimeCaptureControl = CaptureControl<RuntimeCaptureHandler, String>;
+
+pub struct CaptureOutcome<T> {
+    pub value: T,
+    pub used_border_fallback: bool,
+}
 
 struct SnapshotFlags {
     sender: Sender<Result<CapturedImage, String>>,
@@ -84,6 +90,7 @@ pub struct RuntimeCaptureFlags {
     pub threshold: f32,
     pub confirm_frames: u32,
     pub missing_frames: u32,
+    pub show_system_border: bool,
 }
 
 pub struct RuntimeCaptureHandler {
@@ -282,24 +289,58 @@ fn scales_match(width_scale: f64, height_scale: f64) -> bool {
     (width_scale - height_scale).abs() / width_scale.max(height_scale).max(f64::EPSILON) <= 0.15
 }
 
-pub fn capture_snapshot(window: Window) -> Result<CapturedImage, String> {
+pub fn capture_border_supported() -> bool {
+    let initialized = unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.is_ok();
+    let supported = GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false);
+    if initialized {
+        unsafe { RoUninitialize() };
+    }
+    supported
+}
+
+fn requested_border_setting(show_system_border: bool) -> DrawBorderSettings {
+    border_setting_for(show_system_border, capture_border_supported())
+}
+
+fn border_setting_for(
+    show_system_border: bool,
+    border_settings_supported: bool,
+) -> DrawBorderSettings {
+    if show_system_border || !border_settings_supported {
+        DrawBorderSettings::Default
+    } else {
+        DrawBorderSettings::WithoutBorder
+    }
+}
+
+pub fn capture_snapshot(
+    window: Window,
+    show_system_border: bool,
+) -> Result<CaptureOutcome<CapturedImage>, String> {
     let (sender, receiver) = mpsc::channel();
-    let settings = Settings::new(
-        window,
-        CursorCaptureSettings::WithoutCursor,
-        DrawBorderSettings::Default,
-        SecondaryWindowSettings::Default,
-        MinimumUpdateIntervalSettings::Default,
-        DirtyRegionSettings::Default,
-        ColorFormat::Rgba8,
-        SnapshotFlags { sender },
-    );
-    let control = SnapshotHandler::start_free_threaded(settings)
-        .map_err(|error| format!("启动窗口捕获失败：{error}"))?;
+    let requested_border = requested_border_setting(show_system_border);
+    let first_result = start_snapshot_capture(window, requested_border, sender.clone());
+    let (control, used_border_fallback) = match first_result {
+        Ok(control) => (control, false),
+        Err(borderless_error) if requested_border == DrawBorderSettings::WithoutBorder => (
+            start_snapshot_capture(window, DrawBorderSettings::Default, sender).map_err(
+                |error| {
+                    format!(
+                        "隐藏系统捕获边框失败：{borderless_error}；使用默认边框重试也失败：{error}"
+                    )
+                },
+            )?,
+            true,
+        ),
+        Err(error) => return Err(format!("启动窗口捕获失败：{error}")),
+    };
     match receiver.recv_timeout(Duration::from_secs(5)) {
         Ok(result) => {
             let _ = control.wait();
-            result
+            result.map(|value| CaptureOutcome {
+                value,
+                used_border_fallback,
+            })
         }
         Err(_) => {
             let _ = control.stop();
@@ -308,22 +349,70 @@ pub fn capture_snapshot(window: Window) -> Result<CapturedImage, String> {
     }
 }
 
+fn start_snapshot_capture(
+    window: Window,
+    draw_border: DrawBorderSettings,
+    sender: Sender<Result<CapturedImage, String>>,
+) -> Result<
+    CaptureControl<SnapshotHandler, String>,
+    windows_capture::capture::GraphicsCaptureApiError<String>,
+> {
+    SnapshotHandler::start_free_threaded(Settings::new(
+        window,
+        CursorCaptureSettings::WithoutCursor,
+        draw_border,
+        SecondaryWindowSettings::Default,
+        MinimumUpdateIntervalSettings::Default,
+        DirtyRegionSettings::Default,
+        ColorFormat::Rgba8,
+        SnapshotFlags { sender },
+    ))
+}
+
 pub fn start_runtime_capture(
     window: Window,
     flags: RuntimeCaptureFlags,
-) -> Result<RuntimeCaptureControl, String> {
-    let settings = Settings::new(
+) -> Result<CaptureOutcome<RuntimeCaptureControl>, String> {
+    let show_system_border = flags.show_system_border;
+    let requested_border = requested_border_setting(show_system_border);
+    match start_runtime_capture_with_border(window, flags.clone(), requested_border) {
+        Ok(value) => Ok(CaptureOutcome {
+            value,
+            used_border_fallback: false,
+        }),
+        Err(borderless_error) if requested_border == DrawBorderSettings::WithoutBorder => {
+            let value = start_runtime_capture_with_border(
+                window,
+                flags,
+                DrawBorderSettings::Default,
+            )
+            .map_err(|error| {
+                format!("隐藏系统捕获边框失败：{borderless_error}；使用默认边框重试也失败：{error}")
+            })?;
+            Ok(CaptureOutcome {
+                value,
+                used_border_fallback: true,
+            })
+        }
+        Err(error) => Err(format!("启动游戏窗口捕获失败：{error}")),
+    }
+}
+
+fn start_runtime_capture_with_border(
+    window: Window,
+    flags: RuntimeCaptureFlags,
+    draw_border: DrawBorderSettings,
+) -> Result<RuntimeCaptureControl, windows_capture::capture::GraphicsCaptureApiError<String>> {
+    RuntimeCaptureHandler::start_free_threaded(Settings::new(
         window,
         CursorCaptureSettings::WithoutCursor,
-        DrawBorderSettings::Default,
+        draw_border,
         SecondaryWindowSettings::Default,
         MinimumUpdateIntervalSettings::Default,
         DirtyRegionSettings::Default,
         ColorFormat::Rgba8,
         flags,
-    );
-    RuntimeCaptureHandler::start_free_threaded(settings)
-        .map_err(|error| format!("启动游戏窗口捕获失败：{error}"))
+    ))
 }
 
 fn copy_frame(frame: &mut Frame, region: Option<NormalizedRect>) -> Result<CapturedImage, String> {
@@ -358,6 +447,27 @@ mod tests {
         width: 0.4,
         height: 0.2,
     };
+
+    #[test]
+    fn showing_the_system_border_uses_the_windows_default() {
+        assert_eq!(border_setting_for(true, true), DrawBorderSettings::Default);
+    }
+
+    #[test]
+    fn hiding_the_system_border_uses_borderless_capture_when_supported() {
+        assert_eq!(
+            border_setting_for(false, true),
+            DrawBorderSettings::WithoutBorder
+        );
+    }
+
+    #[test]
+    fn hiding_the_system_border_falls_back_when_unsupported() {
+        assert_eq!(
+            border_setting_for(false, false),
+            DrawBorderSettings::Default
+        );
+    }
 
     #[test]
     fn reference_scale_accepts_full_window_dimensions() {

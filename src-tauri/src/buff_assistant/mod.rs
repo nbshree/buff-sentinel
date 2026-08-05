@@ -14,18 +14,24 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use ::windows::{
+    Graphics::Capture::{GraphicsCaptureAccess, GraphicsCaptureAccessKind},
+    Security::Authorization::AppCapabilityAccess::AppCapabilityAccessStatus,
+    Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize, RoUninitialize},
+};
 use audio::{AudioEngine, ResolvedSoundSource};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use capture::{
-    CapturePurpose, CapturedImage, RuntimeCaptureControl, RuntimeCaptureFlags, capture_snapshot,
-    start_runtime_capture,
+    CapturePurpose, CapturedImage, RuntimeCaptureControl, RuntimeCaptureFlags,
+    capture_border_supported, capture_snapshot, start_runtime_capture,
 };
 use image::{DynamicImage, GrayImage, Luma, RgbaImage};
 pub use model::{
-    BuffAssistantActivity, BuffAssistantConfig, BuffAssistantSettings, BuffAssistantState,
-    BuffCustomSoundAsset, BuffOverlayColorScheme, BuffOverlayMode, BuffOverlayState, BuffSoundCue,
-    BuffSoundSource, BuffSoundTemplateSummary, BuffTarget, CapturePreview, CaptureWindowCandidate,
-    MAX_OVERLAY_HEIGHT, MAX_OVERLAY_WIDTH, MIN_OVERLAY_HEIGHT, MIN_OVERLAY_WIDTH, NormalizedRect,
+    BorderlessCaptureAccessResult, BuffAssistantActivity, BuffAssistantConfig,
+    BuffAssistantSettings, BuffAssistantState, BuffCustomSoundAsset, BuffOverlayColorScheme,
+    BuffOverlayMode, BuffOverlayState, BuffSoundCue, BuffSoundSource, BuffSoundTemplateSummary,
+    BuffTarget, CapturePreview, CaptureWindowCandidate, MAX_OVERLAY_HEIGHT, MAX_OVERLAY_WIDTH,
+    MIN_OVERLAY_HEIGHT, MIN_OVERLAY_WIDTH, NormalizedRect,
 };
 use serde::Serialize;
 use tauri::{
@@ -38,6 +44,7 @@ use timeline::{BuffTimeline, TimelineAction, TimelinePhase};
 const MONITOR_FRAME_TIMEOUT: Duration = Duration::from_secs(3);
 const OVERLAY_LABEL: &str = "buff-overlay";
 const TTS_ONLINE_URL: &str = "https://www.ttsonline.cn/";
+const CAPTURE_BORDER_FALLBACK_NOTICE: &str = "无法隐藏系统捕获黄色边框，已保留边框并继续捕获";
 
 struct StoredPreview {
     png: Vec<u8>,
@@ -51,6 +58,8 @@ struct RuntimeData {
     expected_at_unix_ms: Option<i64>,
     last_confidence: f32,
     last_error: Option<String>,
+    capture_border_supported: bool,
+    capture_border_notice: Option<String>,
     storage_directory: PathBuf,
     sound_templates: Vec<storage::SoundTemplate>,
     capture: Option<RuntimeCaptureControl>,
@@ -81,6 +90,10 @@ impl BuffAssistant {
         {
             notices.push(error);
         }
+        let capture_border_supported = capture_border_supported();
+        if !capture_border_supported {
+            config.settings.capture.show_system_border = true;
+        }
         let (audio, audio_warning) = AudioEngine::start();
         if let Some(warning) = audio_warning {
             notices.push(warning);
@@ -95,6 +108,8 @@ impl BuffAssistant {
                     expected_at_unix_ms: None,
                     last_confidence: 0.0,
                     last_error: None,
+                    capture_border_supported,
+                    capture_border_notice: None,
                     storage_directory: directory,
                     sound_templates,
                     capture: None,
@@ -178,11 +193,14 @@ pub fn list_buff_sound_templates(state: State<'_, BuffAssistant>) -> Vec<BuffSou
 
 #[tauri::command]
 pub fn capture_buff_preview(
+    app: AppHandle,
     state: State<'_, BuffAssistant>,
     window_id: String,
 ) -> Result<CapturePreview, String> {
     let (window, candidate) = windows::resolve_window(&window_id)?;
-    let image = capture_snapshot(window)?;
+    let show_system_border = state.lock().config.settings.capture.show_system_border;
+    let outcome = capture_snapshot(window, show_system_border)?;
+    let image = outcome.value;
     let png = encode_png(&image)?;
     let target = BuffTarget {
         reference_width: image.width,
@@ -190,16 +208,62 @@ pub fn capture_buff_preview(
         ..windows::target_from_candidate(&candidate)
     };
     let data_url = png_bytes_data_url(&png);
-    state.lock().template_preview = Some(StoredPreview {
-        png,
-        target: target.clone(),
-    });
+    {
+        let mut inner = state.lock();
+        inner.template_preview = Some(StoredPreview {
+            png,
+            target: target.clone(),
+        });
+        update_capture_border_notice(&mut inner, outcome.used_border_fallback);
+    }
+    emit_state(&app, &state.snapshot());
     Ok(CapturePreview {
         data_url,
         width: image.width,
         height: image.height,
         target,
     })
+}
+
+#[tauri::command]
+pub async fn request_buff_borderless_capture_access(
+    state: State<'_, BuffAssistant>,
+) -> Result<BorderlessCaptureAccessResult, String> {
+    if !state.lock().capture_border_supported {
+        return Ok(BorderlessCaptureAccessResult::Unsupported);
+    }
+    let result = tauri::async_runtime::spawn_blocking(request_borderless_capture_access)
+        .await
+        .unwrap_or(BorderlessCaptureAccessResult::DeniedBySystem);
+    {
+        let mut inner = state.lock();
+        inner.capture_border_notice = borderless_access_notice(result).map(str::to_string);
+    }
+    Ok(result)
+}
+
+fn request_borderless_capture_access() -> BorderlessCaptureAccessResult {
+    let initialized = unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.is_ok();
+    let result =
+        match GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Borderless) {
+            Ok(operation) => match operation.join() {
+                Ok(status) if status == AppCapabilityAccessStatus::Allowed => {
+                    BorderlessCaptureAccessResult::Allowed
+                }
+                Ok(status) if status == AppCapabilityAccessStatus::DeniedByUser => {
+                    BorderlessCaptureAccessResult::DeniedByUser
+                }
+                Ok(status) if status == AppCapabilityAccessStatus::NotDeclaredByApp => {
+                    BorderlessCaptureAccessResult::NotDeclared
+                }
+                Ok(_) | Err(_) => BorderlessCaptureAccessResult::DeniedBySystem,
+            },
+            Err(_) => BorderlessCaptureAccessResult::DeniedBySystem,
+        };
+    if initialized {
+        unsafe { RoUninitialize() };
+    }
+    result
 }
 
 #[tauri::command]
@@ -280,6 +344,9 @@ pub fn update_buff_assistant_settings(
         let mut inner = state.lock();
         let mut next_config = inner.config.clone();
         next_config.settings = settings;
+        if !inner.capture_border_supported {
+            next_config.settings.capture.show_system_border = true;
+        }
         storage::validate_sound_sources(
             &inner.storage_directory,
             &inner.sound_templates,
@@ -390,15 +457,16 @@ pub fn start_buff_template_test(
     let (window, _) = windows::resolve_window(&window_id)?;
     stop_buff_monitor_internal(&app);
     let (flags, config) = capture_flags(&app, CapturePurpose::Test)?;
-    let control = start_runtime_capture(window, flags)?;
+    let outcome = start_runtime_capture(window, flags)?;
     let snapshot = {
         let mut inner = state.lock();
-        inner.capture = Some(control);
+        inner.capture = Some(outcome.value);
         inner.capture_purpose = Some(CapturePurpose::Test);
         inner.monitor_requested = false;
         inner.activity = BuffAssistantActivity::Testing;
         inner.last_error = None;
         inner.config = config;
+        update_capture_border_notice(&mut inner, outcome.used_border_fallback);
         snapshot_from_runtime(&inner)
     };
     emit_state(&app, &snapshot);
@@ -520,7 +588,6 @@ fn set_buff_overlay_edit_mode_internal(
                 expected_at_unix_ms: None,
                 emitted_at_unix_ms: now_millis(),
                 editable: true,
-                show_border: overlay_border_setting(app),
                 color_scheme: overlay_color_scheme(app),
             },
         );
@@ -776,7 +843,8 @@ fn attach_monitor_capture(
 ) -> Result<(), String> {
     let state = app.state::<BuffAssistant>();
     let (flags, _) = capture_flags(app, CapturePurpose::Monitor)?;
-    let control = start_runtime_capture(window, flags)?;
+    let outcome = start_runtime_capture(window, flags)?;
+    let control = outcome.value;
     let mut rejected = None;
     {
         let mut inner = state.lock();
@@ -794,6 +862,7 @@ fn attach_monitor_capture(
             inner.activity = BuffAssistantActivity::Waiting;
             inner.expected_at_unix_ms = None;
             inner.last_error = None;
+            update_capture_border_notice(&mut inner, outcome.used_border_fallback);
         }
     }
     if let Some(control) = rejected {
@@ -838,6 +907,7 @@ fn capture_flags(
             threshold: inner.config.settings.threshold,
             confirm_frames: inner.config.settings.confirm_frames,
             missing_frames: inner.config.settings.missing_frames,
+            show_system_border: inner.config.settings.capture.show_system_border,
         },
         inner.config.clone(),
     ))
@@ -1078,6 +1148,31 @@ fn snapshot_from_runtime(inner: &RuntimeData) -> BuffAssistantState {
         expected_at_unix_ms: inner.expected_at_unix_ms,
         last_confidence: inner.last_confidence,
         last_error: inner.last_error.clone(),
+        capture_border_supported: inner.capture_border_supported,
+        capture_border_notice: inner.capture_border_notice.clone(),
+    }
+}
+
+fn update_capture_border_notice(inner: &mut RuntimeData, used_border_fallback: bool) {
+    inner.capture_border_notice =
+        used_border_fallback.then(|| CAPTURE_BORDER_FALLBACK_NOTICE.to_string());
+}
+
+fn borderless_access_notice(result: BorderlessCaptureAccessResult) -> Option<&'static str> {
+    match result {
+        BorderlessCaptureAccessResult::Allowed => None,
+        BorderlessCaptureAccessResult::Unsupported => {
+            Some("当前 Windows 版本不支持隐藏系统捕获黄色边框")
+        }
+        BorderlessCaptureAccessResult::DeniedByUser => {
+            Some("未获得隐藏系统捕获边框的用户授权，已继续显示黄色边框")
+        }
+        BorderlessCaptureAccessResult::DeniedBySystem => {
+            Some("Windows 未允许隐藏系统捕获边框，已继续显示黄色边框")
+        }
+        BorderlessCaptureAccessResult::NotDeclared => {
+            Some("当前应用安装方式不允许隐藏系统捕获边框")
+        }
     }
 }
 
@@ -1115,7 +1210,6 @@ fn show_countdown_overlay(app: &AppHandle, expected_at_unix_ms: Option<i64>) {
             expected_at_unix_ms,
             emitted_at_unix_ms: now_millis(),
             editable: false,
-            show_border: overlay_border_setting(app),
             color_scheme: overlay_color_scheme(app),
         },
     );
@@ -1143,7 +1237,6 @@ fn show_confirming_overlay(app: &AppHandle) {
             expected_at_unix_ms: None,
             emitted_at_unix_ms: now_millis(),
             editable: false,
-            show_border: overlay_border_setting(app),
             color_scheme: overlay_color_scheme(app),
         },
     );
@@ -1178,7 +1271,6 @@ fn show_transient_overlay(
             expected_at_unix_ms,
             emitted_at_unix_ms: now_millis(),
             editable: false,
-            show_border: overlay_border_setting(app),
             color_scheme: overlay_color_scheme(app),
         },
     );
@@ -1225,7 +1317,6 @@ fn show_waiting_overlay(app: &AppHandle) {
             expected_at_unix_ms: None,
             emitted_at_unix_ms: now_millis(),
             editable: false,
-            show_border: overlay_border_setting(app),
             color_scheme: overlay_color_scheme(app),
         },
     );
@@ -1253,7 +1344,6 @@ fn show_target_unavailable_overlay(app: &AppHandle) {
             expected_at_unix_ms: None,
             emitted_at_unix_ms: now_millis(),
             editable: false,
-            show_border: overlay_border_setting(app),
             color_scheme: overlay_color_scheme(app),
         },
     );
@@ -1268,7 +1358,6 @@ fn hide_overlay(app: &AppHandle) {
             expected_at_unix_ms: None,
             emitted_at_unix_ms: now_millis(),
             editable: false,
-            show_border: overlay_border_setting(app),
             color_scheme: overlay_color_scheme(app),
         },
     );
@@ -1287,15 +1376,6 @@ fn apply_overlay_geometry(app: &AppHandle) {
             f64::from(settings.height),
         ));
     }
-}
-
-fn overlay_border_setting(app: &AppHandle) -> bool {
-    app.state::<BuffAssistant>()
-        .lock()
-        .config
-        .settings
-        .overlay
-        .show_border
 }
 
 fn overlay_color_scheme(app: &AppHandle) -> BuffOverlayColorScheme {

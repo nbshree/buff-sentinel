@@ -57,6 +57,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     saveTemplate,
     deleteTemplate,
     updateSettings,
+    requestBorderlessCaptureAccess,
     startMonitor,
     stopMonitor,
     startTest,
@@ -204,6 +205,22 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     const next = !overlayEditing
     await setOverlayEditing(next)
     setOverlayEditingState(next)
+  }
+
+  async function handleSystemCaptureBorderChange(checked: boolean): Promise<void> {
+    if (checked) {
+      setSettings((current) => ({
+        ...current,
+        capture: { ...current.capture, showSystemBorder: true }
+      }))
+      return
+    }
+    const result = await requestBorderlessCaptureAccess()
+    if (result !== 'allowed') return
+    setSettings((current) => ({
+      ...current,
+      capture: { ...current.capture, showSystemBorder: false }
+    }))
   }
 
   return (
@@ -387,17 +404,23 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           <div className="buff-sound-options">
             <label className="buff-check-row">
               <input
-                checked={settings.overlay.showBorder}
+                checked={settings.capture.showSystemBorder}
+                disabled={busy || !state.captureBorderSupported}
                 type="checkbox"
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    overlay: { ...current.overlay, showBorder: event.target.checked }
-                  }))
-                }
+                onChange={(event) => void handleSystemCaptureBorderChange(event.target.checked)}
               />
-              显示浮窗边框
+              显示系统捕获黄色边框
             </label>
+            <p className="buff-setting-help">
+              {state.captureBorderSupported
+                ? '由 Windows Graphics Capture 绘制，不会进入捕获画面。关闭时 Windows 可能请求授权。'
+                : '当前 Windows 版本不支持隐藏系统捕获黄色边框。'}
+            </p>
+            {state.captureBorderNotice ? (
+              <p className="buff-setting-help buff-setting-help--warning">
+                {state.captureBorderNotice}
+              </p>
+            ) : null}
             <SoundRow
               checked={settings.sound.triggerEnabled}
               cue="triggered"
