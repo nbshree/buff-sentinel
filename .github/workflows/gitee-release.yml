@@ -62,13 +62,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Check Chinese commit messages
-        shell: pwsh
-        run: |
-          ./scripts/check-commit-messages.ps1 `
-            -SincePolicyStart `
-            -ToRef '${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref_name }}'
-
       - name: Check TypeScript
         run: pnpm typecheck
 

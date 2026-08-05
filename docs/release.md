@@ -137,31 +137,21 @@ try {
    git status --short
    ```
 
-2. 首次在当前克隆中提交前启用仓库钩子：
-
-   ```powershell
-   pwsh -File scripts/setup-git-hooks.ps1
-   ```
-
-3. 确认本次所有提交遵守 `AGENTS.md` 的中文提交规范。发行说明会直接使用这些标题并排除
-   `发布` 类提交。首次启用规范时，发行说明从规范启用提交开始，避免旧英文历史进入更新内容；
-   后续版本仍按两个版本标签之间的提交生成。日常提交检查、发布脚本和发布流水线都会校验
-   规范启用后的提交历史。
-4. 确认当前分支是 `main`，并与 Gitee、GitHub 的 `main` 对齐。
-5. 确定新版本号，且该标签从未发布。不要移动或重建已经公开的版本标签。
-6. 新版本必须严格高于 updater feed 中的版本；发布脚本会用 SemVer 比较并拒绝降级覆盖。
-7. 同步修改以下版本号：
+2. 确认当前分支是 `main`，并与 Gitee、GitHub 的 `main` 对齐。
+3. 确定新版本号，且该标签从未发布。不要移动或重建已经公开的版本标签。
+4. 新版本必须严格高于 updater feed 中的版本；发布脚本会用 SemVer 比较并拒绝降级覆盖。
+5. 同步修改以下版本号：
 
    - `package.json`
    - `src-tauri/tauri.conf.json`
    - `src-tauri/Cargo.toml`
 
-8. 运行依赖或 Rust 命令后，把相应锁文件变化一并纳入发版提交：
+6. 运行依赖或 Rust 命令后，把相应锁文件变化一并纳入发版提交：
 
    - `pnpm-lock.yaml`
    - `src-tauri/Cargo.lock`
 
-9. 至少执行以下验证：
+7. 至少执行以下验证：
 
    ```powershell
    pnpm install --frozen-lockfile
@@ -218,9 +208,9 @@ git config --add remote.origin.pushurl git@github.com:nbshree/shree-macro-flow-t
 标签到达 GitHub 后，单次发版按以下流程执行：
 
 1. 在两个独立 Windows job 中并行执行源码验证和正式签名构建。
-2. 验证 job 先检查中文提交标题，再执行 TypeScript 检查、前端测试、Rust 格式检查、测试和
-   Clippy。Rust 测试和 Clippy 均会完成编译检查，因此流水线不再额外重复执行 `cargo check`；
-   本地发版前检查仍保留 `cargo check`。
+2. 验证 job 执行 TypeScript 检查、前端测试、Rust 格式检查、测试和 Clippy。Rust 测试和
+   Clippy 均会完成编译检查，因此流水线不再额外重复执行 `cargo check`；本地发版前检查仍保留
+   `cargo check`。
 3. 构建 job 只在正式构建步骤注入 Tauri 私钥，执行 `pnpm tauri:build:release`，再把 `.exe`
    和 `.sig` 作为短期 Actions artifact 传给发布 job。
 4. 只有验证与构建同时成功后才启动发布 job，并只在该 job 注入 `GITEE_TOKEN`。
@@ -359,14 +349,6 @@ GitHub Actions run，或使用 `-RepairExisting -SkipBuild` 修复。
 
 发布脚本已强制 `git log` 使用 UTF-8。不要删除脚本中的 `$OutputEncoding`、
 `[Console]::OutputEncoding` 或 Git `--encoding=UTF-8` 设置。
-
-### 提交被中文规范校验拒绝
-
-标题必须采用“分类：中文说明”，例如 `新增：支持方案批量导入` 或
-`修复（热键）：托盘隐藏后仍可紧急停止`。不要再使用 `feat:`、`fix:`、`chore:` 等英文分类。
-通过 Pull Request 合并时，也要把压缩提交或合并提交的最终标题改成中文，不能保留 GitHub
-自动生成的英文 `Merge pull request` 标题。
-如果当前克隆没有即时提示，运行 `pwsh -File scripts/setup-git-hooks.ps1` 重新启用本地钩子。
 
 ## 发版完成条件
 

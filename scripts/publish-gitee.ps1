@@ -310,11 +310,6 @@ foreach ($remoteRepository in $remoteRepositories.GetEnumerator()) {
   }
 }
 
-& "$PSScriptRoot/check-commit-messages.ps1" -SincePolicyStart -ToRef $tagName
-if ($LASTEXITCODE -ne 0) {
-  throw '发布范围内存在不符合中文规范的提交标题。'
-}
-
 if (-not $SkipBuild) {
   if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
     throw '正式构建缺少 TAURI_SIGNING_PRIVATE_KEY。'
@@ -362,46 +357,12 @@ $installerSize = [math]::Round((Get-Item -LiteralPath $installerPath).Length / 1
 $previousTag = git tag --sort=-version:refname |
   Where-Object { $_ -ne $tagName } |
   Select-Object -First 1
-$policyStart = git log `
-  --diff-filter=A `
-  --reverse `
-  --format='%H' `
-  $tagName `
-  -- scripts/check-commit-messages.ps1 |
-  Select-Object -First 1
-if ($LASTEXITCODE -ne 0) {
-  throw '无法查找中文提交规范的启用提交。'
-}
-
-$changeRange = $null
-if (-not [string]::IsNullOrWhiteSpace($policyStart)) {
-  $previousTagContainsPolicy = $false
-  if ($previousTag) {
-    git merge-base --is-ancestor $policyStart $previousTag
-    if ($LASTEXITCODE -eq 0) {
-      $previousTagContainsPolicy = $true
-    } elseif ($LASTEXITCODE -ne 1) {
-      throw "无法判断 $previousTag 是否包含中文提交规范。"
-    }
-  }
-
-  if (-not $previousTagContainsPolicy) {
-    $changeRange = "$policyStart^..$tagName"
-  }
-}
-if ([string]::IsNullOrWhiteSpace($changeRange) -and $previousTag) {
-  $changeRange = "$previousTag..$tagName"
-}
-
-if ($changeRange) {
+if ($previousTag) {
   $changeLines = @(
     git -c i18n.logOutputEncoding=utf-8 log `
       --encoding=UTF-8 `
       --pretty=format:'- %s' `
-      --invert-grep `
-      --grep='^发布（[^）]+）：' `
-      --grep='^发布：' `
-      $changeRange
+      "$previousTag..$tagName"
   )
 } else {
   $changeLines = @('- 首个公开发行版')
