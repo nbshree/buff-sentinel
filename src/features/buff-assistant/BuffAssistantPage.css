@@ -279,6 +279,12 @@
   font-size: 13px;
 }
 
+.buff-setting-recommendation {
+  margin-left: 6px;
+  color: #ef4444;
+  font-style: normal;
+}
+
 .buff-settings-grid input,
 .buff-settings-grid select,
 .buff-window-row select {

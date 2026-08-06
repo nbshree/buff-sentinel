@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub const CONFIG_SCHEMA_VERSION: u32 = 9;
 pub const DEFAULT_CYCLE_MS: u64 = 20_000;
-pub const DEFAULT_DEADLINE_GRACE_MS: u64 = 600;
+pub const DEFAULT_DEADLINE_GRACE_MS: u64 = 1_500;
 const PREVIOUS_DEFAULT_CYCLE_MS: u64 = 20_180;
 pub const DEFAULT_THRESHOLD: f32 = 0.95;
 const LEGACY_DEFAULT_THRESHOLD: f32 = 0.86;
@@ -424,6 +424,11 @@ fn finite_or(value: f64, fallback: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_deadline_grace_is_1500_ms() {
+        assert_eq!(BuffAssistantSettings::default().deadline_grace_ms, 1_500);
+    }
 
     #[test]
     fn normalized_rect_is_clamped_inside_frame() {

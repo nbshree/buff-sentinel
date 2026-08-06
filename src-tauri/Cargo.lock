@@ -2258,7 +2258,7 @@ dependencies = [
 
 [[package]]
 name = "macro-flow"
-version = "2.0.12"
+version = "2.0.13"
 dependencies = [
  "base64 0.22.1",
  "chrono",

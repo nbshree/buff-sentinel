@@ -339,7 +339,10 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               />
             </label>
             <label>
-              <span>触发宽限期（毫秒）</span>
+              <span>
+                触发宽限期（毫秒）
+                <em className="buff-setting-recommendation">建议值：1500</em>
+              </span>
               <input
                 max={2000}
                 min={0}

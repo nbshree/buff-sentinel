@@ -13,6 +13,15 @@ function BuffAssistantHarness() {
 }
 
 describe('BuffAssistantPage', () => {
+  it('shows the recommended trigger grace period', async () => {
+    const api = createMacroApi()
+    installMacroApi(api)
+    render(<BuffAssistantHarness />)
+
+    expect(await screen.findByText('建议值：1500')).toHaveClass('buff-setting-recommendation')
+    expect(screen.getByRole('spinbutton', { name: /触发宽限期/ })).toHaveValue(1500)
+  })
+
   it('saves the overlay capture exclusion only after saving settings', async () => {
     const user = userEvent.setup()
     const api = createMacroApi()

@@ -203,7 +203,7 @@ export function createMacroApi(
       template: null,
       settings: {
         cycleMs: 20_000,
-        deadlineGraceMs: 600,
+        deadlineGraceMs: 1500,
         threshold: 0.95,
         confirmFrames: 3,
         missingFrames: 5,

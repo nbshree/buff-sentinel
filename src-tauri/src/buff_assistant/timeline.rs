@@ -299,7 +299,7 @@ mod tests {
                 .update(start + Duration::from_millis(20_300), false)
                 .is_empty()
         );
-        let actions = timeline.update(start + Duration::from_millis(20_600), false);
+        let actions = timeline.update(start + Duration::from_millis(21_500), false);
         assert!(actions.contains(&TimelineAction::Reset));
         assert_eq!(timeline.phase(), TimelinePhase::Waiting);
         assert_eq!(timeline.expected_at(), None);
@@ -318,7 +318,7 @@ mod tests {
         timeline.update(start, false);
         timeline.update(start, true);
         assert_eq!(
-            timeline.update(start + Duration::from_millis(20_600), false),
+            timeline.update(start + Duration::from_millis(21_500), false),
             [TimelineAction::Reset]
         );
 
@@ -395,11 +395,11 @@ mod tests {
     }
 
     #[test]
-    fn trigger_confirmed_at_600_ms_is_accepted_and_reanchored() {
+    fn trigger_confirmed_at_1500_ms_is_accepted_and_reanchored() {
         let start = Instant::now();
         let expected = start + Duration::from_secs(20);
         let first_match = expected + Duration::from_millis(433);
-        let confirmed_at = expected + Duration::from_millis(600);
+        let confirmed_at = expected + Duration::from_millis(1_500);
         let mut timeline = BuffTimeline::new(20_000);
         timeline.start_waiting(20_000);
         timeline.update(start, false);
@@ -420,10 +420,10 @@ mod tests {
     }
 
     #[test]
-    fn trigger_confirmed_after_600_ms_resets_the_timeline() {
+    fn trigger_confirmed_after_1500_ms_resets_the_timeline() {
         let start = Instant::now();
         let expected = start + Duration::from_secs(20);
-        let confirmed_at = expected + Duration::from_millis(601);
+        let confirmed_at = expected + Duration::from_millis(1_501);
         let mut timeline = BuffTimeline::new(20_000);
         timeline.start_waiting(20_000);
         timeline.update(start, false);
