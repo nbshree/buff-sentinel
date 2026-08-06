@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 8;
+pub const CONFIG_SCHEMA_VERSION: u32 = 9;
 pub const DEFAULT_CYCLE_MS: u64 = 20_000;
 pub const DEFAULT_DEADLINE_GRACE_MS: u64 = 600;
 const PREVIOUS_DEFAULT_CYCLE_MS: u64 = 20_180;
@@ -176,6 +176,8 @@ pub struct BuffOverlaySettings {
     pub x: i32,
     pub y: i32,
     pub show_waiting_dot: bool,
+    #[serde(default)]
+    pub exclude_from_capture: bool,
     #[serde(default = "default_overlay_width")]
     pub width: u32,
     #[serde(default = "default_overlay_height")]
@@ -190,6 +192,7 @@ impl Default for BuffOverlaySettings {
             x: 40,
             y: 100,
             show_waiting_dot: false,
+            exclude_from_capture: false,
             width: DEFAULT_OVERLAY_WIDTH,
             height: DEFAULT_OVERLAY_HEIGHT,
             color_scheme: BuffOverlayColorScheme::Gold,
@@ -563,8 +566,19 @@ mod tests {
         assert_eq!(settings.deadline_grace_ms, DEFAULT_DEADLINE_GRACE_MS);
         assert_eq!(settings.overlay.width, DEFAULT_OVERLAY_WIDTH);
         assert_eq!(settings.overlay.height, DEFAULT_OVERLAY_HEIGHT);
+        assert!(!settings.overlay.exclude_from_capture);
         assert!(settings.capture.show_system_border);
         assert_eq!(settings.overlay.color_scheme, BuffOverlayColorScheme::Gold);
+    }
+
+    #[test]
+    fn overlay_capture_exclusion_uses_the_frontend_field_shape() {
+        let mut overlay = BuffOverlaySettings::default();
+        overlay.exclude_from_capture = true;
+
+        let value = serde_json::to_value(overlay).unwrap();
+
+        assert_eq!(value["excludeFromCapture"], true);
     }
 
     #[test]

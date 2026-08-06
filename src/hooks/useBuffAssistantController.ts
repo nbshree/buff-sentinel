@@ -12,7 +12,7 @@ import type {
 
 const defaultState: BuffAssistantState = {
   config: {
-    schemaVersion: 8,
+    schemaVersion: 9,
     target: null,
     searchRegion: null,
     template: null,
@@ -37,6 +37,7 @@ const defaultState: BuffAssistantState = {
         x: 40,
         y: 100,
         showWaitingDot: false,
+        excludeFromCapture: false,
         width: 330,
         height: 92,
         colorScheme: 'gold'

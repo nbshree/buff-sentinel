@@ -13,6 +13,29 @@ function BuffAssistantHarness() {
 }
 
 describe('BuffAssistantPage', () => {
+  it('saves the overlay capture exclusion only after saving settings', async () => {
+    const user = userEvent.setup()
+    const api = createMacroApi()
+    installMacroApi(api)
+    render(<BuffAssistantHarness />)
+
+    const captureToggle = await screen.findByRole('checkbox', { name: '排除录屏捕获' })
+    expect(captureToggle).not.toBeChecked()
+
+    await user.click(captureToggle)
+    expect(api.updateBuffAssistantSettings).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: '保存设置' }))
+
+    await waitFor(() => {
+      expect(api.updateBuffAssistantSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          overlay: expect.objectContaining({ excludeFromCapture: true })
+        })
+      )
+    })
+  })
+
   it('requests access and saves the system capture border preference', async () => {
     const user = userEvent.setup()
     const api = createMacroApi()

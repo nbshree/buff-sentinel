@@ -404,6 +404,27 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           <div className="buff-sound-options">
             <label className="buff-check-row">
               <input
+                checked={settings.overlay.excludeFromCapture}
+                disabled={busy}
+                type="checkbox"
+                onChange={(event) =>
+                  setSettings((current) => ({
+                    ...current,
+                    overlay: {
+                      ...current.overlay,
+                      excludeFromCapture: event.target.checked
+                    }
+                  }))
+                }
+              />
+              排除录屏捕获
+            </label>
+            <p className="buff-setting-help">
+              开启后，OBS 等使用系统捕获接口的工具通常不会录入 Buff 悬浮窗；游戏捕获、
+              驱动级采集和采集卡可能不受支持。
+            </p>
+            <label className="buff-check-row">
+              <input
                 checked={settings.capture.showSystemBorder}
                 disabled={busy || !state.captureBorderSupported}
                 type="checkbox"

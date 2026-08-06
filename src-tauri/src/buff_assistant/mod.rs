@@ -159,6 +159,7 @@ pub fn create_overlay(app: &AppHandle) -> tauri::Result<()> {
     .transparent(true)
     .shadow(false)
     .always_on_top(true)
+    .content_protected(config.settings.overlay.exclude_from_capture)
     .skip_taskbar(true)
     .focusable(false)
     .visible(false)
@@ -358,12 +359,16 @@ pub fn update_buff_assistant_settings(
         inner.monitor_requested
     };
     apply_overlay_geometry(&app);
+    let capture_protection_result = apply_overlay_capture_protection(&app);
     if was_monitoring {
         start_buff_monitor_internal(&app)?;
-        return Ok(state.snapshot());
+        let snapshot = state.snapshot();
+        capture_protection_result?;
+        return Ok(snapshot);
     }
     let snapshot = state.snapshot();
     emit_state(&app, &snapshot);
+    capture_protection_result?;
     Ok(snapshot)
 }
 
@@ -1376,6 +1381,22 @@ fn apply_overlay_geometry(app: &AppHandle) {
             f64::from(settings.height),
         ));
     }
+}
+
+fn apply_overlay_capture_protection(app: &AppHandle) -> Result<(), String> {
+    let exclude_from_capture = app
+        .state::<BuffAssistant>()
+        .lock()
+        .config
+        .settings
+        .overlay
+        .exclude_from_capture;
+    let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) else {
+        return Ok(());
+    };
+    overlay
+        .set_content_protected(exclude_from_capture)
+        .map_err(|error| format!("设置已保存，但无法应用悬浮窗录屏排除：{error}"))
 }
 
 fn overlay_color_scheme(app: &AppHandle) -> BuffOverlayColorScheme {

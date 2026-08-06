@@ -224,6 +224,7 @@ export type BuffOverlaySettings = {
   x: number
   y: number
   showWaitingDot: boolean
+  excludeFromCapture: boolean
   width: number
   height: number
   colorScheme: 'gold' | 'blackWhite'
