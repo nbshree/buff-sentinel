@@ -713,6 +713,7 @@
  * preserve the themed dimensions and translucent surfaces over generated utility classes.
  */
 [data-slot='button'].update-trigger,
+[data-slot='button'].feedback-trigger,
 [data-slot='button'].theme-trigger {
   display: inline-flex;
   height: 36px;
@@ -752,7 +753,8 @@
     transform var(--motion-fast) var(--ease-standard);
 }
 
-[data-slot='button'].update-trigger {
+[data-slot='button'].update-trigger,
+[data-slot='button'].feedback-trigger {
   padding: 0 13px;
   transition:
     border-color var(--motion-fast) var(--ease-standard),
@@ -767,9 +769,125 @@
   color: var(--color-primary);
 }
 
+[data-slot='button'].feedback-trigger:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  background: var(--surface-hover);
+  color: var(--color-primary);
+}
+
 .update-trigger__spinner,
-.update-dialog__spinner {
+.update-dialog__spinner,
+.feedback-dialog__spinner {
   animation: update-spinner 0.8s linear infinite;
+}
+
+[data-slot='dialog-content'].feedback-dialog {
+  width: min(440px, calc(100% - 32px));
+  gap: 16px;
+  padding: 20px;
+  border-color: var(--border-default);
+  background: var(--surface-panel-strong);
+}
+
+.feedback-dialog__header {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 10px;
+}
+
+.feedback-dialog__header > div {
+  min-width: 0;
+}
+
+.feedback-dialog__icon {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-default);
+  border-radius: 7px;
+  background: var(--surface-muted);
+  color: var(--color-primary);
+}
+
+[data-slot='button'].feedback-dialog__close {
+  width: 36px;
+  height: 36px;
+}
+
+.feedback-dialog__field {
+  display: grid;
+  gap: 7px;
+}
+
+.feedback-dialog__field textarea {
+  width: 100%;
+  min-height: 116px;
+  resize: vertical;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  outline: none;
+  background: var(--surface-input);
+  padding: 10px 11px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  transition:
+    border-color var(--motion-fast) var(--ease-standard),
+    box-shadow var(--motion-fast) var(--ease-standard),
+    background-color var(--motion-fast) var(--ease-standard);
+}
+
+.feedback-dialog__field textarea:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.feedback-dialog__field textarea:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+
+.feedback-dialog__field textarea[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+
+.feedback-dialog__field textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.feedback-dialog__count {
+  justify-self: end;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.feedback-dialog__message {
+  margin: 0;
+}
+
+.feedback-dialog__confirmation {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-success) 46%, var(--border-default));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-success) 10%, var(--surface-muted));
+  padding: 8px 10px;
+  color: var(--color-success);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.feedback-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 [data-slot='dialog-content'].update-dialog {
@@ -1092,7 +1210,8 @@
   .log-resize-handle > span,
   .theme-log-character__image,
   .update-trigger__spinner,
-  .update-dialog__spinner {
+  .update-dialog__spinner,
+  .feedback-dialog__spinner {
     transition: none;
     animation: none;
   }

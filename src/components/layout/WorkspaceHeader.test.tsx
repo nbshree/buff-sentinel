@@ -12,7 +12,9 @@ function renderHeader(
   themeId: ThemeId,
   onOpenTheme = vi.fn(),
   activeWorkspace: WorkspaceView = 'macro',
-  isSwitchingWorkspace = false
+  isSwitchingWorkspace = false,
+  restrictedWorkspacesUnlocked = true,
+  onOpenFeedback = vi.fn()
 ) {
   const controller = createMacroController({
     state: createMacroState({ appearance: { themeId, cleanMode: false } })
@@ -27,15 +29,18 @@ function renderHeader(
       appVersion="1.8.1"
       themeTriggerRef={createRef<HTMLButtonElement>()}
       updateTriggerRef={createRef<HTMLButtonElement>()}
+      feedbackTriggerRef={createRef<HTMLButtonElement>()}
+      restrictedWorkspacesUnlocked={restrictedWorkspacesUnlocked}
       isCheckingUpdate={false}
       isSwitchingWorkspace={isSwitchingWorkspace}
       onWorkspaceChange={onWorkspaceChange}
       onOpenTheme={onOpenTheme}
+      onOpenFeedback={onOpenFeedback}
       onCheckForUpdate={onCheckForUpdate}
     />
   )
 
-  return { onCheckForUpdate, onOpenTheme, onWorkspaceChange }
+  return { onCheckForUpdate, onOpenFeedback, onOpenTheme, onWorkspaceChange }
 }
 
 describe('WorkspaceHeader', () => {
@@ -96,6 +101,31 @@ describe('WorkspaceHeader', () => {
     await user.click(screen.getByRole('button', { name: '检查更新' }))
 
     expect(onCheckForUpdate).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens feedback from the header action', async () => {
+    const user = userEvent.setup()
+    const onOpenFeedback = vi.fn()
+    const { onOpenFeedback: renderedCallback } = renderHeader(
+      'longyin',
+      vi.fn(),
+      'buffAssistant',
+      false,
+      false,
+      onOpenFeedback
+    )
+
+    await user.click(screen.getByRole('button', { name: '意见反馈' }))
+
+    expect(renderedCallback).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides restricted workspaces and the switcher while access is locked', () => {
+    renderHeader('longyin', vi.fn(), 'buffAssistant', false, false)
+
+    expect(screen.queryByRole('button', { name: /切换工作区/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('宏流程')).not.toBeInTheDocument()
+    expect(screen.queryByText('游戏录制')).not.toBeInTheDocument()
   })
 
   it('opens the workspace menu from the title arrow', async () => {

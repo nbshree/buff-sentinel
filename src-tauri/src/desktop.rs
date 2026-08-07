@@ -21,9 +21,9 @@ const TRAY_ID: &str = "main-tray";
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum Workspace {
-    #[default]
     Macro,
     GameRecorder,
+    #[default]
     BuffAssistant,
     Calculator,
     TowerCalculator,
@@ -64,6 +64,10 @@ pub(crate) enum ShortcutKind {
 }
 
 impl Workspace {
+    fn requires_unlock(self) -> bool {
+        matches!(self, Self::Macro | Self::GameRecorder)
+    }
+
     fn menu_kind(self) -> TrayMenuKind {
         match self {
             Self::Macro => TrayMenuKind::Macro,
@@ -104,7 +108,7 @@ fn create_tray_menu(app: &AppHandle, workspace: Workspace) -> tauri::Result<Menu
 }
 
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
-    let menu = create_tray_menu(app, Workspace::Macro)?;
+    let menu = create_tray_menu(app, Workspace::default())?;
 
     let mut tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
@@ -139,6 +143,16 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
 
 #[tauri::command]
 pub fn switch_workspace(app: AppHandle, workspace: Workspace) -> Result<(), String> {
+    if workspace.requires_unlock()
+        && !app
+            .state::<AppState>()
+            .lock()
+            .store
+            .restricted_workspaces_unlocked
+    {
+        return Err("该工作区尚未开放".into());
+    }
+
     let workspace_state = app.state::<WorkspaceState>();
     let current = workspace_state.active();
     if current == workspace {
@@ -207,6 +221,7 @@ mod tests {
 
     #[test]
     fn workspace_uses_the_expected_tray_menu() {
+        assert_eq!(Workspace::default(), Workspace::BuffAssistant);
         assert_eq!(Workspace::Macro.menu_kind(), TrayMenuKind::Macro);
         assert_eq!(
             Workspace::BuffAssistant.menu_kind(),
@@ -215,6 +230,15 @@ mod tests {
         assert_eq!(Workspace::GameRecorder.menu_kind(), TrayMenuKind::Common);
         assert_eq!(Workspace::Calculator.menu_kind(), TrayMenuKind::Common);
         assert_eq!(Workspace::TowerCalculator.menu_kind(), TrayMenuKind::Common);
+    }
+
+    #[test]
+    fn only_macro_and_game_recorder_require_unlocking() {
+        assert!(Workspace::Macro.requires_unlock());
+        assert!(Workspace::GameRecorder.requires_unlock());
+        assert!(!Workspace::BuffAssistant.requires_unlock());
+        assert!(!Workspace::Calculator.requires_unlock());
+        assert!(!Workspace::TowerCalculator.requires_unlock());
     }
 
     #[test]

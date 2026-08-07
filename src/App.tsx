@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import { WindowTitleBar } from './components/layout/WindowTitleBar'
 import { WorkspaceHeader } from './components/layout/WorkspaceHeader'
+import { FeedbackDialog } from './components/feedback'
 import { ControlPanel } from './components/panels/ControlPanel'
 import { FlowPanel } from './components/panels/FlowPanel'
 import { LogPanel } from './components/panels/LogPanel'
@@ -19,6 +20,7 @@ import { useBuffAssistantController } from './hooks/useBuffAssistantController'
 import { useGameRecorderController } from './hooks/useGameRecorderController'
 import { useMacroController } from './hooks/useMacroController'
 import { getInstallBlockedReason } from './lib/install-blocking'
+import type { FeatureAccessStatus } from './lib/macro-api'
 import {
   loadWorkspacePreference,
   saveWorkspacePreference,
@@ -38,12 +40,15 @@ function App(): React.JSX.Element {
   const buffAssistantController = useBuffAssistantController()
   const gameActivityBusy = gameRecorderController.state.activity !== 'idle'
   const macroUiController = gameActivityBusy ? { ...controller, isEditingLocked: true } : controller
-  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>('macro')
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>('buffAssistant')
+  const [restrictedWorkspacesUnlocked, setRestrictedWorkspacesUnlocked] = useState(false)
   const [workspaceSwitching, setWorkspaceSwitching] = useState(false)
   const [workspaceSwitchError, setWorkspaceSwitchError] = useState<string | null>(null)
   const [themeDialogOpen, setThemeDialogOpen] = useState(false)
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const themeTriggerRef = useRef<HTMLButtonElement>(null)
+  const feedbackTriggerRef = useRef<HTMLButtonElement>(null)
   const updateTriggerRef = useRef<HTMLButtonElement>(null)
   const installBlockedReason = getInstallBlockedReason({
     macroIsRunning: controller.state.isRunning,
@@ -109,9 +114,40 @@ function App(): React.JSX.Element {
   }
 
   useEffect(() => {
-    const preferredWorkspace = loadWorkspacePreference()
-    if (preferredWorkspace !== 'macro') void switchWorkspace(preferredWorkspace)
+    let disposed = false
+
+    void window.api
+      .getFeatureAccessStatus()
+      .then(async (status) => {
+        if (disposed) return
+
+        setRestrictedWorkspacesUnlocked(status.restrictedWorkspacesUnlocked)
+        const preferredWorkspace = loadWorkspacePreference(status.restrictedWorkspacesUnlocked)
+        if (!status.restrictedWorkspacesUnlocked) saveWorkspacePreference(preferredWorkspace)
+        if (preferredWorkspace !== 'buffAssistant') await switchWorkspace(preferredWorkspace)
+      })
+      .catch((error: unknown) => {
+        if (disposed) return
+
+        const message = error instanceof Error ? error.message : String(error)
+        setWorkspaceSwitchError(`无法读取功能访问状态：${message}`)
+        console.error('读取功能访问状态失败', error)
+      })
+
+    return () => {
+      disposed = true
+    }
   }, [])
+
+  async function submitFeedback(content: string): Promise<FeatureAccessStatus> {
+    const status = await window.api.submitFeedback(content)
+    setRestrictedWorkspacesUnlocked(status.restrictedWorkspacesUnlocked)
+    if (!status.restrictedWorkspacesUnlocked) {
+      setActiveWorkspace('buffAssistant')
+      saveWorkspacePreference('buffAssistant')
+    }
+    return status
+  }
 
   return (
     <ThemeProvider appearance={controller.state.appearance}>
@@ -129,10 +165,13 @@ function App(): React.JSX.Element {
                 appVersion={appVersion}
                 themeTriggerRef={themeTriggerRef}
                 updateTriggerRef={updateTriggerRef}
+                feedbackTriggerRef={feedbackTriggerRef}
+                restrictedWorkspacesUnlocked={restrictedWorkspacesUnlocked}
                 isCheckingUpdate={updater.status === 'checking'}
                 isSwitchingWorkspace={workspaceSwitching}
                 onWorkspaceChange={(workspace) => void switchWorkspace(workspace)}
                 onOpenTheme={() => setThemeDialogOpen(true)}
+                onOpenFeedback={() => setFeedbackDialogOpen(true)}
                 onCheckForUpdate={() => void updater.checkForUpdate()}
               />
               {workspaceSwitchError ? (
@@ -206,6 +245,13 @@ function App(): React.JSX.Element {
             returnFocusRef={themeTriggerRef}
             onApply={(appearance) => controller.updateAppearance(appearance)}
             onOpenChange={setThemeDialogOpen}
+          />
+          <FeedbackDialog
+            open={feedbackDialogOpen}
+            restrictedWorkspacesUnlocked={restrictedWorkspacesUnlocked}
+            returnFocusRef={feedbackTriggerRef}
+            onOpenChange={setFeedbackDialogOpen}
+            onSubmit={submitFeedback}
           />
           <UpdateDialog updater={updater} returnFocusRef={updateTriggerRef} />
         </main>

@@ -318,6 +318,10 @@ export type WindowSize = {
 export type Workspace =
   'macro' | 'gameRecorder' | 'buffAssistant' | 'calculator' | 'towerCalculator'
 
+export type FeatureAccessStatus = {
+  restrictedWorkspacesUnlocked: boolean
+}
+
 export type WindowControlsAPI = {
   minimize: () => Promise<void>
   toggleMaximize: () => Promise<void>
@@ -330,6 +334,8 @@ export type WindowControlsAPI = {
 
 export type MacroAPI = {
   getAppVersion: () => Promise<string>
+  getFeatureAccessStatus: () => Promise<FeatureAccessStatus>
+  submitFeedback: (content: string) => Promise<FeatureAccessStatus>
   switchWorkspace: (workspace: Workspace) => Promise<void>
   getState: () => Promise<MacroState>
   startRecording: () => Promise<MacroState>
@@ -523,6 +529,10 @@ const windowControls: WindowControlsAPI = {
 
 export const macroApi: MacroAPI = {
   getAppVersion: () => callTauri(() => invoke<string>('get_app_version')),
+  getFeatureAccessStatus: () =>
+    callTauri(() => invoke<FeatureAccessStatus>('get_feature_access_status')),
+  submitFeedback: (content) =>
+    callTauri(() => invoke<FeatureAccessStatus>('submit_feedback', { content })),
   switchWorkspace: (workspace) => callTauri(() => invoke<void>('switch_workspace', { workspace })),
   getState: () => invokeState('get_state'),
   startRecording: () => invokeState('start_recording'),

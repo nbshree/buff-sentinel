@@ -3,11 +3,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::{
-    input,
+    desktop, input,
     model::{
         AppearancePatch, Hotkeys, KeyModifier, LoopMode, MacroProfile, MacroState, Point,
         PointAction, PointPatch, SettingsPatch, clamp_f64, create_id, default_settings,
@@ -20,6 +21,15 @@ use crate::{
     store,
 };
 
+const RESTRICTED_WORKSPACE_UNLOCK_PHRASE: &str = "大米米牛逼";
+const RESTRICTED_WORKSPACE_LOCK_PHRASE: &str = "大吉吉牛逼";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeatureAccessStatus {
+    pub restricted_workspaces_unlocked: bool,
+}
+
 #[tauri::command]
 pub fn get_state(state: State<'_, AppState>) -> MacroState {
     state.snapshot()
@@ -28,6 +38,50 @@ pub fn get_state(state: State<'_, AppState>) -> MacroState {
 #[tauri::command]
 pub fn get_app_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
+}
+
+#[tauri::command]
+pub fn get_feature_access_status(state: State<'_, AppState>) -> FeatureAccessStatus {
+    FeatureAccessStatus {
+        restricted_workspaces_unlocked: state.lock().store.restricted_workspaces_unlocked,
+    }
+}
+
+#[tauri::command]
+pub fn submit_feedback(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    content: String,
+) -> Result<FeatureAccessStatus, String> {
+    if feedback_locks(&content) && state.lock().store.restricted_workspaces_unlocked {
+        desktop::switch_workspace(app, desktop::Workspace::BuffAssistant)?;
+        set_restricted_workspace_access(&state, false)?;
+    } else if feedback_unlocks(&content) {
+        set_restricted_workspace_access(&state, true)?;
+    }
+
+    Ok(get_feature_access_status(state))
+}
+
+fn set_restricted_workspace_access(state: &AppState, unlocked: bool) -> Result<(), String> {
+    let mut inner = state.lock();
+    if inner.store.restricted_workspaces_unlocked == unlocked {
+        return Ok(());
+    }
+
+    let mut store_snapshot = inner.store.clone();
+    store_snapshot.restricted_workspaces_unlocked = unlocked;
+    store::save_profiles(&inner.profile_file, &store_snapshot)?;
+    inner.store = store_snapshot;
+    Ok(())
+}
+
+fn feedback_unlocks(content: &str) -> bool {
+    content.trim() == RESTRICTED_WORKSPACE_UNLOCK_PHRASE
+}
+
+fn feedback_locks(content: &str) -> bool {
+    content.trim() == RESTRICTED_WORKSPACE_LOCK_PHRASE
 }
 
 #[tauri::command]
@@ -1135,6 +1189,18 @@ mod tests {
     #[test]
     fn app_version_matches_the_package_version() {
         assert_eq!(get_app_version(), env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn feedback_phrase_unlocks_only_for_an_exact_trimmed_match() {
+        assert!(feedback_unlocks("大米米牛逼"));
+        assert!(feedback_unlocks("  大米米牛逼\r\n"));
+        assert!(!feedback_unlocks("大米米牛"));
+        assert!(!feedback_unlocks("大吉吉牛逼"));
+        assert!(!feedback_unlocks("普通反馈"));
+        assert!(feedback_locks("大吉吉牛逼"));
+        assert!(feedback_locks("\r\n大吉吉牛逼  "));
+        assert!(!feedback_locks("大米米牛逼"));
     }
 
     fn point(id: &str) -> Point {

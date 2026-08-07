@@ -75,6 +75,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_app_version,
+            commands::get_feature_access_status,
+            commands::submit_feedback,
             desktop::switch_workspace,
             commands::get_state,
             commands::update_appearance,

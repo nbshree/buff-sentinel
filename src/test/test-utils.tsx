@@ -242,6 +242,12 @@ export function createMacroApi(
   }
   return {
     getAppVersion: vi.fn<MacroAPI['getAppVersion']>(async () => '1.8.1'),
+    getFeatureAccessStatus: vi.fn<MacroAPI['getFeatureAccessStatus']>(async () => ({
+      restrictedWorkspacesUnlocked: false
+    })),
+    submitFeedback: vi.fn<MacroAPI['submitFeedback']>(async () => ({
+      restrictedWorkspacesUnlocked: false
+    })),
     switchWorkspace: vi.fn<MacroAPI['switchWorkspace']>(async () => undefined),
     getState: vi.fn(async () => state),
     startRecording: vi.fn(async () => state),

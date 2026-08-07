@@ -127,6 +127,8 @@ pub struct PersistedData {
     pub profiles: Vec<MacroProfile>,
     #[serde(default = "default_appearance")]
     pub appearance: AppearancePreferences,
+    #[serde(default)]
+    pub restricted_workspaces_unlocked: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mystery_code: Option<String>,
     #[serde(default = "default_ai_base_url")]
@@ -238,6 +240,7 @@ pub fn create_default_profile_store() -> PersistedData {
         active_profile_id: profile.id.clone(),
         profiles: vec![profile],
         appearance: default_appearance(),
+        restricted_workspaces_unlocked: false,
         mystery_code: None,
         ai_base_url: default_ai_base_url(),
         ai_api_key: None,
@@ -305,6 +308,10 @@ pub fn sanitize_persisted(value: &Value) -> PersistedData {
         .unwrap_or_default();
 
     let appearance = sanitize_appearance(object.get("appearance"));
+    let restricted_workspaces_unlocked = object
+        .get("restrictedWorkspacesUnlocked")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let mystery_code = object
         .get("mysteryCode")
         .and_then(Value::as_str)
@@ -327,6 +334,7 @@ pub fn sanitize_persisted(value: &Value) -> PersistedData {
     if profiles.is_empty() {
         let mut store = create_default_profile_store();
         store.appearance = appearance;
+        store.restricted_workspaces_unlocked = restricted_workspaces_unlocked;
         store.mystery_code = mystery_code;
         store.ai_base_url = ai_base_url;
         store.ai_api_key = ai_api_key;
@@ -348,6 +356,7 @@ pub fn sanitize_persisted(value: &Value) -> PersistedData {
         active_profile_id,
         profiles,
         appearance,
+        restricted_workspaces_unlocked,
         mystery_code,
         ai_base_url,
         ai_api_key,
@@ -872,9 +881,27 @@ mod tests {
         assert_eq!(store.active_profile_id, store.profiles[0].id);
         assert_eq!(store.profiles[0].settings, default_settings());
         assert_eq!(store.appearance, default_appearance());
+        assert!(!store.restricted_workspaces_unlocked);
         assert_eq!(store.mystery_code, None);
         assert_eq!(store.ai_base_url, DEFAULT_AI_BASE_URL);
         assert_eq!(store.ai_api_key, None);
+    }
+
+    #[test]
+    fn restricted_workspace_access_defaults_to_locked_and_round_trips() {
+        let locked = sanitize_persisted(&json!({
+            "profiles": [{ "id": "profile", "name": "方案" }]
+        }));
+        assert!(!locked.restricted_workspaces_unlocked);
+
+        let unlocked = sanitize_persisted(&json!({
+            "profiles": [{ "id": "profile", "name": "方案" }],
+            "restrictedWorkspacesUnlocked": true
+        }));
+        assert!(unlocked.restricted_workspaces_unlocked);
+
+        let serialized = serde_json::to_value(&unlocked).expect("serialize store");
+        assert_eq!(serialized["restrictedWorkspacesUnlocked"], true);
     }
 
     #[test]

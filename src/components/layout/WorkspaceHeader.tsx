@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Gamepad2,
   LoaderCircle,
+  MessageSquareText,
   Palette,
   Radar,
   RefreshCw,
@@ -15,8 +16,8 @@ import type { RefObject } from 'react'
 
 import type { MacroController } from '../../hooks/useMacroController'
 import {
+  getVisibleWorkspaceOrder,
   isWorkspaceView,
-  VISIBLE_WORKSPACE_ORDER,
   type WorkspaceView
 } from '../../lib/workspace-preference'
 import { getThemeDefinition, normalizeAppearance } from '../../themes'
@@ -37,10 +38,13 @@ type WorkspaceHeaderProps = {
   appVersion: string | null
   themeTriggerRef: RefObject<HTMLButtonElement | null>
   updateTriggerRef: RefObject<HTMLButtonElement | null>
+  feedbackTriggerRef: RefObject<HTMLButtonElement | null>
+  restrictedWorkspacesUnlocked: boolean
   isCheckingUpdate: boolean
   isSwitchingWorkspace: boolean
   onWorkspaceChange: (workspace: WorkspaceView) => void
   onOpenTheme: () => void
+  onOpenFeedback: () => void
   onCheckForUpdate: () => void
 }
 
@@ -86,16 +90,20 @@ export function WorkspaceHeader({
   appVersion,
   themeTriggerRef,
   updateTriggerRef,
+  feedbackTriggerRef,
+  restrictedWorkspacesUnlocked,
   isCheckingUpdate,
   isSwitchingWorkspace,
   onWorkspaceChange,
   onOpenTheme,
+  onOpenFeedback,
   onCheckForUpdate
 }: WorkspaceHeaderProps) {
   const { state } = controller
   const appearance = normalizeAppearance(state.appearance)
   const theme = getThemeDefinition(appearance.themeId)
   const label = workspaceLabels[activeWorkspace]
+  const visibleWorkspaces = getVisibleWorkspaceOrder(restrictedWorkspacesUnlocked)
 
   function handleWorkspaceChange(workspace: string): void {
     if (!isSwitchingWorkspace && isWorkspaceView(workspace)) onWorkspaceChange(workspace)
@@ -107,39 +115,44 @@ export function WorkspaceHeader({
         <h1 id="workspace-title">
           <span>{label.title}</span>
           <span className="workspace-brand__author">作者 小踢踢</span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                className="workspace-menu-trigger"
-                type="button"
-                variant="ghost"
-                size="icon-lg"
-                aria-label={`切换工作区，当前为${label.menuLabel}`}
-                disabled={isSwitchingWorkspace}
-              >
-                <ChevronDown aria-hidden="true" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" aria-label="工作区">
-              <DropdownMenuRadioGroup value={activeWorkspace} onValueChange={handleWorkspaceChange}>
-                {VISIBLE_WORKSPACE_ORDER.map((workspace) => {
-                  const item = workspaceLabels[workspace]
-                  const Icon = item.icon
+          {visibleWorkspaces.length > 1 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  className="workspace-menu-trigger"
+                  type="button"
+                  variant="ghost"
+                  size="icon-lg"
+                  aria-label={`切换工作区，当前为${label.menuLabel}`}
+                  disabled={isSwitchingWorkspace}
+                >
+                  <ChevronDown aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" aria-label="工作区">
+                <DropdownMenuRadioGroup
+                  value={activeWorkspace}
+                  onValueChange={handleWorkspaceChange}
+                >
+                  {visibleWorkspaces.map((workspace) => {
+                    const item = workspaceLabels[workspace]
+                    const Icon = item.icon
 
-                  return (
-                    <DropdownMenuRadioItem
-                      key={workspace}
-                      value={workspace}
-                      disabled={isSwitchingWorkspace}
-                    >
-                      <Icon aria-hidden="true" />
-                      <span>{item.menuLabel}</span>
-                    </DropdownMenuRadioItem>
-                  )
-                })}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                    return (
+                      <DropdownMenuRadioItem
+                        key={workspace}
+                        value={workspace}
+                        disabled={isSwitchingWorkspace}
+                      >
+                        <Icon aria-hidden="true" />
+                        <span>{item.menuLabel}</span>
+                      </DropdownMenuRadioItem>
+                    )
+                  })}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </h1>
         <p>{label.subtitle}</p>
       </div>
@@ -163,6 +176,16 @@ export function WorkspaceHeader({
             <RefreshCw aria-hidden="true" size={17} />
           )}
           <span>{isCheckingUpdate ? '检查中' : '检查更新'}</span>
+        </Button>
+        <Button
+          className="feedback-trigger rounded-full"
+          ref={feedbackTriggerRef}
+          type="button"
+          variant="outline"
+          onClick={onOpenFeedback}
+        >
+          <MessageSquareText aria-hidden="true" size={17} />
+          <span>意见反馈</span>
         </Button>
         <Button
           className="theme-trigger rounded-full"
