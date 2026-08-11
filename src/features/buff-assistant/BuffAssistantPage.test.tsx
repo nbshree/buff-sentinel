@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { useBuffAssistantController } from '@/hooks/useBuffAssistantController'
-import { createMacroApi, installMacroApi } from '@/test/test-utils'
+import { createBuffSentinelApi, installBuffSentinelApi } from '@/test/test-utils'
 
 import { BuffAssistantPage } from './BuffAssistantPage'
 
@@ -14,8 +14,8 @@ function BuffAssistantHarness() {
 
 describe('BuffAssistantPage', () => {
   it('shows the recommended trigger grace period', async () => {
-    const api = createMacroApi()
-    installMacroApi(api)
+    const api = createBuffSentinelApi()
+    installBuffSentinelApi(api)
     render(<BuffAssistantHarness />)
 
     expect(await screen.findByText('建议值：1500')).toHaveClass('buff-setting-recommendation')
@@ -24,8 +24,8 @@ describe('BuffAssistantPage', () => {
 
   it('saves the overlay capture exclusion only after saving settings', async () => {
     const user = userEvent.setup()
-    const api = createMacroApi()
-    installMacroApi(api)
+    const api = createBuffSentinelApi()
+    installBuffSentinelApi(api)
     render(<BuffAssistantHarness />)
 
     const captureToggle = await screen.findByRole('checkbox', { name: '排除录屏捕获' })
@@ -47,8 +47,8 @@ describe('BuffAssistantPage', () => {
 
   it('requests access and saves the system capture border preference', async () => {
     const user = userEvent.setup()
-    const api = createMacroApi()
-    installMacroApi(api)
+    const api = createBuffSentinelApi()
+    installBuffSentinelApi(api)
     render(<BuffAssistantHarness />)
 
     const borderToggle = await screen.findByRole('checkbox', {
@@ -73,9 +73,9 @@ describe('BuffAssistantPage', () => {
 
   it('keeps the border enabled when Windows denies borderless access', async () => {
     const user = userEvent.setup()
-    const api = createMacroApi()
+    const api = createBuffSentinelApi()
     api.requestBuffBorderlessCaptureAccess = vi.fn(async () => 'deniedByUser')
-    installMacroApi(api)
+    installBuffSentinelApi(api)
     render(<BuffAssistantHarness />)
 
     const borderToggle = await screen.findByRole('checkbox', {
@@ -90,12 +90,12 @@ describe('BuffAssistantPage', () => {
   })
 
   it('disables the border switch when the system API is unavailable', async () => {
-    const api = createMacroApi()
+    const api = createBuffSentinelApi()
     api.getBuffAssistantState = vi.fn(async () => ({
-      ...(await createMacroApi().getBuffAssistantState()),
+      ...(await createBuffSentinelApi().getBuffAssistantState()),
       captureBorderSupported: false
     }))
-    installMacroApi(api)
+    installBuffSentinelApi(api)
     render(<BuffAssistantHarness />)
 
     expect(await screen.findByRole('checkbox', { name: '显示系统捕获黄色边框' })).toBeDisabled()
@@ -104,12 +104,12 @@ describe('BuffAssistantPage', () => {
 
   it('configures and previews each sound cue independently', async () => {
     const user = userEvent.setup()
-    const api = createMacroApi()
+    const api = createBuffSentinelApi()
     api.importBuffAssistantSound.mockResolvedValue({
       assetId: 'prewarn-one-123',
       fileName: '我的一.wav'
     })
-    installMacroApi(api)
+    installBuffSentinelApi(api)
     render(<BuffAssistantHarness />)
 
     expect(await screen.findByRole('checkbox', { name: '真实触发确认音' })).toBeChecked()
@@ -153,8 +153,8 @@ describe('BuffAssistantPage', () => {
 
   it('offers the fixed TTS Online helper', async () => {
     const user = userEvent.setup()
-    const api = createMacroApi()
-    installMacroApi(api)
+    const api = createBuffSentinelApi()
+    installBuffSentinelApi(api)
     render(<BuffAssistantHarness />)
 
     expect(await screen.findByText(/可前往 TTS Online 将文本转换为语音/)).toBeInTheDocument()

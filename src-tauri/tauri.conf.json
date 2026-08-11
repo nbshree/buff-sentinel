@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "shree盒子",
-  "version": "2.0.14",
-  "identifier": "com.shree.clickflow",
+  "productName": "Buff 哨兵",
+  "version": "0.1.0",
+  "identifier": "com.nbshree.buffsentinel",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "shree盒子",
+        "title": "Buff 哨兵",
         "width": 1280,
         "height": 820,
         "minWidth": 1080,
@@ -28,23 +28,12 @@
       "csp": null
     }
   },
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRBMDA3NDcyREIwMzBCMzgKUldRNEN3UGJjblFBU2lxMHFEak9QNGZvL1JPQXV2NHY2UU85RExKbTNLMTh4d01GOWI3eTBMQlkK",
-      "endpoints": [
-        "https://gitee.com/nbshree/shree-macro-flow-tauri/raw/updater-feed/latest.json"
-      ],
-      "windows": {
-        "installMode": "passive"
-      }
-    }
-  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],
     "publisher": "shree",
-    "shortDescription": "自动点击与键盘宏流程工具",
-    "longDescription": "支持坐标采集、鼠标点击、键盘输入、循环执行、全局热键和多方案管理。",
+    "shortDescription": "屏幕 Buff 检测与提醒助手",
+    "longDescription": "通过 Windows Graphics Capture 识别游戏画面中的 Buff，并提供悬浮窗与声音提醒。",
     "createUpdaterArtifacts": false,
     "resources": {
       "resources/buff-sounds/": "buff-sounds/"
@@ -54,9 +43,8 @@
         "installMode": "currentUser",
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
-        "installerHooks": "windows/installer-hooks.nsh",
         "languages": ["SimpChinese", "English"],
-        "startMenuFolder": "shree盒子"
+        "startMenuFolder": "Buff 哨兵"
       },
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

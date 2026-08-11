@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '../../components/ui/dialog'
-import type { NormalizedRect } from '../../lib/macro-api'
+import type { NormalizedRect } from '../../lib/buff-sentinel-api'
 import { cloneMaskHistory, createMaskHistory, MaskEditor, type MaskHistory } from './MaskEditor'
 
 type MaskEditorDialogProps = {

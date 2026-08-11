@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type MouseEvent } from 'react'
 import { MousePointerClick } from 'lucide-react'
 
-import type { WindowResizeDirection } from '../../lib/macro-api'
+import type { WindowResizeDirection } from '../../lib/buff-sentinel-api'
 import './WindowTitleBar.css'
 
 const resizeDirections: WindowResizeDirection[] = [
@@ -24,7 +24,7 @@ function reportWindowError(action: string, error: unknown) {
   console.error(`${action}失败`, error)
 }
 
-export function WindowTitleBar({ title = 'shree盒子', className = '' }: WindowTitleBarProps) {
+export function WindowTitleBar({ title = 'Buff 哨兵', className = '' }: WindowTitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false)
 
   const refreshMaximizedState = useCallback(async () => {

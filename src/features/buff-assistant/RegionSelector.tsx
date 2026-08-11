@@ -1,7 +1,7 @@
 import { Maximize2 } from 'lucide-react'
 import { useRef, useState, type PointerEvent } from 'react'
 
-import type { NormalizedRect } from '../../lib/macro-api'
+import type { NormalizedRect } from '../../lib/buff-sentinel-api'
 import { ZoomableEditorViewport } from './ZoomableEditorViewport'
 
 type Point = { x: number; y: number }

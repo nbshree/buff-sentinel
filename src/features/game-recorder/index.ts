@@ -1,1 +1,0 @@
-export { GameRecorderPage } from './GameRecorderPage'

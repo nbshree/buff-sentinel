@@ -1,20 +1,20 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { BuffOverlayState, MacroAPI } from '@/lib/macro-api'
-import { createMacroApi, installMacroApi } from '@/test/test-utils'
+import type { BuffOverlayState, BuffSentinelAPI } from '@/lib/buff-sentinel-api'
+import { createBuffSentinelApi, installBuffSentinelApi } from '@/test/test-utils'
 
 import { BuffOverlayApp, calculateOverlayScale } from './BuffOverlayApp'
 
 let emitOverlayState: (state: BuffOverlayState) => void
 
-function renderOverlay(): MacroAPI {
-  const api: MacroAPI = createMacroApi()
+function renderOverlay(): BuffSentinelAPI {
+  const api: BuffSentinelAPI = createBuffSentinelApi()
   api.onBuffOverlayState = vi.fn((callback) => {
     emitOverlayState = callback
     return () => undefined
   })
-  installMacroApi(api)
+  installBuffSentinelApi(api)
   render(<BuffOverlayApp />)
   return api
 }

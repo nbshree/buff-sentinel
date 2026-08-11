@@ -8,7 +8,7 @@ import type {
   BuffMetric,
   CaptureWindowCandidate,
   NormalizedRect
-} from '../lib/macro-api'
+} from '../lib/buff-sentinel-api'
 
 const defaultState: BuffAssistantState = {
   config: {

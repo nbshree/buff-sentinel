@@ -1,5 +1,5 @@
 import './assets/main.css'
-import './lib/macro-api'
+import './lib/buff-sentinel-api'
 
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { StrictMode } from 'react'

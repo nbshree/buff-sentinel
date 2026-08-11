@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn unsafe_custom_asset_ids_are_rejected() {
-        let directory = std::env::temp_dir().join("macro-flow-sound-path-test");
+        let directory = std::env::temp_dir().join("buff-sentinel-sound-path-test");
         assert!(custom_sound_path(&directory, "../outside").is_err());
         assert!(custom_sound_path(&directory, "safe-id-123").is_ok());
     }
@@ -382,7 +382,7 @@ mod tests {
     #[test]
     fn oversized_custom_sound_is_rejected_before_decoding() {
         let path = std::env::temp_dir().join(format!(
-            "macro-flow-oversized-sound-{}.wav",
+            "buff-sentinel-oversized-sound-{}.wav",
             std::process::id()
         ));
         let file = fs::File::create(&path).unwrap();
@@ -395,8 +395,10 @@ mod tests {
 
     #[test]
     fn custom_sound_is_copied_and_removed_when_unreferenced() {
-        let directory =
-            std::env::temp_dir().join(format!("macro-flow-sound-storage-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!(
+            "buff-sentinel-sound-storage-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&directory);
         let source = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("resources")

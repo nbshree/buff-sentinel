@@ -1,9 +1,9 @@
 /// <reference types="vite/client" />
 
-import type { MacroAPI } from './lib/macro-api'
+import type { BuffSentinelAPI } from './lib/buff-sentinel-api'
 
 declare global {
   interface Window {
-    api: MacroAPI
+    api: BuffSentinelAPI
   }
 }

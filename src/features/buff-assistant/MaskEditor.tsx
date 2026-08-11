@@ -9,7 +9,7 @@ import {
   type PointerEvent
 } from 'react'
 
-import type { NormalizedRect } from '../../lib/macro-api'
+import type { NormalizedRect } from '../../lib/buff-sentinel-api'
 import { ZoomableEditorViewport } from './ZoomableEditorViewport'
 
 export type MaskPoint = { x: number; y: number }

@@ -1,6 +1,6 @@
 import { useEffect, useState, type PointerEvent } from 'react'
 
-import type { BuffOverlayState, WindowResizeDirection } from '../../lib/macro-api'
+import type { BuffOverlayState, WindowResizeDirection } from '../../lib/buff-sentinel-api'
 
 import './BuffOverlayApp.css'
 

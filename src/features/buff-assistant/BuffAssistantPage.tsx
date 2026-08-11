@@ -24,7 +24,7 @@ import type {
   BuffSoundSource,
   BuffSoundTemplateSummary,
   NormalizedRect
-} from '../../lib/macro-api'
+} from '../../lib/buff-sentinel-api'
 import {
   createMaskHistory,
   MaskEditor,

@@ -9,7 +9,7 @@ import {
   DialogTitle
 } from '../../components/ui/dialog'
 import { Button } from '../../components/ui/button'
-import type { NormalizedRect } from '../../lib/macro-api'
+import type { NormalizedRect } from '../../lib/buff-sentinel-api'
 import { RegionSelector } from './RegionSelector'
 
 type RegionEditorDialogProps = {
