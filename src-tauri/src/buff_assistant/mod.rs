@@ -7,6 +7,7 @@ mod timeline;
 mod windows;
 
 use std::{
+    collections::HashMap,
     io::Cursor,
     path::PathBuf,
     sync::{Mutex, MutexGuard},
@@ -22,18 +23,19 @@ use ::windows::{
 use audio::{AudioEngine, ResolvedSoundSource};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use capture::{
-    CapturePurpose, CapturedImage, RuntimeCaptureControl, RuntimeCaptureFlags,
-    capture_border_supported, capture_snapshot, start_runtime_capture,
+    CapturePurpose, CapturedImage, RuntimeCaptureControl, RuntimeCaptureFlags, RuntimeDetection,
+    RuntimeListenerFlags, capture_border_supported, capture_snapshot, start_runtime_capture,
 };
 use image::{DynamicImage, GrayImage, Luma, RgbaImage};
 pub use model::{
-    BorderlessCaptureAccessResult, BuffAssistantActivity, BuffAssistantConfig,
-    BuffAssistantSettings, BuffAssistantState, BuffCustomSoundAsset, BuffOverlayColorScheme,
-    BuffOverlayMode, BuffOverlayState, BuffSoundCue, BuffSoundSource, BuffSoundTemplateSummary,
-    BuffTarget, CapturePreview, CaptureWindowCandidate, MAX_OVERLAY_HEIGHT, MAX_OVERLAY_WIDTH,
-    MIN_OVERLAY_HEIGHT, MIN_OVERLAY_WIDTH, NormalizedRect,
+    BorderlessCaptureAccessResult, BuffAssistantActivity, BuffAssistantConfig, BuffAssistantState,
+    BuffCustomSoundAsset, BuffGlobalSettings, BuffListenerConfig, BuffListenerRuntimeState,
+    BuffListenerSettings, BuffOverlayColorScheme, BuffOverlayItem, BuffOverlayMode,
+    BuffOverlayState, BuffSoundCue, BuffSoundSource, BuffSoundTemplateSummary, BuffTarget,
+    BuffTemplatePreview, CapturePreview, CaptureWindowCandidate, MAX_LISTENERS, MAX_OVERLAY_HEIGHT,
+    MAX_OVERLAY_WIDTH, MIN_OVERLAY_HEIGHT, MIN_OVERLAY_WIDTH, NormalizedRect,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{
     AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl,
     WebviewWindowBuilder,
@@ -55,8 +57,6 @@ struct RuntimeData {
     config: BuffAssistantConfig,
     activity: BuffAssistantActivity,
     monitor_requested: bool,
-    expected_at_unix_ms: Option<i64>,
-    last_confidence: f32,
     last_error: Option<String>,
     capture_border_supported: bool,
     capture_border_notice: Option<String>,
@@ -64,12 +64,32 @@ struct RuntimeData {
     sound_templates: Vec<storage::SoundTemplate>,
     capture: Option<RuntimeCaptureControl>,
     capture_purpose: Option<CapturePurpose>,
-    timeline: BuffTimeline,
+    listeners: HashMap<String, ListenerRuntime>,
     template_preview: Option<StoredPreview>,
     last_frame_at: Option<Instant>,
     reconnect_generation: u64,
     overlay_generation: u64,
     overlay_editing: bool,
+}
+
+struct ListenerRuntime {
+    activity: BuffAssistantActivity,
+    expected_at_unix_ms: Option<i64>,
+    last_confidence: f32,
+    last_error: Option<String>,
+    timeline: BuffTimeline,
+}
+
+impl ListenerRuntime {
+    fn new(settings: &BuffListenerSettings) -> Self {
+        Self {
+            activity: BuffAssistantActivity::Stopped,
+            expected_at_unix_ms: None,
+            last_confidence: 0.0,
+            last_error: None,
+            timeline: BuffTimeline::new(settings.cycle_ms),
+        }
+    }
 }
 
 pub struct BuffAssistant {
@@ -101,12 +121,10 @@ impl BuffAssistant {
         Ok((
             Self {
                 inner: Mutex::new(RuntimeData {
-                    timeline: BuffTimeline::new(config.settings.cycle_ms),
+                    listeners: listener_runtime_map(&config),
                     config,
                     activity: BuffAssistantActivity::Stopped,
                     monitor_requested: false,
-                    expected_at_unix_ms: None,
-                    last_confidence: 0.0,
                     last_error: None,
                     capture_border_supported,
                     capture_border_notice: None,
@@ -268,13 +286,24 @@ fn request_borderless_capture_access() -> BorderlessCaptureAccessResult {
 }
 
 #[tauri::command]
-pub fn save_buff_template(
+pub fn save_buff_listener(
     app: AppHandle,
     state: State<'_, BuffAssistant>,
-    search_region: NormalizedRect,
-    crop: NormalizedRect,
-    mask_data_url: Option<String>,
+    request: SaveBuffListenerRequest,
 ) -> Result<BuffAssistantState, String> {
+    let SaveBuffListenerRequest {
+        listener_id,
+        name,
+        enabled,
+        mut settings,
+        search_region,
+        crop,
+        mask_data_url,
+        reset_existing_templates,
+    } = request;
+    ensure_configuration_unlocked(&state)?;
+    settings.sanitize();
+    let name = validate_listener_name(&state, listener_id.as_deref(), &name)?;
     let (png, target, directory) = {
         let inner = state.lock();
         let preview = inner
@@ -287,25 +316,74 @@ pub fn save_buff_template(
             inner.storage_directory.clone(),
         )
     };
+    let region = search_region.sanitized();
+    {
+        let inner = state.lock();
+        let target_changed = inner.config.target.as_ref().is_some_and(|configured| {
+            configured.process_name != target.process_name
+                || configured.window_title != target.window_title
+                || configured.class_name != target.class_name
+                || configured.reference_width != target.reference_width
+                || configured.reference_height != target.reference_height
+        });
+        let region_changed = inner
+            .config
+            .search_region
+            .is_some_and(|configured| configured != region);
+        if !inner.config.listeners.is_empty()
+            && (target_changed || region_changed)
+            && !reset_existing_templates
+        {
+            return Err("共享窗口或搜索区域已变化，需要确认后清除旧模板".into());
+        }
+    }
     let source =
         image::load_from_memory(&png).map_err(|error| format!("读取捕获预览失败：{error}"))?;
-    let region = search_region.sanitized();
     let template = crop_template_from_preview(&source, region, crop)?;
     let width = template.width();
     let height = template.height();
     let mask = decode_mask(mask_data_url.as_deref(), width, height)?;
-    let id = format!("jinzhoutian-{}", now_millis());
-    let summary = storage::save_template(&directory, &id, &template, &mask)?;
+    let template_id = format!("buff-listener-{}", now_millis());
+    let mut summary = storage::save_template(&directory, &template_id, &template, &mask)?;
+    summary.crop = Some(crop);
     let snapshot = {
         let mut inner = state.lock();
+        if listener_id.is_none() && inner.config.listeners.len() >= MAX_LISTENERS {
+            storage::delete_template(&directory, &summary)?;
+            return Err(format!("最多只能添加 {MAX_LISTENERS} 个监听图标"));
+        }
+        if reset_existing_templates {
+            for listener in &mut inner.config.listeners {
+                if let Some(previous) = listener.template.take() {
+                    storage::delete_template(&directory, &previous)?;
+                }
+            }
+        }
         inner.config.target = Some(BuffTarget {
             reference_width: target.reference_width,
             reference_height: target.reference_height,
             ..target
         });
         inner.config.search_region = Some(region);
-        inner.config.template = Some(summary);
+        let id = listener_id.unwrap_or_else(|| format!("listener-{}", now_millis()));
+        if let Some(listener) = inner.config.listeners.iter_mut().find(|item| item.id == id) {
+            if let Some(previous) = listener.template.replace(summary) {
+                storage::delete_template(&directory, &previous)?;
+            }
+            listener.name = name;
+            listener.enabled = enabled;
+            listener.settings = settings;
+        } else {
+            inner.config.listeners.push(BuffListenerConfig {
+                id: id.clone(),
+                name,
+                enabled,
+                template: Some(summary),
+                settings,
+            });
+        }
         inner.config.sanitize();
+        inner.listeners = listener_runtime_map(&inner.config);
         storage::save_config(&inner.storage_directory, &inner.config)?;
         inner.last_error = None;
         snapshot_from_runtime(&inner)
@@ -314,20 +392,69 @@ pub fn save_buff_template(
     Ok(snapshot)
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveBuffListenerRequest {
+    listener_id: Option<String>,
+    name: String,
+    enabled: bool,
+    settings: BuffListenerSettings,
+    search_region: NormalizedRect,
+    crop: NormalizedRect,
+    mask_data_url: Option<String>,
+    #[serde(default)]
+    reset_existing_templates: bool,
+}
+
 #[tauri::command]
-pub fn delete_buff_template(
+pub fn get_buff_listener_template(
+    state: State<'_, BuffAssistant>,
+    listener_id: String,
+) -> Result<BuffTemplatePreview, String> {
+    let (directory, summary) = {
+        let inner = state.lock();
+        let listener = inner
+            .config
+            .listeners
+            .iter()
+            .find(|listener| listener.id == listener_id)
+            .ok_or_else(|| "监听项不存在".to_string())?;
+        let summary = listener
+            .template
+            .clone()
+            .ok_or_else(|| "监听项尚未配置图标模板".to_string())?;
+        (inner.storage_directory.clone(), summary)
+    };
+    let (image, mask) = storage::load_template_assets(&directory, &summary)?;
+    Ok(BuffTemplatePreview {
+        image_data_url: png_bytes_data_url(&image),
+        mask_data_url: png_bytes_data_url(&mask),
+        crop: summary.crop,
+    })
+}
+
+#[tauri::command]
+pub fn delete_buff_listener(
     app: AppHandle,
     state: State<'_, BuffAssistant>,
+    listener_id: String,
 ) -> Result<BuffAssistantState, String> {
-    stop_buff_monitor_internal(&app);
+    ensure_configuration_unlocked(&state)?;
     let snapshot = {
         let mut inner = state.lock();
-        if let Some(template) = inner.config.template.take() {
+        let index = inner
+            .config
+            .listeners
+            .iter()
+            .position(|listener| listener.id == listener_id)
+            .ok_or_else(|| "监听项不存在".to_string())?;
+        let listener = inner.config.listeners.remove(index);
+        if let Some(template) = listener.template {
             storage::delete_template(&inner.storage_directory, &template)?;
         }
-        inner.config.target = None;
-        inner.config.search_region = None;
+        inner.listeners.remove(&listener_id);
         storage::save_config(&inner.storage_directory, &inner.config)?;
+        storage::cleanup_unused_sound_assets(&inner.storage_directory, &inner.config);
         snapshot_from_runtime(&inner)
     };
     emit_state(&app, &snapshot);
@@ -335,37 +462,114 @@ pub fn delete_buff_template(
 }
 
 #[tauri::command]
-pub fn update_buff_assistant_settings(
+pub fn update_buff_listener(
     app: AppHandle,
     state: State<'_, BuffAssistant>,
-    mut settings: BuffAssistantSettings,
+    request: UpdateBuffListenerRequest,
 ) -> Result<BuffAssistantState, String> {
+    let UpdateBuffListenerRequest {
+        listener_id,
+        name,
+        enabled,
+        mut settings,
+        mask_data_url,
+        crop,
+    } = request;
+    ensure_configuration_unlocked(&state)?;
     settings.sanitize();
-    let was_monitoring = {
+    let name = validate_listener_name(&state, Some(&listener_id), &name)?;
+    let snapshot = {
         let mut inner = state.lock();
         let mut next_config = inner.config.clone();
-        next_config.settings = settings;
-        if !inner.capture_border_supported {
-            next_config.settings.capture.show_system_border = true;
-        }
+        let listener_index = next_config
+            .listeners
+            .iter()
+            .position(|listener| listener.id == listener_id)
+            .ok_or_else(|| "监听项不存在".to_string())?;
+        let template = {
+            let listener = &mut next_config.listeners[listener_index];
+            listener.name = name;
+            listener.enabled = enabled;
+            listener.settings = settings;
+            listener.template.clone()
+        };
         storage::validate_sound_sources(
             &inner.storage_directory,
             &inner.sound_templates,
             &next_config,
         )?;
+        if let Some(crop) = crop {
+            let template = template.ok_or_else(|| "监听项尚未配置图标模板".to_string())?;
+            let (image_bytes, mask_bytes) =
+                storage::load_template_assets(&inner.storage_directory, &template)?;
+            let image = image::load_from_memory(&image_bytes)
+                .map_err(|error| format!("读取模板图片失败：{error}"))?;
+            let cropped_image = crop_saved_template(&image, crop)?;
+            let mask = if let Some(mask_data_url) = mask_data_url.as_deref() {
+                decode_mask(
+                    Some(mask_data_url),
+                    cropped_image.width(),
+                    cropped_image.height(),
+                )?
+            } else {
+                crop_saved_template(
+                    &image::load_from_memory(&mask_bytes)
+                        .map_err(|error| format!("读取模板遮罩失败：{error}"))?,
+                    crop,
+                )?
+                .into_luma8()
+            };
+            let summary = storage::save_template(
+                &inner.storage_directory,
+                &template.id,
+                &cropped_image,
+                &mask,
+            )?;
+            next_config.listeners[listener_index].template = Some(summary);
+        } else if let Some(mask_data_url) = mask_data_url.as_deref() {
+            let template = template.ok_or_else(|| "监听项尚未配置图标模板".to_string())?;
+            let mask = decode_mask(Some(mask_data_url), template.width, template.height)?;
+            storage::save_template_mask(&inner.storage_directory, &template, &mask)?;
+        }
         inner.config = next_config;
+        inner.listeners = listener_runtime_map(&inner.config);
         storage::save_config(&inner.storage_directory, &inner.config)?;
         storage::cleanup_unused_sound_assets(&inner.storage_directory, &inner.config);
-        inner.monitor_requested
+        snapshot_from_runtime(&inner)
     };
+    emit_state(&app, &snapshot);
+    Ok(snapshot)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateBuffListenerRequest {
+    listener_id: String,
+    name: String,
+    enabled: bool,
+    settings: BuffListenerSettings,
+    mask_data_url: Option<String>,
+    crop: Option<NormalizedRect>,
+}
+
+#[tauri::command]
+pub fn update_buff_assistant_settings(
+    app: AppHandle,
+    state: State<'_, BuffAssistant>,
+    mut settings: BuffGlobalSettings,
+) -> Result<BuffAssistantState, String> {
+    ensure_configuration_unlocked(&state)?;
+    settings.sanitize();
+    {
+        let mut inner = state.lock();
+        if !inner.capture_border_supported {
+            settings.capture.show_system_border = true;
+        }
+        inner.config.settings = settings;
+        storage::save_config(&inner.storage_directory, &inner.config)?;
+    }
     apply_overlay_geometry(&app);
     let capture_protection_result = apply_overlay_capture_protection(&app);
-    if was_monitoring {
-        start_buff_monitor_internal(&app)?;
-        let snapshot = state.snapshot();
-        capture_protection_result?;
-        return Ok(snapshot);
-    }
     let snapshot = state.snapshot();
     emit_state(&app, &snapshot);
     capture_protection_result?;
@@ -386,21 +590,34 @@ pub fn start_buff_monitor_internal(app: &AppHandle) -> Result<(), String> {
     stop_current_capture(&state);
     let (target, generation) = {
         let mut inner = state.lock();
-        if inner.config.template.is_none()
-            || inner.config.target.is_none()
-            || inner.config.search_region.is_none()
-        {
-            return Err("请先完成金周天模板配置".into());
+        if inner.config.target.is_none() || inner.config.search_region.is_none() {
+            return Err("请先选择游戏窗口并设置 Buff 搜索区域".into());
+        }
+        let enabled = inner
+            .config
+            .listeners
+            .iter()
+            .filter(|listener| listener.enabled && listener.template.is_some())
+            .map(|listener| (listener.id.clone(), listener.settings.clone()))
+            .collect::<Vec<_>>();
+        if enabled.is_empty() {
+            return Err("请至少启用一个已配置模板的监听项".into());
         }
         inner.monitor_requested = true;
         inner.reconnect_generation = inner.reconnect_generation.wrapping_add(1);
-        let cycle_ms = inner.config.settings.cycle_ms;
-        let deadline_grace_ms = inner.config.settings.deadline_grace_ms;
-        inner
-            .timeline
-            .start_waiting_with_grace(cycle_ms, deadline_grace_ms);
+        for (id, settings) in enabled {
+            let runtime = inner
+                .listeners
+                .entry(id)
+                .or_insert_with(|| ListenerRuntime::new(&settings));
+            runtime
+                .timeline
+                .start_waiting_with_grace(settings.cycle_ms, settings.deadline_grace_ms);
+            runtime.activity = BuffAssistantActivity::Waiting;
+            runtime.expected_at_unix_ms = None;
+            runtime.last_error = None;
+        }
         inner.activity = BuffAssistantActivity::Waiting;
-        inner.expected_at_unix_ms = None;
         inner.last_error = None;
         (
             inner.config.target.clone().unwrap(),
@@ -441,9 +658,12 @@ pub fn stop_buff_monitor_internal(app: &AppHandle) {
         inner.reconnect_generation = inner.reconnect_generation.wrapping_add(1);
         inner.capture_purpose = None;
         inner.activity = BuffAssistantActivity::Stopped;
-        inner.expected_at_unix_ms = None;
         inner.last_frame_at = None;
-        inner.timeline.stop();
+        for runtime in inner.listeners.values_mut() {
+            runtime.timeline.stop();
+            runtime.activity = BuffAssistantActivity::Stopped;
+            runtime.expected_at_unix_ms = None;
+        }
         inner.capture.take()
     };
     if let Some(control) = control {
@@ -458,10 +678,11 @@ pub fn start_buff_template_test(
     app: AppHandle,
     state: State<'_, BuffAssistant>,
     window_id: String,
+    listener_id: String,
 ) -> Result<BuffAssistantState, String> {
     let (window, _) = windows::resolve_window(&window_id)?;
     stop_buff_monitor_internal(&app);
-    let (flags, config) = capture_flags(&app, CapturePurpose::Test)?;
+    let (flags, config) = capture_flags(&app, CapturePurpose::Test, Some(&listener_id))?;
     let outcome = start_runtime_capture(window, flags)?;
     let snapshot = {
         let mut inner = state.lock();
@@ -471,6 +692,10 @@ pub fn start_buff_template_test(
         inner.activity = BuffAssistantActivity::Testing;
         inner.last_error = None;
         inner.config = config;
+        if let Some(runtime) = inner.listeners.get_mut(&listener_id) {
+            runtime.activity = BuffAssistantActivity::Testing;
+            runtime.last_confidence = 0.0;
+        }
         update_capture_border_notice(&mut inner, outcome.used_border_fallback);
         snapshot_from_runtime(&inner)
     };
@@ -490,6 +715,11 @@ pub fn stop_buff_template_test(
         }
         inner.capture_purpose = None;
         inner.activity = BuffAssistantActivity::Stopped;
+        for runtime in inner.listeners.values_mut() {
+            if runtime.activity == BuffAssistantActivity::Testing {
+                runtime.activity = BuffAssistantActivity::Stopped;
+            }
+        }
         inner.capture.take()
     };
     if let Some(control) = control {
@@ -589,8 +819,8 @@ fn set_buff_overlay_edit_mode_internal(
             app,
             BuffOverlayState {
                 mode: BuffOverlayMode::Editing,
-                message: "拖动调整位置与大小".into(),
-                expected_at_unix_ms: None,
+                message: "拖动调整位置，右侧调整宽度".into(),
+                items: Vec::new(),
                 emitted_at_unix_ms: now_millis(),
                 editable: true,
                 color_scheme: overlay_color_scheme(app),
@@ -637,14 +867,10 @@ fn restore_overlay_after_edit(app: &AppHandle, snapshot: &BuffAssistantState) {
         hide_overlay(app);
         return;
     }
-    match snapshot.activity {
-        BuffAssistantActivity::Waiting => show_waiting_overlay(app),
-        BuffAssistantActivity::Tracking | BuffAssistantActivity::Prewarning => {
-            show_countdown_overlay(app, snapshot.expected_at_unix_ms);
-        }
-        BuffAssistantActivity::Confirming => show_confirming_overlay(app),
-        BuffAssistantActivity::TargetUnavailable => show_target_unavailable_overlay(app),
-        _ => hide_overlay(app),
+    if snapshot.activity == BuffAssistantActivity::TargetUnavailable {
+        show_target_unavailable_overlay(app);
+    } else {
+        refresh_active_overlay(app);
     }
 }
 
@@ -665,13 +891,10 @@ pub(crate) fn handle_capture_frame(app: &AppHandle, purpose: CapturePurpose) {
     }
 }
 
-pub(crate) fn handle_detection_frame(
+pub(crate) fn handle_detection_batch(
     app: &AppHandle,
     purpose: CapturePurpose,
-    confidence: f32,
-    present: bool,
-    absence_confirmed: bool,
-    detected_at: Option<Instant>,
+    detections: Vec<RuntimeDetection>,
     emit_metric: bool,
 ) {
     let state = app.state::<BuffAssistant>();
@@ -681,15 +904,17 @@ pub(crate) fn handle_detection_frame(
             if inner.capture_purpose != Some(CapturePurpose::Test) {
                 return;
             }
-            inner.last_confidence = confidence;
+            for detection in &detections {
+                if let Some(runtime) = inner.listeners.get_mut(&detection.listener_id) {
+                    runtime.last_confidence = detection.confidence;
+                    runtime.activity = BuffAssistantActivity::Testing;
+                }
+            }
         }
         if emit_metric {
             let _ = app.emit(
                 "buff-assistant-metric",
-                BuffMetric {
-                    confidence,
-                    present,
-                },
+                BuffMetricBatch::from_detections(&detections),
             );
         }
         return;
@@ -698,93 +923,99 @@ pub(crate) fn handle_detection_frame(
         return;
     }
 
-    let (actions, snapshot, sound) = {
+    let (actions, snapshot) = {
         let mut inner = state.lock();
         if inner.capture_purpose != Some(CapturePurpose::Monitor) || !inner.monitor_requested {
             return;
         }
-        inner.last_confidence = confidence;
-        let actions = inner.timeline.update_with_detected_at(
-            Instant::now(),
-            present,
-            absence_confirmed,
-            detected_at,
-        );
-        inner.activity = match inner.timeline.phase() {
-            TimelinePhase::Stopped => BuffAssistantActivity::Stopped,
-            TimelinePhase::Waiting => BuffAssistantActivity::Waiting,
-            TimelinePhase::Tracking => BuffAssistantActivity::Tracking,
-            TimelinePhase::Prewarning => BuffAssistantActivity::Prewarning,
-            TimelinePhase::Confirming => BuffAssistantActivity::Confirming,
-        };
-        inner.expected_at_unix_ms = inner.timeline.expected_at().map(|expected| {
-            now_millis()
-                + expected
-                    .saturating_duration_since(Instant::now())
-                    .as_millis() as i64
-        });
-        (
-            actions,
-            snapshot_from_runtime(&inner),
-            inner.config.settings.sound.clone(),
-        )
+        let now = Instant::now();
+        let mut actions = Vec::new();
+        for detection in &detections {
+            let Some(listener) = inner
+                .config
+                .listeners
+                .iter()
+                .find(|listener| listener.id == detection.listener_id && listener.enabled)
+                .cloned()
+            else {
+                continue;
+            };
+            let Some(runtime) = inner.listeners.get_mut(&detection.listener_id) else {
+                continue;
+            };
+            runtime.last_confidence = detection.confidence;
+            let next_actions = runtime.timeline.update_with_detected_at(
+                now,
+                detection.present,
+                detection.absence_confirmed,
+                detection.detected_at,
+            );
+            runtime.activity = timeline_activity(runtime.timeline.phase());
+            runtime.expected_at_unix_ms = runtime.timeline.expected_at().map(|expected| {
+                now_millis() + expected.saturating_duration_since(now).as_millis() as i64
+            });
+            for action in next_actions {
+                actions.push((listener.clone(), action));
+            }
+        }
+        inner.activity = aggregate_activity(&inner);
+        (actions, snapshot_from_runtime(&inner))
     };
     if emit_metric {
         let _ = app.emit(
             "buff-assistant-metric",
-            BuffMetric {
-                confidence,
-                present,
-            },
+            BuffMetricBatch::from_detections(&detections),
         );
     }
     if actions.is_empty() {
         return;
     }
     emit_state(app, &snapshot);
-    for action in actions {
+    for (listener, action) in actions {
+        let sound = &listener.settings.sound;
         match action {
             TimelineAction::Triggered => {
                 if sound.trigger_enabled {
-                    play_configured_sound(&state, BuffSoundCue::Triggered, &sound);
+                    play_configured_sound(&state, BuffSoundCue::Triggered, sound);
                 }
-                emit_execution_log(app, "真实触发已确认，已按实际触发时间校准倒计时");
-                show_countdown_overlay(app, snapshot.expected_at_unix_ms);
+                emit_execution_log(
+                    app,
+                    &format!("{}：真实触发已确认，已校准倒计时", listener.name),
+                );
             }
             TimelineAction::PrewarnThree => {
                 if sound.prewarn_three_enabled {
-                    play_configured_sound(&state, BuffSoundCue::PrewarnThree, &sound);
+                    play_configured_sound(&state, BuffSoundCue::PrewarnThree, sound);
                 }
-                emit_execution_log(app, "倒计时剩余 3 秒");
+                emit_execution_log(app, &format!("{}：倒计时剩余 3 秒", listener.name));
             }
             TimelineAction::PrewarnTwo => {
                 if sound.prewarn_two_enabled {
-                    play_configured_sound(&state, BuffSoundCue::PrewarnTwo, &sound);
+                    play_configured_sound(&state, BuffSoundCue::PrewarnTwo, sound);
                 }
-                emit_execution_log(app, "倒计时剩余 2 秒");
+                emit_execution_log(app, &format!("{}：倒计时剩余 2 秒", listener.name));
             }
             TimelineAction::PrewarnOne => {
                 if sound.prewarn_one_enabled {
-                    play_configured_sound(&state, BuffSoundCue::PrewarnOne, &sound);
+                    play_configured_sound(&state, BuffSoundCue::PrewarnOne, sound);
                 }
-                emit_execution_log(app, "倒计时剩余 1 秒");
+                emit_execution_log(app, &format!("{}：倒计时剩余 1 秒", listener.name));
             }
             TimelineAction::ConfirmationPending => {
-                emit_execution_log(app, "倒计时已结束，正在宽限期内等待金周天确认");
-                show_confirming_overlay(app);
+                emit_execution_log(
+                    app,
+                    &format!("{}：倒计时结束，正在宽限期内等待确认", listener.name),
+                );
             }
             TimelineAction::Reset => {
-                emit_execution_log(app, "截止点未确认金周天，时间轴已重置");
-                show_transient_overlay(
+                emit_execution_log(
                     app,
-                    BuffOverlayMode::Reset,
-                    "时间轴已重置",
-                    None,
-                    Duration::from_millis(1_200),
+                    &format!("{}：截止点未确认，时间轴已重置", listener.name),
                 );
             }
         }
     }
+    refresh_active_overlay(app);
 }
 
 pub(crate) fn handle_capture_closed(app: &AppHandle, purpose: CapturePurpose) {
@@ -798,13 +1029,17 @@ pub(crate) fn handle_capture_closed(app: &AppHandle, purpose: CapturePurpose) {
         inner.capture_purpose = None;
         inner.last_frame_at = None;
         if purpose == CapturePurpose::Monitor && inner.monitor_requested {
-            inner.timeline.reset_waiting();
-            inner.expected_at_unix_ms = None;
+            reset_listener_timelines(&mut inner);
             inner.activity = BuffAssistantActivity::TargetUnavailable;
             inner.last_error = Some("游戏窗口捕获已中断，正在重新连接".into());
             Some(inner.reconnect_generation)
         } else {
             inner.activity = BuffAssistantActivity::Stopped;
+            for runtime in inner.listeners.values_mut() {
+                if runtime.activity == BuffAssistantActivity::Testing {
+                    runtime.activity = BuffAssistantActivity::Stopped;
+                }
+            }
             None
         }
     };
@@ -826,8 +1061,12 @@ pub(crate) fn handle_capture_error(app: &AppHandle, purpose: CapturePurpose, err
         inner.capture_purpose = None;
         inner.last_frame_at = None;
         inner.monitor_requested = false;
-        inner.timeline.stop();
-        inner.expected_at_unix_ms = None;
+        for runtime in inner.listeners.values_mut() {
+            runtime.timeline.stop();
+            runtime.activity = BuffAssistantActivity::Error;
+            runtime.expected_at_unix_ms = None;
+            runtime.last_error = Some(error.clone());
+        }
         inner.activity = BuffAssistantActivity::Error;
         inner.last_error = Some(error);
     }
@@ -847,7 +1086,7 @@ fn attach_monitor_capture(
     generation: u64,
 ) -> Result<(), String> {
     let state = app.state::<BuffAssistant>();
-    let (flags, _) = capture_flags(app, CapturePurpose::Monitor)?;
+    let (flags, _) = capture_flags(app, CapturePurpose::Monitor, None)?;
     let outcome = start_runtime_capture(window, flags)?;
     let control = outcome.value;
     let mut rejected = None;
@@ -859,13 +1098,23 @@ fn attach_monitor_capture(
             inner.capture = Some(control);
             inner.capture_purpose = Some(CapturePurpose::Monitor);
             inner.last_frame_at = Some(Instant::now());
-            let cycle_ms = inner.config.settings.cycle_ms;
-            let deadline_grace_ms = inner.config.settings.deadline_grace_ms;
-            inner
-                .timeline
-                .start_waiting_with_grace(cycle_ms, deadline_grace_ms);
+            let enabled = inner
+                .config
+                .listeners
+                .iter()
+                .filter(|listener| listener.enabled && listener.template.is_some())
+                .map(|listener| (listener.id.clone(), listener.settings.clone()))
+                .collect::<Vec<_>>();
+            for (id, settings) in enabled {
+                if let Some(runtime) = inner.listeners.get_mut(&id) {
+                    runtime
+                        .timeline
+                        .start_waiting_with_grace(settings.cycle_ms, settings.deadline_grace_ms);
+                    runtime.activity = BuffAssistantActivity::Waiting;
+                    runtime.expected_at_unix_ms = None;
+                }
+            }
             inner.activity = BuffAssistantActivity::Waiting;
-            inner.expected_at_unix_ms = None;
             inner.last_error = None;
             update_capture_border_notice(&mut inner, outcome.used_border_fallback);
         }
@@ -883,6 +1132,7 @@ fn attach_monitor_capture(
 fn capture_flags(
     app: &AppHandle,
     purpose: CapturePurpose,
+    listener_id: Option<&str>,
 ) -> Result<(RuntimeCaptureFlags, BuffAssistantConfig), String> {
     let state = app.state::<BuffAssistant>();
     let inner = state.lock();
@@ -895,23 +1145,37 @@ fn capture_flags(
         .config
         .search_region
         .ok_or_else(|| "尚未设置 Buff 搜索区域".to_string())?;
-    let summary = inner
+    let listeners = inner
         .config
-        .template
-        .clone()
-        .ok_or_else(|| "尚未配置金周天图标模板".to_string())?;
-    let template = storage::load_template(&inner.storage_directory, &summary)?;
+        .listeners
+        .iter()
+        .filter(|listener| {
+            listener.template.is_some()
+                && (purpose == CapturePurpose::Test || listener.enabled)
+                && listener_id.is_none_or(|id| listener.id == id)
+        })
+        .map(|listener| {
+            let summary = listener.template.as_ref().unwrap();
+            Ok(RuntimeListenerFlags {
+                id: listener.id.clone(),
+                template: storage::load_template(&inner.storage_directory, summary)?,
+                threshold: listener.settings.threshold,
+                confirm_frames: listener.settings.confirm_frames,
+                missing_frames: listener.settings.missing_frames,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    if listeners.is_empty() {
+        return Err("没有可用的监听图标模板".into());
+    }
     Ok((
         RuntimeCaptureFlags {
             app: app.clone(),
             purpose,
             region,
-            template: Some(template),
+            listeners,
             reference_width: target.reference_width,
             reference_height: target.reference_height,
-            threshold: inner.config.settings.threshold,
-            confirm_frames: inner.config.settings.confirm_frames,
-            missing_frames: inner.config.settings.missing_frames,
             show_system_border: inner.config.settings.capture.show_system_border,
         },
         inner.config.clone(),
@@ -982,8 +1246,7 @@ fn schedule_monitor_watchdog(app: AppHandle, generation: u64) {
                 }
                 inner.capture_purpose = None;
                 inner.last_frame_at = None;
-                inner.timeline.reset_waiting();
-                inner.expected_at_unix_ms = None;
+                reset_listener_timelines(&mut inner);
                 inner.activity = BuffAssistantActivity::TargetUnavailable;
                 inner.last_error = Some("游戏窗口长时间无画面，正在重新连接".into());
                 inner.capture.take()
@@ -1005,9 +1268,8 @@ fn mark_target_unavailable(app: &AppHandle, message: &str) {
     {
         let mut inner = state.lock();
         inner.activity = BuffAssistantActivity::TargetUnavailable;
-        inner.expected_at_unix_ms = None;
         inner.last_frame_at = None;
-        inner.timeline.reset_waiting();
+        reset_listener_timelines(&mut inner);
         inner.last_error = Some(message.into());
     }
     show_target_unavailable_overlay(app);
@@ -1068,25 +1330,31 @@ fn repair_missing_sound_sources(
     notices: &mut Vec<String>,
 ) -> bool {
     let mut repaired = false;
-    for cue in [
-        BuffSoundCue::Triggered,
-        BuffSoundCue::PrewarnThree,
-        BuffSoundCue::PrewarnTwo,
-        BuffSoundCue::PrewarnOne,
-    ] {
-        let valid = match config.settings.sound.source(cue) {
-            BuffSoundSource::Sine => true,
-            BuffSoundSource::Template { template_id } => templates
-                .iter()
-                .any(|template| template.summary.id == *template_id),
-            BuffSoundSource::Custom { asset_id, .. } => {
-                storage::custom_sound_path(directory, asset_id).is_ok_and(|path| path.is_file())
+    for listener in &mut config.listeners {
+        for cue in [
+            BuffSoundCue::Triggered,
+            BuffSoundCue::PrewarnThree,
+            BuffSoundCue::PrewarnTwo,
+            BuffSoundCue::PrewarnOne,
+        ] {
+            let valid = match listener.settings.sound.source(cue) {
+                BuffSoundSource::Sine => true,
+                BuffSoundSource::Template { template_id } => templates
+                    .iter()
+                    .any(|template| template.summary.id == *template_id),
+                BuffSoundSource::Custom { asset_id, .. } => {
+                    storage::custom_sound_path(directory, asset_id).is_ok_and(|path| path.is_file())
+                }
+            };
+            if !valid {
+                *listener.settings.sound.source_mut(cue) = BuffSoundSource::Sine;
+                repaired = true;
+                notices.push(format!(
+                    "{}的{}不可用，已恢复为正弦波",
+                    listener.name,
+                    sound_cue_label(cue)
+                ));
             }
-        };
-        if !valid {
-            *config.settings.sound.source_mut(cue) = BuffSoundSource::Sine;
-            repaired = true;
-            notices.push(format!("{}不可用，已恢复为正弦波", sound_cue_label(cue)));
         }
     }
     repaired
@@ -1146,16 +1414,127 @@ fn open_fixed_url(_url: &str) -> Result<(), String> {
 }
 
 fn snapshot_from_runtime(inner: &RuntimeData) -> BuffAssistantState {
+    let listeners = inner
+        .config
+        .listeners
+        .iter()
+        .map(|listener| {
+            let runtime = inner.listeners.get(&listener.id);
+            BuffListenerRuntimeState {
+                id: listener.id.clone(),
+                activity: runtime
+                    .map(|runtime| runtime.activity)
+                    .unwrap_or(BuffAssistantActivity::Stopped),
+                expected_at_unix_ms: runtime.and_then(|runtime| runtime.expected_at_unix_ms),
+                last_confidence: runtime
+                    .map(|runtime| runtime.last_confidence)
+                    .unwrap_or(0.0),
+                last_error: runtime.and_then(|runtime| runtime.last_error.clone()),
+            }
+        })
+        .collect();
     BuffAssistantState {
         config: inner.config.clone(),
         activity: inner.activity,
         is_monitoring: inner.monitor_requested,
-        expected_at_unix_ms: inner.expected_at_unix_ms,
-        last_confidence: inner.last_confidence,
+        listeners,
         last_error: inner.last_error.clone(),
         capture_border_supported: inner.capture_border_supported,
         capture_border_notice: inner.capture_border_notice.clone(),
     }
+}
+
+fn listener_runtime_map(config: &BuffAssistantConfig) -> HashMap<String, ListenerRuntime> {
+    config
+        .listeners
+        .iter()
+        .map(|listener| {
+            (
+                listener.id.clone(),
+                ListenerRuntime::new(&listener.settings),
+            )
+        })
+        .collect()
+}
+
+fn ensure_configuration_unlocked(state: &BuffAssistant) -> Result<(), String> {
+    let inner = state.lock();
+    if inner.monitor_requested || inner.capture_purpose.is_some() {
+        Err("请先停止监控或实时测试，再修改监听配置".into())
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_listener_name(
+    state: &BuffAssistant,
+    listener_id: Option<&str>,
+    name: &str,
+) -> Result<String, String> {
+    let name = name.trim().chars().take(20).collect::<String>();
+    if name.is_empty() {
+        return Err("监听项名称不能为空".into());
+    }
+    let duplicate = state.lock().config.listeners.iter().any(|listener| {
+        Some(listener.id.as_str()) != listener_id && listener.name.eq_ignore_ascii_case(&name)
+    });
+    if duplicate {
+        Err("监听项名称不能重复".into())
+    } else {
+        Ok(name)
+    }
+}
+
+fn reset_listener_timelines(inner: &mut RuntimeData) {
+    let enabled = inner
+        .config
+        .listeners
+        .iter()
+        .filter(|listener| listener.enabled && listener.template.is_some())
+        .map(|listener| listener.id.clone())
+        .collect::<std::collections::HashSet<_>>();
+    for (id, runtime) in &mut inner.listeners {
+        if enabled.contains(id) {
+            runtime.timeline.reset_waiting();
+            runtime.activity = BuffAssistantActivity::Waiting;
+            runtime.expected_at_unix_ms = None;
+        } else {
+            runtime.timeline.stop();
+            runtime.activity = BuffAssistantActivity::Stopped;
+            runtime.expected_at_unix_ms = None;
+        }
+    }
+}
+
+fn timeline_activity(phase: TimelinePhase) -> BuffAssistantActivity {
+    match phase {
+        TimelinePhase::Stopped => BuffAssistantActivity::Stopped,
+        TimelinePhase::Waiting => BuffAssistantActivity::Waiting,
+        TimelinePhase::Tracking => BuffAssistantActivity::Tracking,
+        TimelinePhase::Prewarning => BuffAssistantActivity::Prewarning,
+        TimelinePhase::Confirming => BuffAssistantActivity::Confirming,
+    }
+}
+
+fn aggregate_activity(inner: &RuntimeData) -> BuffAssistantActivity {
+    for activity in [
+        BuffAssistantActivity::Error,
+        BuffAssistantActivity::TargetUnavailable,
+        BuffAssistantActivity::Testing,
+        BuffAssistantActivity::Confirming,
+        BuffAssistantActivity::Prewarning,
+        BuffAssistantActivity::Tracking,
+        BuffAssistantActivity::Waiting,
+    ] {
+        if inner
+            .listeners
+            .values()
+            .any(|runtime| runtime.activity == activity)
+        {
+            return activity;
+        }
+    }
+    BuffAssistantActivity::Stopped
 }
 
 fn update_capture_border_notice(inner: &mut RuntimeData, used_border_fallback: bool) {
@@ -1193,15 +1572,44 @@ fn emit_overlay(app: &AppHandle, state: BuffOverlayState) {
     let _ = app.emit_to(OVERLAY_LABEL, "buff-overlay-state", state);
 }
 
-fn show_countdown_overlay(app: &AppHandle, expected_at_unix_ms: Option<i64>) {
+fn refresh_active_overlay(app: &AppHandle) {
     let state = app.state::<BuffAssistant>();
-    {
+    let mut items = {
         let mut inner = state.lock();
         if inner.overlay_editing {
             return;
         }
         inner.overlay_generation = inner.overlay_generation.wrapping_add(1);
+        inner
+            .config
+            .listeners
+            .iter()
+            .filter_map(|listener| {
+                let runtime = inner.listeners.get(&listener.id)?;
+                matches!(
+                    runtime.activity,
+                    BuffAssistantActivity::Tracking
+                        | BuffAssistantActivity::Prewarning
+                        | BuffAssistantActivity::Confirming
+                )
+                .then(|| BuffOverlayItem {
+                    listener_id: listener.id.clone(),
+                    name: listener.name.clone(),
+                    mode: match runtime.activity {
+                        BuffAssistantActivity::Confirming => BuffOverlayMode::Confirming,
+                        _ => BuffOverlayMode::Countdown,
+                    },
+                    expected_at_unix_ms: runtime.expected_at_unix_ms,
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    items.sort_by_key(|item| item.expected_at_unix_ms.unwrap_or(i64::MAX));
+    if items.is_empty() {
+        show_waiting_overlay(app);
+        return;
     }
+    resize_overlay_for_rows(app, items.len());
     if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = overlay.set_ignore_cursor_events(true);
         let _ = overlay.set_focusable(false);
@@ -1211,35 +1619,8 @@ fn show_countdown_overlay(app: &AppHandle, expected_at_unix_ms: Option<i64>) {
         app,
         BuffOverlayState {
             mode: BuffOverlayMode::Countdown,
-            message: "金周天即将触发".into(),
-            expected_at_unix_ms,
-            emitted_at_unix_ms: now_millis(),
-            editable: false,
-            color_scheme: overlay_color_scheme(app),
-        },
-    );
-}
-
-fn show_confirming_overlay(app: &AppHandle) {
-    let state = app.state::<BuffAssistant>();
-    {
-        let mut inner = state.lock();
-        if inner.overlay_editing {
-            return;
-        }
-        inner.overlay_generation = inner.overlay_generation.wrapping_add(1);
-    }
-    if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
-        let _ = overlay.set_ignore_cursor_events(true);
-        let _ = overlay.set_focusable(false);
-        let _ = overlay.show();
-    }
-    emit_overlay(
-        app,
-        BuffOverlayState {
-            mode: BuffOverlayMode::Confirming,
-            message: "等待金周天确认".into(),
-            expected_at_unix_ms: None,
+            message: String::new(),
+            items,
             emitted_at_unix_ms: now_millis(),
             editable: false,
             color_scheme: overlay_color_scheme(app),
@@ -1273,7 +1654,15 @@ fn show_transient_overlay(
         BuffOverlayState {
             mode,
             message: message.into(),
-            expected_at_unix_ms,
+            items: expected_at_unix_ms
+                .map(|expected_at_unix_ms| BuffOverlayItem {
+                    listener_id: "transient".into(),
+                    name: message.into(),
+                    mode,
+                    expected_at_unix_ms: Some(expected_at_unix_ms),
+                })
+                .into_iter()
+                .collect(),
             emitted_at_unix_ms: now_millis(),
             editable: false,
             color_scheme: overlay_color_scheme(app),
@@ -1305,12 +1694,15 @@ fn show_waiting_overlay(app: &AppHandle) {
     let state = app.state::<BuffAssistant>();
     let show = {
         let inner = state.lock();
-        inner.monitor_requested && !inner.overlay_editing
+        inner.monitor_requested
+            && !inner.overlay_editing
+            && inner.config.settings.overlay.show_waiting_dot
     };
     if !show {
         hide_overlay(app);
         return;
     }
+    resize_overlay_for_rows(app, 1);
     if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = overlay.show();
     }
@@ -1318,8 +1710,8 @@ fn show_waiting_overlay(app: &AppHandle) {
         app,
         BuffOverlayState {
             mode: BuffOverlayMode::Waiting,
-            message: "等待金周天".into(),
-            expected_at_unix_ms: None,
+            message: "等待监听图标".into(),
+            items: Vec::new(),
             emitted_at_unix_ms: now_millis(),
             editable: false,
             color_scheme: overlay_color_scheme(app),
@@ -1336,6 +1728,7 @@ fn show_target_unavailable_overlay(app: &AppHandle) {
         }
         inner.overlay_generation = inner.overlay_generation.wrapping_add(1);
     }
+    resize_overlay_for_rows(app, 1);
     if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = overlay.set_ignore_cursor_events(true);
         let _ = overlay.set_focusable(false);
@@ -1346,7 +1739,7 @@ fn show_target_unavailable_overlay(app: &AppHandle) {
         BuffOverlayState {
             mode: BuffOverlayMode::TargetUnavailable,
             message: "等待游戏窗口".into(),
-            expected_at_unix_ms: None,
+            items: Vec::new(),
             emitted_at_unix_ms: now_millis(),
             editable: false,
             color_scheme: overlay_color_scheme(app),
@@ -1360,7 +1753,7 @@ fn hide_overlay(app: &AppHandle) {
         BuffOverlayState {
             mode: BuffOverlayMode::Hidden,
             message: String::new(),
-            expected_at_unix_ms: None,
+            items: Vec::new(),
             emitted_at_unix_ms: now_millis(),
             editable: false,
             color_scheme: overlay_color_scheme(app),
@@ -1380,6 +1773,18 @@ fn apply_overlay_geometry(app: &AppHandle) {
             f64::from(settings.width),
             f64::from(settings.height),
         ));
+    }
+}
+
+fn resize_overlay_for_rows(app: &AppHandle, rows: usize) {
+    let state = app.state::<BuffAssistant>();
+    let settings = state.lock().config.settings.overlay.clone();
+    let scale = f64::from(settings.width) / 330.0;
+    let base_height = 28.0 + rows.max(1) as f64 * 52.0;
+    let height =
+        (base_height * scale).clamp(f64::from(MIN_OVERLAY_HEIGHT), f64::from(MAX_OVERLAY_HEIGHT));
+    if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
+        let _ = overlay.set_size(LogicalSize::new(f64::from(settings.width), height));
     }
 }
 
@@ -1444,6 +1849,19 @@ fn crop_template_from_preview(
     Ok(region.crop_imm(x, y, width, height))
 }
 
+fn crop_saved_template(
+    source: &DynamicImage,
+    crop: NormalizedRect,
+) -> Result<DynamicImage, String> {
+    let (x, y, end_x, end_y) = crop.pixel_bounds(source.width(), source.height());
+    let width = end_x - x;
+    let height = end_y - y;
+    if width < 8 || height < 8 {
+        return Err("模板区域过小，请重新框选图标".into());
+    }
+    Ok(source.crop_imm(x, y, width, height))
+}
+
 fn decode_mask(data_url: Option<&str>, width: u32, height: u32) -> Result<GrayImage, String> {
     let Some(data_url) = data_url else {
         return Ok(GrayImage::from_pixel(width, height, Luma([255])));
@@ -1478,18 +1896,40 @@ fn now_millis() -> i64 {
         .min(i64::MAX as u128) as i64
 }
 
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BuffMetric {
+    listener_id: String,
     confidence: f32,
     present: bool,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BuffMetricBatch {
+    metrics: Vec<BuffMetric>,
+}
+
+impl BuffMetricBatch {
+    fn from_detections(detections: &[RuntimeDetection]) -> Self {
+        Self {
+            metrics: detections
+                .iter()
+                .map(|detection| BuffMetric {
+                    listener_id: detection.listener_id.clone(),
+                    confidence: detection.confidence,
+                    present: detection.present,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use image::DynamicImage;
 
-    use super::{NormalizedRect, crop_template_from_preview};
+    use super::{NormalizedRect, crop_saved_template, crop_template_from_preview};
 
     #[test]
     fn template_crop_is_relative_to_the_selected_search_region() {
@@ -1534,5 +1974,22 @@ mod tests {
         );
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn saved_template_can_be_cropped_again() {
+        let template = DynamicImage::new_rgba8(40, 30);
+        let cropped = crop_saved_template(
+            &template,
+            NormalizedRect {
+                x: 0.25,
+                y: 0.2,
+                width: 0.5,
+                height: 0.6,
+            },
+        )
+        .expect("saved template crop should succeed");
+
+        assert_eq!((cropped.width(), cropped.height()), (20, 18));
     }
 }

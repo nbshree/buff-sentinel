@@ -36,6 +36,14 @@ describe('mask history', () => {
     expect(cleared.present).toEqual([])
     expect(undoMaskHistory(cleared).present).toEqual([firstStroke])
   })
+
+  it('allows a persisted mask to be cleared and restored', () => {
+    const persisted = createMaskHistory('data:image/png;base64,bWFzaw==')
+    const cleared = clearMaskHistory(persisted)
+
+    expect(cleared.baseMaskDataUrl).toBeNull()
+    expect(undoMaskHistory(cleared).baseMaskDataUrl).toBe(persisted.baseMaskDataUrl)
+  })
 })
 
 describe('MaskEditor', () => {

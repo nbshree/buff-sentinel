@@ -39,7 +39,7 @@ describe('BuffOverlayApp', () => {
     emit({
       mode: 'confirming',
       message: '等待金周天确认',
-      expectedAtUnixMs: null,
+      items: [],
       emittedAtUnixMs: Date.now(),
       editable: false,
       colorScheme: 'gold'
@@ -56,21 +56,28 @@ describe('BuffOverlayApp', () => {
     emit({
       mode: 'confirming',
       message: '等待金周天确认',
-      expectedAtUnixMs: null,
+      items: [],
       emittedAtUnixMs: Date.now(),
       editable: false,
       colorScheme: 'gold'
     })
     emit({
       mode: 'countdown',
-      message: '距离下一次金周天',
-      expectedAtUnixMs: Date.now() + 20_000,
+      message: '',
+      items: [
+        {
+          listenerId: 'jinzhoutian',
+          name: '金周天',
+          mode: 'countdown',
+          expectedAtUnixMs: Date.now() + 20_000
+        }
+      ],
       emittedAtUnixMs: Date.now(),
       editable: false,
       colorScheme: 'gold'
     })
 
-    expect(screen.getByText('距离下一次金周天')).toBeInTheDocument()
+    expect(screen.getByText('金周天')).toBeInTheDocument()
     expect(screen.getByText('20.0')).toBeInTheDocument()
 
     act(() => vi.advanceTimersByTime(500))
@@ -84,7 +91,7 @@ describe('BuffOverlayApp', () => {
     emit({
       mode: 'waiting',
       message: '等待金周天',
-      expectedAtUnixMs: null,
+      items: [],
       emittedAtUnixMs: Date.now(),
       editable: false,
       colorScheme: 'gold'
@@ -99,20 +106,15 @@ describe('BuffOverlayApp', () => {
 
     emit({
       mode: 'editing',
-      message: '拖动调整位置与大小',
-      expectedAtUnixMs: null,
+      message: '拖动调整位置，右侧调整宽度',
+      items: [],
       emittedAtUnixMs: Date.now(),
       editable: true,
       colorScheme: 'blackWhite'
     })
 
     fireEvent.pointerDown(screen.getByRole('button', { name: '调整浮窗宽度' }), { button: 0 })
-    fireEvent.pointerDown(screen.getByRole('button', { name: '调整浮窗高度' }), { button: 0 })
-    fireEvent.pointerDown(screen.getByRole('button', { name: '调整浮窗大小' }), { button: 0 })
-
     expect(api.window.startResizeDragging).toHaveBeenNthCalledWith(1, 'East')
-    expect(api.window.startResizeDragging).toHaveBeenNthCalledWith(2, 'South')
-    expect(api.window.startResizeDragging).toHaveBeenNthCalledWith(3, 'SouthEast')
     expect(api.window.startDragging).not.toHaveBeenCalled()
     expect(document.querySelector('.buff-overlay')).not.toHaveAttribute('data-show-border')
     expect(document.querySelector('.buff-overlay')).toHaveAttribute(
@@ -123,14 +125,14 @@ describe('BuffOverlayApp', () => {
     emit({
       mode: 'waiting',
       message: '等待金周天',
-      expectedAtUnixMs: null,
+      items: [],
       emittedAtUnixMs: Date.now(),
       editable: false,
       colorScheme: 'blackWhite'
     })
     fireEvent.pointerDown(screen.getByText('等待金周天'), { button: 0 })
 
-    expect(screen.queryByRole('button', { name: '调整浮窗大小' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '调整浮窗宽度' })).not.toBeInTheDocument()
     expect(api.window.startDragging).not.toHaveBeenCalled()
   })
 

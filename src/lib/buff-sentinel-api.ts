@@ -31,6 +31,13 @@ export type BuffTemplateSummary = {
   id: string
   width: number
   height: number
+  crop?: NormalizedRect | null
+}
+
+export type BuffTemplatePreview = {
+  imageDataUrl: string
+  maskDataUrl: string
+  crop: NormalizedRect | null
 }
 
 export type BuffSoundCue = 'triggered' | 'prewarnThree' | 'prewarnTwo' | 'prewarnOne'
@@ -76,31 +83,49 @@ export type BuffCaptureSettings = {
   showSystemBorder: boolean
 }
 
-export type BuffAssistantSettings = {
+export type BuffListenerSettings = {
   cycleMs: number
   deadlineGraceMs: number
   threshold: number
   confirmFrames: number
   missingFrames: number
   sound: BuffSoundSettings
+}
+
+export type BuffGlobalSettings = {
   overlay: BuffOverlaySettings
   capture: BuffCaptureSettings
+}
+
+export type BuffListenerConfig = {
+  id: string
+  name: string
+  enabled: boolean
+  template: BuffTemplateSummary | null
+  settings: BuffListenerSettings
 }
 
 export type BuffAssistantConfig = {
   schemaVersion: number
   target: BuffTarget | null
   searchRegion: NormalizedRect | null
-  template: BuffTemplateSummary | null
-  settings: BuffAssistantSettings
+  listeners: BuffListenerConfig[]
+  settings: BuffGlobalSettings
+}
+
+export type BuffListenerRuntimeState = {
+  id: string
+  activity: BuffAssistantActivity
+  expectedAtUnixMs: number | null
+  lastConfidence: number
+  lastError: string | null
 }
 
 export type BuffAssistantState = {
   config: BuffAssistantConfig
   activity: BuffAssistantActivity
   isMonitoring: boolean
-  expectedAtUnixMs: number | null
-  lastConfidence: number
+  listeners: BuffListenerRuntimeState[]
   lastError: string | null
   captureBorderSupported: boolean
   captureBorderNotice: string | null
@@ -138,16 +163,26 @@ export type BuffOverlayMode =
 export type BuffOverlayState = {
   mode: BuffOverlayMode
   message: string
-  expectedAtUnixMs: number | null
+  items: BuffOverlayItem[]
   emittedAtUnixMs: number
   editable: boolean
   colorScheme: BuffOverlaySettings['colorScheme']
 }
 
+export type BuffOverlayItem = {
+  listenerId: string
+  name: string
+  mode: BuffOverlayMode
+  expectedAtUnixMs: number | null
+}
+
 export type BuffMetric = {
+  listenerId: string
   confidence: number
   present: boolean
 }
+
+export type BuffMetricBatch = { metrics: BuffMetric[] }
 
 export type WindowResizeDirection =
   'East' | 'North' | 'NorthEast' | 'NorthWest' | 'South' | 'SouthEast' | 'SouthWest' | 'West'
@@ -173,17 +208,31 @@ export type BuffSentinelAPI = {
   listBuffCaptureWindows: () => Promise<CaptureWindowCandidate[]>
   listBuffSoundTemplates: () => Promise<BuffSoundTemplateSummary[]>
   captureBuffPreview: (windowId: string) => Promise<BuffCapturePreview>
-  saveBuffTemplate: (
+  getBuffListenerTemplate: (listenerId: string) => Promise<BuffTemplatePreview>
+  saveBuffListener: (
+    listenerId: string | null,
+    name: string,
+    enabled: boolean,
+    settings: BuffListenerSettings,
     searchRegion: NormalizedRect,
     crop: NormalizedRect,
-    maskDataUrl?: string
+    maskDataUrl?: string,
+    resetExistingTemplates?: boolean
   ) => Promise<BuffAssistantState>
-  deleteBuffTemplate: () => Promise<BuffAssistantState>
-  updateBuffAssistantSettings: (settings: BuffAssistantSettings) => Promise<BuffAssistantState>
+  updateBuffListener: (
+    listenerId: string,
+    name: string,
+    enabled: boolean,
+    settings: BuffListenerSettings,
+    maskDataUrl?: string,
+    crop?: NormalizedRect
+  ) => Promise<BuffAssistantState>
+  deleteBuffListener: (listenerId: string) => Promise<BuffAssistantState>
+  updateBuffAssistantSettings: (settings: BuffGlobalSettings) => Promise<BuffAssistantState>
   requestBuffBorderlessCaptureAccess: () => Promise<BorderlessCaptureAccessResult>
   startBuffMonitor: () => Promise<BuffAssistantState>
   stopBuffMonitor: () => Promise<BuffAssistantState>
-  startBuffTemplateTest: (windowId: string) => Promise<BuffAssistantState>
+  startBuffTemplateTest: (windowId: string, listenerId: string) => Promise<BuffAssistantState>
   stopBuffTemplateTest: () => Promise<BuffAssistantState>
   importBuffAssistantSound: (cue: BuffSoundCue) => Promise<BuffCustomSoundAsset | null>
   playBuffAssistantSound: (
@@ -194,7 +243,7 @@ export type BuffSentinelAPI = {
   openTtsOnline: () => Promise<void>
   setBuffOverlayEditMode: (enabled: boolean) => Promise<BuffAssistantState>
   onBuffAssistantState: (callback: (state: BuffAssistantState) => void) => () => void
-  onBuffMetric: (callback: (metric: BuffMetric) => void) => () => void
+  onBuffMetric: (callback: (metric: BuffMetricBatch) => void) => () => void
   onBuffExecutionLog: (callback: (message: string) => void) => () => void
   onBuffOverlayState: (callback: (state: BuffOverlayState) => void) => () => void
   window: WindowControlsAPI
@@ -271,11 +320,49 @@ export const buffSentinelApi: BuffSentinelAPI = {
     callTauri(() => invoke<BuffSoundTemplateSummary[]>('list_buff_sound_templates')),
   captureBuffPreview: (windowId) =>
     callTauri(() => invoke<BuffCapturePreview>('capture_buff_preview', { windowId })),
-  saveBuffTemplate: (searchRegion, crop, maskDataUrl) =>
+  getBuffListenerTemplate: (listenerId) =>
     callTauri(() =>
-      invoke<BuffAssistantState>('save_buff_template', { searchRegion, crop, maskDataUrl })
+      invoke<BuffTemplatePreview>('get_buff_listener_template', { listenerId })
     ),
-  deleteBuffTemplate: () => callTauri(() => invoke<BuffAssistantState>('delete_buff_template')),
+  saveBuffListener: (
+    listenerId,
+    name,
+    enabled,
+    settings,
+    searchRegion,
+    crop,
+    maskDataUrl,
+    resetExistingTemplates = false
+  ) =>
+    callTauri(() =>
+      invoke<BuffAssistantState>('save_buff_listener', {
+        request: {
+          listenerId,
+          name,
+          enabled,
+          settings,
+          searchRegion,
+          crop,
+          maskDataUrl,
+          resetExistingTemplates
+        }
+      })
+    ),
+  updateBuffListener: (listenerId, name, enabled, settings, maskDataUrl, crop) =>
+    callTauri(() =>
+      invoke<BuffAssistantState>('update_buff_listener', {
+        request: {
+          listenerId,
+          name,
+          enabled,
+          settings,
+          maskDataUrl,
+          crop
+        }
+      })
+    ),
+  deleteBuffListener: (listenerId) =>
+    callTauri(() => invoke<BuffAssistantState>('delete_buff_listener', { listenerId })),
   updateBuffAssistantSettings: (settings) =>
     callTauri(() => invoke<BuffAssistantState>('update_buff_assistant_settings', { settings })),
   requestBuffBorderlessCaptureAccess: () =>
@@ -284,8 +371,10 @@ export const buffSentinelApi: BuffSentinelAPI = {
     ),
   startBuffMonitor: () => callTauri(() => invoke<BuffAssistantState>('start_buff_monitor')),
   stopBuffMonitor: () => callTauri(() => invoke<BuffAssistantState>('stop_buff_monitor')),
-  startBuffTemplateTest: (windowId) =>
-    callTauri(() => invoke<BuffAssistantState>('start_buff_template_test', { windowId })),
+  startBuffTemplateTest: (windowId, listenerId) =>
+    callTauri(() =>
+      invoke<BuffAssistantState>('start_buff_template_test', { windowId, listenerId })
+    ),
   stopBuffTemplateTest: () =>
     callTauri(() => invoke<BuffAssistantState>('stop_buff_template_test')),
   importBuffAssistantSound: (cue) =>

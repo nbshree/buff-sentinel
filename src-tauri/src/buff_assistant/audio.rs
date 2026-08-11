@@ -46,12 +46,10 @@ impl AudioEngine {
                     return;
                 }
             };
-            let mut player: Option<Player> = None;
+            let mut players = Vec::<Player>::new();
             let mut cache = HashMap::<PathBuf, SamplesBuffer>::new();
             while let Ok(request) = receiver.recv() {
-                if let Some(previous) = player.take() {
-                    previous.stop();
-                }
+                players.retain(|player| !player.empty());
                 let next = Player::connect_new(stream.mixer());
                 next.set_volume(request.volume.clamp(0.0, 1.0));
                 match request.source {
@@ -61,7 +59,7 @@ impl AudioEngine {
                         Err(_) => next.append(sine_wave(request.cue)),
                     },
                 }
-                player = Some(next);
+                players.push(next);
             }
         });
 

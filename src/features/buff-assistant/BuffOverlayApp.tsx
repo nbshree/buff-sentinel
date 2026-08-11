@@ -7,7 +7,7 @@ import './BuffOverlayApp.css'
 const hiddenState: BuffOverlayState = {
   mode: 'hidden',
   message: '',
-  expectedAtUnixMs: null,
+  items: [],
   emittedAtUnixMs: 0,
   editable: false,
   colorScheme: 'gold'
@@ -22,7 +22,7 @@ export function calculateOverlayScale(width: number, height: number): number {
 
 export function BuffOverlayApp() {
   const [state, setState] = useState<BuffOverlayState>(hiddenState)
-  const [remainingMs, setRemainingMs] = useState(0)
+  const [now, setNow] = useState(Date.now())
 
   useEffect(() => {
     document.documentElement.classList.add('buff-overlay-document')
@@ -50,21 +50,23 @@ export function BuffOverlayApp() {
   }, [])
 
   useEffect(() => {
-    if (state.mode !== 'countdown' || state.expectedAtUnixMs === null) {
-      setRemainingMs(0)
+    if (state.mode !== 'countdown' || state.items.length === 0) {
       return
     }
-    const update = () => setRemainingMs(Math.max(0, state.expectedAtUnixMs! - Date.now()))
+    const update = () => setNow(Date.now())
     update()
     const timer = window.setInterval(update, 50)
     return () => window.clearInterval(timer)
-  }, [state.expectedAtUnixMs, state.mode])
+  }, [state.items, state.mode])
 
   if (state.mode === 'hidden') return null
 
-  const seconds = (remainingMs / 1000).toFixed(1)
-  const warning = state.mode === 'countdown' && remainingMs <= 3_000
-  const intense = state.mode === 'countdown' && remainingMs <= 1_000
+  const minimumRemaining = state.items.reduce((minimum, item) => {
+    const remaining = item.expectedAtUnixMs === null ? Number.POSITIVE_INFINITY : item.expectedAtUnixMs - now
+    return Math.min(minimum, remaining)
+  }, Number.POSITIVE_INFINITY)
+  const warning = state.mode === 'countdown' && minimumRemaining <= 3_000
+  const intense = state.mode === 'countdown' && minimumRemaining <= 1_000
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>): void {
     if (!state.editable || event.button !== 0) return
@@ -96,15 +98,29 @@ export function BuffOverlayApp() {
           <span />
           {state.message}
         </div>
+      ) : state.items.length > 0 ? (
+        <div className="buff-overlay__items">
+          {state.items.map((item) => {
+            const remainingMs =
+              item.expectedAtUnixMs === null ? 0 : Math.max(0, item.expectedAtUnixMs - now)
+            return (
+              <div className="buff-overlay__item" data-mode={item.mode} key={item.listenerId}>
+                <div className="buff-overlay__label">{item.name}</div>
+                {item.mode === 'countdown' ? (
+                  <div className="buff-overlay__countdown">
+                    <strong>{(remainingMs / 1000).toFixed(1)}</strong>
+                    <span>秒</span>
+                  </div>
+                ) : (
+                  <div className="buff-overlay__confirming">等待确认</div>
+                )}
+              </div>
+            )
+          })}
+        </div>
       ) : (
         <>
           <div className="buff-overlay__label">{state.message}</div>
-          {state.mode === 'countdown' ? (
-            <div className="buff-overlay__countdown">
-              <strong>{seconds}</strong>
-              <span>秒</span>
-            </div>
-          ) : null}
           {state.mode === 'editing' ? <small>按住拖动</small> : null}
         </>
       )}
@@ -115,18 +131,6 @@ export function BuffOverlayApp() {
             className="buff-overlay__resize-handle buff-overlay__resize-handle--east"
             type="button"
             onPointerDown={(event) => handleResizePointerDown('East', event)}
-          />
-          <button
-            aria-label="调整浮窗高度"
-            className="buff-overlay__resize-handle buff-overlay__resize-handle--south"
-            type="button"
-            onPointerDown={(event) => handleResizePointerDown('South', event)}
-          />
-          <button
-            aria-label="调整浮窗大小"
-            className="buff-overlay__resize-handle buff-overlay__resize-handle--south-east"
-            type="button"
-            onPointerDown={(event) => handleResizePointerDown('SouthEast', event)}
           />
         </>
       ) : null}

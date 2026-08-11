@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type {
   BorderlessCaptureAccessResult,
-  BuffAssistantSettings,
   BuffAssistantState,
   BuffCapturePreview,
+  BuffGlobalSettings,
+  BuffListenerSettings,
   BuffMetric,
   CaptureWindowCandidate,
   NormalizedRect
@@ -12,27 +13,11 @@ import type {
 
 const defaultState: BuffAssistantState = {
   config: {
-    schemaVersion: 9,
+    schemaVersion: 10,
     target: null,
     searchRegion: null,
-    template: null,
+    listeners: [],
     settings: {
-      cycleMs: 20_000,
-      deadlineGraceMs: 1500,
-      threshold: 0.95,
-      confirmFrames: 3,
-      missingFrames: 5,
-      sound: {
-        triggerEnabled: true,
-        prewarnThreeEnabled: true,
-        prewarnTwoEnabled: true,
-        prewarnOneEnabled: true,
-        triggerSource: { type: 'sine' },
-        prewarnThreeSource: { type: 'sine' },
-        prewarnTwoSource: { type: 'sine' },
-        prewarnOneSource: { type: 'sine' },
-        volume: 0.45
-      },
       overlay: {
         x: 40,
         y: 100,
@@ -49,8 +34,7 @@ const defaultState: BuffAssistantState = {
   },
   activity: 'stopped',
   isMonitoring: false,
-  expectedAtUnixMs: null,
-  lastConfidence: 0,
+  listeners: [],
   lastError: null,
   captureBorderSupported: false,
   captureBorderNotice: null
@@ -62,7 +46,7 @@ export function useBuffAssistantController() {
   const [state, setState] = useState<BuffAssistantState>(defaultState)
   const [windows, setWindows] = useState<CaptureWindowCandidate[]>([])
   const [preview, setPreview] = useState<BuffCapturePreview | null>(null)
-  const [metric, setMetric] = useState<BuffMetric>({ confidence: 0, present: false })
+  const [metrics, setMetrics] = useState<Record<string, BuffMetric>>({})
   const [logs, setLogs] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -85,25 +69,33 @@ export function useBuffAssistantController() {
       })
     const stopState = window.api.onBuffAssistantState(updateRuntimeState)
     const stopExecutionLog = window.api.onBuffExecutionLog(appendLog)
-    const stopMetric = window.api.onBuffMetric((nextMetric) => {
-      setMetric(nextMetric)
+    const stopMetric = window.api.onBuffMetric(({ metrics: nextMetrics }) => {
+      setMetrics((current) => {
+        const next = { ...current }
+        for (const metric of nextMetrics) next[metric.listenerId] = metric
+        return next
+      })
       const now = Date.now()
-      const statusChanged = nextMetric.present !== lastMetricLogRef.current.present
+      const primaryMetric = nextMetrics[0]
+      if (!primaryMetric) return
+      const statusChanged = primaryMetric.present !== lastMetricLogRef.current.present
       if (statusChanged || now - lastMetricLogRef.current.at >= 1_000) {
         const runtime = stateRef.current
         const monitoring = runtime.isMonitoring && runtime.activity !== 'testing'
-        const threshold = Math.round(runtime.config.settings.threshold * 100)
-        const remaining = runtime.expectedAtUnixMs
-          ? Math.max(0, (runtime.expectedAtUnixMs - now) / 1000)
+        const listener = runtime.config.listeners.find((item) => item.id === primaryMetric.listenerId)
+        const listenerRuntime = runtime.listeners.find((item) => item.id === primaryMetric.listenerId)
+        const threshold = Math.round((listener?.settings.threshold ?? 0) * 100)
+        const remaining = listenerRuntime?.expectedAtUnixMs
+          ? Math.max(0, (listenerRuntime.expectedAtUnixMs - now) / 1000)
           : null
         appendLog(
-          `${monitoring ? '日常监控' : '模板测试'}：置信度 ${Math.round(
-            nextMetric.confidence * 100
-          )}%（阈值 ${threshold}%），${nextMetric.present ? '已确认图标' : '未确认'}${
+          `${listener?.name ?? '监听项'} · ${monitoring ? '监控' : '模板测试'}：置信度 ${Math.round(
+            primaryMetric.confidence * 100
+          )}%（阈值 ${threshold}%），${primaryMetric.present ? '已确认图标' : '未确认'}${
             remaining === null ? '' : `，时间轴剩余 ${remaining.toFixed(1)} 秒`
           }`
         )
-        lastMetricLogRef.current = { at: now, present: nextMetric.present }
+        lastMetricLogRef.current = { at: now, present: primaryMetric.present }
       }
     })
     return () => {
@@ -156,23 +148,65 @@ export function useBuffAssistantController() {
     [run]
   )
 
-  const saveTemplate = useCallback(
-    async (searchRegion: NormalizedRect, crop: NormalizedRect, maskDataUrl?: string) => {
-      const result = await run(() => window.api.saveBuffTemplate(searchRegion, crop, maskDataUrl))
+  const getListenerTemplate = useCallback(
+    (listenerId: string) => run(() => window.api.getBuffListenerTemplate(listenerId)),
+    [run]
+  )
+
+  const saveListener = useCallback(
+    async (
+      listenerId: string | null,
+      name: string,
+      enabled: boolean,
+      settings: BuffListenerSettings,
+      searchRegion: NormalizedRect,
+      crop: NormalizedRect,
+      maskDataUrl?: string,
+      resetExistingTemplates = false
+    ) => {
+      const result = await run(() =>
+        window.api.saveBuffListener(
+          listenerId,
+          name,
+          enabled,
+          settings,
+          searchRegion,
+          crop,
+          maskDataUrl,
+          resetExistingTemplates
+        )
+      )
       setState(result)
       return result
     },
     [run]
   )
 
-  const deleteTemplate = useCallback(async () => {
-    const result = await run(() => window.api.deleteBuffTemplate())
+  const updateListener = useCallback(async (
+    listenerId: string,
+    name: string,
+    enabled: boolean,
+    settings: BuffListenerSettings,
+    maskDataUrl?: string,
+    crop?: NormalizedRect
+  ) => {
+    const result = await run(() =>
+      maskDataUrl === undefined && crop === undefined
+        ? window.api.updateBuffListener(listenerId, name, enabled, settings)
+        : window.api.updateBuffListener(listenerId, name, enabled, settings, maskDataUrl, crop)
+    )
+    setState(result)
+    return result
+  }, [run])
+
+  const deleteListener = useCallback(async (listenerId: string) => {
+    const result = await run(() => window.api.deleteBuffListener(listenerId))
     setState(result)
     return result
   }, [run])
 
   const updateSettings = useCallback(
-    async (settings: BuffAssistantSettings) => {
+    async (settings: BuffGlobalSettings) => {
       const result = await run(() => window.api.updateBuffAssistantSettings(settings))
       setState(result)
       return result
@@ -207,10 +241,13 @@ export function useBuffAssistantController() {
   }, [appendLog, run])
 
   const startTest = useCallback(
-    async (windowId: string) => {
-      setMetric({ confidence: 0, present: false })
+    async (windowId: string, listenerId: string) => {
+      setMetrics((current) => ({
+        ...current,
+        [listenerId]: { listenerId, confidence: 0, present: false }
+      }))
       lastMetricLogRef.current = { at: 0, present: false }
-      const result = await run(() => window.api.startBuffTemplateTest(windowId))
+      const result = await run(() => window.api.startBuffTemplateTest(windowId, listenerId))
       stateRef.current = result
       setState(result)
       appendLog('开始实时识别测试')
@@ -242,15 +279,17 @@ export function useBuffAssistantController() {
     state,
     windows,
     preview,
-    metric,
+    metrics,
     logs,
     busy,
     error,
     setPreview,
     refreshWindows,
     capturePreview,
-    saveTemplate,
-    deleteTemplate,
+    getListenerTemplate,
+    saveListener,
+    updateListener,
+    deleteListener,
     updateSettings,
     requestBorderlessCaptureAccess,
     startMonitor,

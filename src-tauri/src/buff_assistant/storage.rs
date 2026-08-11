@@ -12,7 +12,8 @@ use super::{
     detector::TemplateData,
     model::{
         BuffAssistantConfig, BuffCustomSoundAsset, BuffSoundCue, BuffSoundSource,
-        BuffSoundTemplateSummary, BuffTemplateSummary,
+        BuffSoundTemplateSummary, BuffTemplateSummary, CONFIG_SCHEMA_VERSION,
+        LegacyBuffAssistantConfig,
     },
 };
 
@@ -64,8 +65,20 @@ pub fn load_config(directory: &Path) -> (BuffAssistantConfig, Vec<String>) {
         fs::read_to_string(&path)
             .map_err(|error| error.to_string())
             .and_then(|contents| {
-                serde_json::from_str::<BuffAssistantConfig>(&contents)
-                    .map_err(|error| error.to_string())
+                let value = serde_json::from_str::<serde_json::Value>(&contents)
+                    .map_err(|error| error.to_string())?;
+                let version = value
+                    .get("schemaVersion")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(1) as u32;
+                if version < CONFIG_SCHEMA_VERSION {
+                    serde_json::from_value::<LegacyBuffAssistantConfig>(value)
+                        .map(LegacyBuffAssistantConfig::migrate)
+                        .map_err(|error| error.to_string())
+                } else {
+                    serde_json::from_value::<BuffAssistantConfig>(value)
+                        .map_err(|error| error.to_string())
+                }
             })
             .unwrap_or_else(|error| {
                 notices.push(format!("Buff 助手配置读取失败，已使用默认配置：{error}"));
@@ -75,13 +88,33 @@ pub fn load_config(directory: &Path) -> (BuffAssistantConfig, Vec<String>) {
         BuffAssistantConfig::default()
     };
     config.sanitize();
-    if config
-        .template
-        .as_ref()
-        .is_some_and(|template| !template_directory(directory, &template.id).exists())
-    {
-        notices.push("Buff 图标模板文件不存在，请重新配置".into());
-        config.template = None;
+    for listener in &mut config.listeners {
+        if listener
+            .template
+            .as_ref()
+            .is_some_and(|template| !template_directory(directory, &template.id).exists())
+        {
+            notices.push(format!(
+                "监听项“{}”的图标模板不存在，请重新配置",
+                listener.name
+            ));
+            listener.template = None;
+        }
+    }
+    let needs_migration = fs::read_to_string(&path)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok())
+        .and_then(|value| {
+            value
+                .get("schemaVersion")
+                .and_then(serde_json::Value::as_u64)
+        })
+        .is_some_and(|version| version < u64::from(CONFIG_SCHEMA_VERSION));
+    if needs_migration {
+        match save_config(directory, &config) {
+            Ok(()) => notices.push("旧版单图标配置已迁移为多监听项".into()),
+            Err(error) => notices.push(error),
+        }
     }
     cleanup_unused_sound_assets(directory, &config);
     (config, notices)
@@ -275,14 +308,16 @@ pub fn cleanup_unused_sound_assets(directory: &Path, config: &BuffAssistantConfi
 }
 
 fn sound_sources(config: &BuffAssistantConfig) -> impl Iterator<Item = &BuffSoundSource> {
-    let sound = &config.settings.sound;
-    [
-        &sound.trigger_source,
-        &sound.prewarn_three_source,
-        &sound.prewarn_two_source,
-        &sound.prewarn_one_source,
-    ]
-    .into_iter()
+    config.listeners.iter().flat_map(|listener| {
+        let sound = &listener.settings.sound;
+        [
+            &sound.trigger_source,
+            &sound.prewarn_three_source,
+            &sound.prewarn_two_source,
+            &sound.prewarn_one_source,
+        ]
+        .into_iter()
+    })
 }
 
 fn safe_asset_id(asset_id: &str) -> Result<&str, String> {
@@ -314,6 +349,7 @@ pub fn save_template(
         id: id.to_string(),
         width: image.width(),
         height: image.height(),
+        crop: None,
     })
 }
 
@@ -329,6 +365,29 @@ pub fn load_template(
         .map_err(|error| format!("读取模板遮罩失败：{error}"))?
         .into_luma8();
     TemplateData::new(image, mask)
+}
+
+pub fn load_template_assets(
+    directory: &Path,
+    summary: &BuffTemplateSummary,
+) -> Result<(Vec<u8>, Vec<u8>), String> {
+    let target = template_directory(directory, &summary.id);
+    let image = fs::read(target.join("template.png"))
+        .map_err(|error| format!("读取模板图片失败：{error}"))?;
+    let mask =
+        fs::read(target.join("mask.png")).map_err(|error| format!("读取模板遮罩失败：{error}"))?;
+    Ok((image, mask))
+}
+
+pub fn save_template_mask(
+    directory: &Path,
+    summary: &BuffTemplateSummary,
+    mask: &GrayImage,
+) -> Result<(), String> {
+    let target = template_directory(directory, &summary.id);
+    fs::create_dir_all(&target).map_err(|error| format!("创建模板目录失败：{error}"))?;
+    mask.save(target.join("mask.png"))
+        .map_err(|error| format!("保存模板遮罩失败：{error}"))
 }
 
 pub fn delete_template(directory: &Path, summary: &BuffTemplateSummary) -> Result<(), String> {
@@ -380,6 +439,29 @@ mod tests {
     }
 
     #[test]
+    fn template_assets_and_updated_mask_can_be_reloaded() {
+        let directory = std::env::temp_dir().join(format!(
+            "buff-sentinel-template-storage-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&directory);
+        let image = DynamicImage::new_rgba8(8, 8);
+        let original_mask = GrayImage::from_pixel(8, 8, image::Luma([255]));
+        let summary = save_template(&directory, "listener-test", &image, &original_mask).unwrap();
+
+        let (image_bytes, mask_bytes) = load_template_assets(&directory, &summary).unwrap();
+        assert!(!image_bytes.is_empty());
+        assert!(!mask_bytes.is_empty());
+
+        let mut updated_mask = original_mask;
+        updated_mask.put_pixel(2, 3, image::Luma([0]));
+        save_template_mask(&directory, &summary, &updated_mask).unwrap();
+        let loaded = load_template(&directory, &summary).unwrap();
+        assert_eq!(loaded.mask.get_pixel(2, 3), &image::Luma([0]));
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
     fn oversized_custom_sound_is_rejected_before_decoding() {
         let path = std::env::temp_dir().join(format!(
             "buff-sentinel-oversized-sound-{}.wav",
@@ -410,16 +492,71 @@ mod tests {
         assert!(path.is_file());
 
         let mut config = BuffAssistantConfig::default();
-        config.settings.sound.trigger_source = BuffSoundSource::Custom {
+        config
+            .listeners
+            .push(crate::buff_assistant::model::BuffListenerConfig {
+                id: "listener-1".into(),
+                name: "测试".into(),
+                enabled: true,
+                template: None,
+                settings: crate::buff_assistant::model::BuffListenerSettings::default(),
+            });
+        config.listeners[0].settings.sound.trigger_source = BuffSoundSource::Custom {
             asset_id: asset.asset_id.clone(),
             file_name: asset.file_name,
         };
         cleanup_unused_sound_assets(&directory, &config);
         assert!(path.is_file());
 
-        config.settings.sound.trigger_source = BuffSoundSource::Sine;
+        config.listeners[0].settings.sound.trigger_source = BuffSoundSource::Sine;
         cleanup_unused_sound_assets(&directory, &config);
         assert!(!path.exists());
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn legacy_single_listener_config_is_migrated_and_persisted() {
+        let directory = std::env::temp_dir().join(format!(
+            "buff-sentinel-config-migration-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(directory.join("templates").join("legacy-template")).unwrap();
+        fs::write(
+            directory.join(CONFIG_FILE),
+            r#"{
+                "schemaVersion": 9,
+                "target": null,
+                "searchRegion": { "x": 0.5, "y": 0.0, "width": 0.4, "height": 0.2 },
+                "template": { "id": "legacy-template", "width": 32, "height": 32 },
+                "settings": {
+                    "cycleMs": 20000,
+                    "deadlineGraceMs": 1500,
+                    "threshold": 0.95,
+                    "confirmFrames": 3,
+                    "missingFrames": 5,
+                    "sound": {
+                        "triggerEnabled": true,
+                        "prewarnThreeEnabled": true,
+                        "prewarnTwoEnabled": true,
+                        "prewarnOneEnabled": true,
+                        "volume": 0.45
+                    },
+                    "overlay": { "x": 40, "y": 100, "showWaitingDot": false },
+                    "capture": { "showSystemBorder": true }
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let (config, notices) = load_config(&directory);
+
+        assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
+        assert_eq!(config.listeners.len(), 1);
+        assert_eq!(config.listeners[0].name, "金周天");
+        assert!(notices.iter().any(|notice| notice.contains("已迁移")));
+        let persisted = fs::read_to_string(directory.join(CONFIG_FILE)).unwrap();
+        assert!(persisted.contains("\"listeners\""));
         let _ = fs::remove_dir_all(directory);
     }
 }

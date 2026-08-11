@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 9;
+pub const CONFIG_SCHEMA_VERSION: u32 = 10;
+pub const MAX_LISTENERS: usize = 8;
 pub const DEFAULT_CYCLE_MS: u64 = 20_000;
 pub const DEFAULT_DEADLINE_GRACE_MS: u64 = 1_500;
 const PREVIOUS_DEFAULT_CYCLE_MS: u64 = 20_180;
@@ -13,7 +14,7 @@ pub const DEFAULT_OVERLAY_HEIGHT: u32 = 92;
 pub const MIN_OVERLAY_WIDTH: u32 = 75;
 pub const MIN_OVERLAY_HEIGHT: u32 = 30;
 pub const MAX_OVERLAY_WIDTH: u32 = 800;
-pub const MAX_OVERLAY_HEIGHT: u32 = 300;
+pub const MAX_OVERLAY_HEIGHT: u32 = 520;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,6 +70,16 @@ pub struct BuffTemplateSummary {
     pub id: String,
     pub width: u32,
     pub height: u32,
+    #[serde(default)]
+    pub crop: Option<NormalizedRect>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuffTemplatePreview {
+    pub image_data_url: String,
+    pub mask_data_url: String,
+    pub crop: Option<NormalizedRect>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -246,6 +257,98 @@ pub struct BuffAssistantSettings {
     pub capture: BuffCaptureSettings,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuffListenerSettings {
+    pub cycle_ms: u64,
+    #[serde(default = "default_deadline_grace_ms")]
+    pub deadline_grace_ms: u64,
+    pub threshold: f32,
+    pub confirm_frames: u32,
+    pub missing_frames: u32,
+    pub sound: BuffSoundSettings,
+}
+
+impl Default for BuffListenerSettings {
+    fn default() -> Self {
+        let settings = BuffAssistantSettings::default();
+        Self {
+            cycle_ms: settings.cycle_ms,
+            deadline_grace_ms: settings.deadline_grace_ms,
+            threshold: settings.threshold,
+            confirm_frames: settings.confirm_frames,
+            missing_frames: settings.missing_frames,
+            sound: settings.sound,
+        }
+    }
+}
+
+impl BuffListenerSettings {
+    pub fn sanitize(&mut self) {
+        let mut settings = BuffAssistantSettings {
+            cycle_ms: self.cycle_ms,
+            deadline_grace_ms: self.deadline_grace_ms,
+            threshold: self.threshold,
+            confirm_frames: self.confirm_frames,
+            missing_frames: self.missing_frames,
+            sound: self.sound.clone(),
+            overlay: BuffOverlaySettings::default(),
+            capture: BuffCaptureSettings::default(),
+        };
+        settings.sanitize();
+        self.cycle_ms = settings.cycle_ms;
+        self.deadline_grace_ms = settings.deadline_grace_ms;
+        self.threshold = settings.threshold;
+        self.confirm_frames = settings.confirm_frames;
+        self.missing_frames = settings.missing_frames;
+        self.sound = settings.sound;
+    }
+}
+
+impl From<&BuffAssistantSettings> for BuffListenerSettings {
+    fn from(settings: &BuffAssistantSettings) -> Self {
+        Self {
+            cycle_ms: settings.cycle_ms,
+            deadline_grace_ms: settings.deadline_grace_ms,
+            threshold: settings.threshold,
+            confirm_frames: settings.confirm_frames,
+            missing_frames: settings.missing_frames,
+            sound: settings.sound.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[derive(Default)]
+pub struct BuffGlobalSettings {
+    pub overlay: BuffOverlaySettings,
+    #[serde(default)]
+    pub capture: BuffCaptureSettings,
+}
+
+impl BuffGlobalSettings {
+    pub fn sanitize(&mut self) {
+        self.overlay.width = self
+            .overlay
+            .width
+            .clamp(MIN_OVERLAY_WIDTH, MAX_OVERLAY_WIDTH);
+        self.overlay.height = self
+            .overlay
+            .height
+            .clamp(MIN_OVERLAY_HEIGHT, MAX_OVERLAY_HEIGHT);
+    }
+}
+
+impl From<&BuffAssistantSettings> for BuffGlobalSettings {
+    fn from(settings: &BuffAssistantSettings) -> Self {
+        Self {
+            overlay: settings.overlay.clone(),
+            capture: settings.capture.clone(),
+        }
+    }
+}
+
 impl Default for BuffAssistantSettings {
     fn default() -> Self {
         Self {
@@ -298,6 +401,41 @@ pub struct BuffAssistantConfig {
     pub schema_version: u32,
     pub target: Option<BuffTarget>,
     pub search_region: Option<NormalizedRect>,
+    #[serde(default)]
+    pub listeners: Vec<BuffListenerConfig>,
+    #[serde(default)]
+    pub settings: BuffGlobalSettings,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuffListenerConfig {
+    pub id: String,
+    pub name: String,
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+    pub template: Option<BuffTemplateSummary>,
+    pub settings: BuffListenerSettings,
+}
+
+impl BuffListenerConfig {
+    pub fn sanitize(&mut self) {
+        self.id = self
+            .id
+            .chars()
+            .filter(|character| character.is_ascii_alphanumeric() || *character == '-')
+            .collect();
+        self.name = self.name.trim().chars().take(20).collect();
+        self.settings.sanitize();
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LegacyBuffAssistantConfig {
+    pub schema_version: u32,
+    pub target: Option<BuffTarget>,
+    pub search_region: Option<NormalizedRect>,
     pub template: Option<BuffTemplateSummary>,
     pub settings: BuffAssistantSettings,
 }
@@ -308,14 +446,33 @@ impl Default for BuffAssistantConfig {
             schema_version: CONFIG_SCHEMA_VERSION,
             target: None,
             search_region: None,
-            template: None,
-            settings: BuffAssistantSettings::default(),
+            listeners: Vec::new(),
+            settings: BuffGlobalSettings::default(),
         }
     }
 }
 
 impl BuffAssistantConfig {
     pub fn sanitize(&mut self) {
+        self.schema_version = CONFIG_SCHEMA_VERSION;
+        self.search_region = self.search_region.map(NormalizedRect::sanitized);
+        self.settings.sanitize();
+        self.listeners.truncate(MAX_LISTENERS);
+        for listener in &mut self.listeners {
+            listener.sanitize();
+        }
+        if let Some(target) = &mut self.target {
+            target.process_name = target.process_name.trim().to_string();
+            target.window_title = target.window_title.trim().to_string();
+            target.class_name = target.class_name.trim().to_string();
+            target.reference_width = target.reference_width.max(1);
+            target.reference_height = target.reference_height.max(1);
+        }
+    }
+}
+
+impl LegacyBuffAssistantConfig {
+    pub fn migrate(mut self) -> BuffAssistantConfig {
         if self.schema_version < 2
             && (self.settings.threshold - LEGACY_DEFAULT_THRESHOLD).abs() < 0.000_1
         {
@@ -324,16 +481,27 @@ impl BuffAssistantConfig {
         if self.schema_version < 4 && self.settings.cycle_ms == PREVIOUS_DEFAULT_CYCLE_MS {
             self.settings.cycle_ms = DEFAULT_CYCLE_MS;
         }
-        self.schema_version = CONFIG_SCHEMA_VERSION;
-        self.search_region = self.search_region.map(NormalizedRect::sanitized);
         self.settings.sanitize();
-        if let Some(target) = &mut self.target {
-            target.process_name = target.process_name.trim().to_string();
-            target.window_title = target.window_title.trim().to_string();
-            target.class_name = target.class_name.trim().to_string();
-            target.reference_width = target.reference_width.max(1);
-            target.reference_height = target.reference_height.max(1);
-        }
+        let listeners = self
+            .template
+            .map(|template| BuffListenerConfig {
+                id: "jinzhoutian".into(),
+                name: "金周天".into(),
+                enabled: true,
+                template: Some(template),
+                settings: BuffListenerSettings::from(&self.settings),
+            })
+            .into_iter()
+            .collect();
+        let mut config = BuffAssistantConfig {
+            schema_version: CONFIG_SCHEMA_VERSION,
+            target: self.target,
+            search_region: self.search_region,
+            listeners,
+            settings: BuffGlobalSettings::from(&self.settings),
+        };
+        config.sanitize();
+        config
     }
 }
 
@@ -356,11 +524,20 @@ pub struct BuffAssistantState {
     pub config: BuffAssistantConfig,
     pub activity: BuffAssistantActivity,
     pub is_monitoring: bool,
-    pub expected_at_unix_ms: Option<i64>,
-    pub last_confidence: f32,
+    pub listeners: Vec<BuffListenerRuntimeState>,
     pub last_error: Option<String>,
     pub capture_border_supported: bool,
     pub capture_border_notice: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuffListenerRuntimeState {
+    pub id: String,
+    pub activity: BuffAssistantActivity,
+    pub expected_at_unix_ms: Option<i64>,
+    pub last_confidence: f32,
+    pub last_error: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -411,10 +588,20 @@ pub enum BuffOverlayMode {
 pub struct BuffOverlayState {
     pub mode: BuffOverlayMode,
     pub message: String,
-    pub expected_at_unix_ms: Option<i64>,
+    #[serde(default)]
+    pub items: Vec<BuffOverlayItem>,
     pub emitted_at_unix_ms: i64,
     pub editable: bool,
     pub color_scheme: BuffOverlayColorScheme,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuffOverlayItem {
+    pub listener_id: String,
+    pub name: String,
+    pub mode: BuffOverlayMode,
+    pub expected_at_unix_ms: Option<i64>,
 }
 
 fn finite_or(value: f64, fallback: f64) -> f64 {
@@ -474,40 +661,54 @@ mod tests {
 
     #[test]
     fn legacy_default_threshold_is_migrated_to_ninety_five_percent() {
-        let mut config = BuffAssistantConfig::default();
-        config.schema_version = 1;
-        config.settings.threshold = LEGACY_DEFAULT_THRESHOLD;
-        config.sanitize();
+        let mut settings = BuffAssistantSettings::default();
+        settings.threshold = LEGACY_DEFAULT_THRESHOLD;
+        let config = legacy_config(1, settings).migrate();
         assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
-        assert_eq!(config.settings.threshold, DEFAULT_THRESHOLD);
+        assert_eq!(config.listeners[0].settings.threshold, DEFAULT_THRESHOLD);
     }
 
     #[test]
     fn legacy_custom_threshold_is_preserved() {
-        let mut config = BuffAssistantConfig::default();
-        config.schema_version = 1;
-        config.settings.threshold = 0.9;
-        config.sanitize();
-        assert_eq!(config.settings.threshold, 0.9);
+        let mut settings = BuffAssistantSettings::default();
+        settings.threshold = 0.9;
+        let config = legacy_config(1, settings).migrate();
+        assert_eq!(config.listeners[0].settings.threshold, 0.9);
     }
 
     #[test]
     fn previous_default_cycle_is_restored_to_twenty_seconds() {
-        let mut config = BuffAssistantConfig::default();
-        config.schema_version = 3;
-        config.settings.cycle_ms = PREVIOUS_DEFAULT_CYCLE_MS;
-        config.sanitize();
+        let mut settings = BuffAssistantSettings::default();
+        settings.cycle_ms = PREVIOUS_DEFAULT_CYCLE_MS;
+        let config = legacy_config(3, settings).migrate();
         assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
-        assert_eq!(config.settings.cycle_ms, DEFAULT_CYCLE_MS);
+        assert_eq!(config.listeners[0].settings.cycle_ms, DEFAULT_CYCLE_MS);
     }
 
     #[test]
     fn legacy_custom_cycle_is_preserved() {
-        let mut config = BuffAssistantConfig::default();
-        config.schema_version = 3;
-        config.settings.cycle_ms = 21_000;
-        config.sanitize();
-        assert_eq!(config.settings.cycle_ms, 21_000);
+        let mut settings = BuffAssistantSettings::default();
+        settings.cycle_ms = 21_000;
+        let config = legacy_config(3, settings).migrate();
+        assert_eq!(config.listeners[0].settings.cycle_ms, 21_000);
+    }
+
+    fn legacy_config(
+        schema_version: u32,
+        settings: BuffAssistantSettings,
+    ) -> LegacyBuffAssistantConfig {
+        LegacyBuffAssistantConfig {
+            schema_version,
+            target: None,
+            search_region: None,
+            template: Some(BuffTemplateSummary {
+                id: "legacy-template".into(),
+                width: 32,
+                height: 32,
+                crop: None,
+            }),
+            settings,
+        }
     }
 
     #[test]

@@ -4,7 +4,9 @@ import {
   Eye,
   ImagePlus,
   MonitorPlay,
+  Pencil,
   Play,
+  Plus,
   RefreshCw,
   Save,
   ScrollText,
@@ -17,6 +19,7 @@ import {
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '../../components/ui/button'
+import { Input } from '../../components/ui/input'
 import {
   Dialog,
   DialogContent,
@@ -34,7 +37,9 @@ import {
 } from '../../components/ui/tooltip'
 import type { BuffAssistantController } from '../../hooks/useBuffAssistantController'
 import type {
-  BuffAssistantSettings,
+  BuffGlobalSettings,
+  BuffListenerConfig,
+  BuffListenerSettings,
   BuffSoundCue,
   BuffSoundSource,
   BuffSoundTemplateSummary,
@@ -57,20 +62,40 @@ type BuffAssistantPageProps = {
 }
 
 const defaultRegion: NormalizedRect = { x: 0.55, y: 0.02, width: 0.4, height: 0.16 }
+const defaultListenerSettings: BuffListenerSettings = {
+  cycleMs: 20_000,
+  deadlineGraceMs: 1500,
+  threshold: 0.95,
+  confirmFrames: 3,
+  missingFrames: 5,
+  sound: {
+    triggerEnabled: true,
+    prewarnThreeEnabled: true,
+    prewarnTwoEnabled: true,
+    prewarnOneEnabled: true,
+    triggerSource: { type: 'sine' },
+    prewarnThreeSource: { type: 'sine' },
+    prewarnTwoSource: { type: 'sine' },
+    prewarnOneSource: { type: 'sine' },
+    volume: 0.45
+  }
+}
 
 export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const {
     state,
     windows,
     preview,
-    metric,
+    metrics,
     logs,
     busy,
     error,
     refreshWindows,
     capturePreview,
-    saveTemplate,
-    deleteTemplate,
+    getListenerTemplate,
+    saveListener,
+    updateListener,
+    deleteListener,
     updateSettings,
     requestBorderlessCaptureAccess,
     startMonitor,
@@ -83,18 +108,31 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const [selectedWindowId, setSelectedWindowId] = useState('')
   const [searchRegion, setSearchRegion] = useState<NormalizedRect | null>(null)
   const [templateSource, setTemplateSource] = useState<string | null>(null)
+  const [savedTemplateSource, setSavedTemplateSource] = useState<string | null>(null)
+  const [usingSavedTemplate, setUsingSavedTemplate] = useState(false)
+  const [editingFromSharedSource, setEditingFromSharedSource] = useState(false)
+  const [loadingListenerTemplate, setLoadingListenerTemplate] = useState(false)
   const [templateCrop, setTemplateCrop] = useState<NormalizedRect | null>(null)
   const [maskHistory, setMaskHistory] = useState<MaskHistory>(() => createMaskHistory())
   const [searchRegionEditorOpen, setSearchRegionEditorOpen] = useState(false)
   const [templateCropEditorOpen, setTemplateCropEditorOpen] = useState(false)
   const [maskEditorOpen, setMaskEditorOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
-  const [settings, setSettings] = useState<BuffAssistantSettings>(state.config.settings)
+  const [settings, setSettings] = useState<BuffGlobalSettings>(state.config.settings)
+  const [listenerDialogOpen, setListenerDialogOpen] = useState(false)
+  const [editingListenerId, setEditingListenerId] = useState<string | null>(null)
+  const [listenerName, setListenerName] = useState('')
+  const [listenerEnabled, setListenerEnabled] = useState(true)
+  const [listenerSettings, setListenerSettings] = useState<BuffListenerSettings>(
+    defaultListenerSettings
+  )
+  const [listenerError, setListenerError] = useState<string | null>(null)
   const [overlayEditing, setOverlayEditingState] = useState(false)
   const [soundTemplates, setSoundTemplates] = useState<BuffSoundTemplateSummary[]>([])
   const [soundError, setSoundError] = useState<string | null>(null)
   const [uploadingCue, setUploadingCue] = useState<BuffSoundCue | null>(null)
   const maskRef = useRef<MaskEditorHandle>(null)
+  const listenerTemplateRequestRef = useRef(0)
 
   useEffect(() => {
     if (!settingsDialogOpen) setSettings(state.config.settings)
@@ -125,7 +163,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     try {
       const asset = await window.api.importBuffAssistantSound(cue)
       if (!asset) return
-      setSettings((current) => ({
+      setListenerSettings((current) => ({
         ...current,
         sound: {
           ...current.sound,
@@ -142,7 +180,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   async function previewSound(cue: BuffSoundCue, source: BuffSoundSource): Promise<void> {
     setSoundError(null)
     try {
-      await window.api.playBuffAssistantSound(cue, source, settings.sound.volume)
+      await window.api.playBuffAssistantSound(cue, source, listenerSettings.sound.volume)
     } catch (reason) {
       setSoundError(toMessage(reason))
     }
@@ -188,8 +226,11 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     }
   }, [preview, searchRegion])
 
-  const hasTemplate = Boolean(
-    state.config.template && state.config.target && state.config.searchRegion
+  const configurationLocked = state.isMonitoring || state.activity === 'testing'
+  const canStart = Boolean(
+    state.config.target &&
+      state.config.searchRegion &&
+      state.config.listeners.some((listener) => listener.enabled && listener.template)
   )
   async function handlePreview(): Promise<void> {
     if (!selectedWindowId) return
@@ -211,10 +252,129 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     setMaskHistory(createMaskHistory())
   }
 
-  async function handleSaveTemplate(): Promise<void> {
-    if (!searchRegion || !templateCrop) return
-    await saveTemplate(searchRegion, templateCrop, maskRef.current?.getMaskDataUrl())
+  function openAddListener(): void {
+    listenerTemplateRequestRef.current += 1
+    setEditingListenerId(null)
+    setListenerName(`监听图标 ${state.config.listeners.length + 1}`)
+    setListenerEnabled(true)
+    setListenerSettings(defaultListenerSettings)
+    setTemplateCrop(null)
+    setSavedTemplateSource(null)
+    setUsingSavedTemplate(false)
+    setEditingFromSharedSource(false)
+    setLoadingListenerTemplate(false)
+    setMaskHistory(createMaskHistory())
+    setListenerError(null)
+    setListenerDialogOpen(true)
   }
+
+  async function openEditListener(listener: BuffListenerConfig): Promise<void> {
+    const requestId = listenerTemplateRequestRef.current + 1
+    listenerTemplateRequestRef.current = requestId
+    setEditingListenerId(listener.id)
+    setListenerName(listener.name)
+    setListenerEnabled(listener.enabled)
+    setListenerSettings(listener.settings)
+    setTemplateCrop(null)
+    setSavedTemplateSource(null)
+    setUsingSavedTemplate(false)
+    setEditingFromSharedSource(false)
+    setMaskHistory(createMaskHistory())
+    setListenerError(null)
+    setListenerDialogOpen(true)
+    if (!listener.template) return
+    setLoadingListenerTemplate(true)
+    try {
+      const template = await getListenerTemplate(listener.id)
+      if (listenerTemplateRequestRef.current !== requestId) return
+      const restoredCrop =
+        template.crop ??
+        (templateSource
+          ? await locateTemplateCrop(templateSource, template.imageDataUrl).catch(() => null)
+          : null)
+      if (listenerTemplateRequestRef.current !== requestId) return
+      setSavedTemplateSource(template.imageDataUrl)
+      setUsingSavedTemplate(true)
+      const restoreSharedCrop = Boolean(templateSource && restoredCrop)
+      setEditingFromSharedSource(restoreSharedCrop)
+      setTemplateCrop(
+        restoreSharedCrop && restoredCrop
+          ? restoredCrop
+          : { x: 0, y: 0, width: 1, height: 1 }
+      )
+      setMaskHistory(createMaskHistory(template.maskDataUrl))
+    } catch (reason) {
+      if (listenerTemplateRequestRef.current === requestId) setListenerError(toMessage(reason))
+    } finally {
+      if (listenerTemplateRequestRef.current === requestId) setLoadingListenerTemplate(false)
+    }
+  }
+
+  function startListenerRecrop(): void {
+    setUsingSavedTemplate(false)
+    setEditingFromSharedSource(false)
+    setTemplateCrop(null)
+    setMaskHistory(createMaskHistory())
+  }
+
+  async function handleSaveListener(): Promise<void> {
+    const name = listenerName.trim()
+    if (!name) {
+      setListenerError('请输入监听项名称')
+      return
+    }
+    if (name.length > 20) {
+      setListenerError('监听项名称不能超过 20 个字符')
+      return
+    }
+    try {
+      if (editingListenerId && usingSavedTemplate && !editingFromSharedSource) {
+        await updateListener(
+          editingListenerId,
+          name,
+          listenerEnabled,
+          listenerSettings,
+          maskRef.current?.getMaskDataUrl(),
+          templateCrop ?? undefined
+        )
+      } else if (templateCrop && searchRegion) {
+        const sharedChanged =
+          state.config.listeners.length > 0 &&
+          (!sameRegion(state.config.searchRegion, searchRegion) ||
+            state.config.target?.processName !== preview?.target.processName ||
+            state.config.target?.windowTitle !== preview?.target.windowTitle ||
+            state.config.target?.referenceWidth !== preview?.target.referenceWidth ||
+            state.config.target?.referenceHeight !== preview?.target.referenceHeight)
+        if (
+          sharedChanged &&
+          !window.confirm('共享窗口或搜索区域已变化，继续会清除所有旧图标模板，确定继续吗？')
+        ) {
+          return
+        }
+        await saveListener(
+          editingListenerId,
+          name,
+          listenerEnabled,
+          listenerSettings,
+          searchRegion,
+          templateCrop,
+          maskRef.current?.getMaskDataUrl(),
+          sharedChanged
+        )
+      } else if (editingListenerId) {
+        await updateListener(editingListenerId, name, listenerEnabled, listenerSettings)
+      } else {
+        setListenerError('请先从预览中框选监听图标')
+        return
+      }
+      setListenerDialogOpen(false)
+    } catch (reason) {
+      setListenerError(toMessage(reason))
+    }
+  }
+
+  const listenerEditorSource =
+    usingSavedTemplate && !editingFromSharedSource ? savedTemplateSource : templateSource
 
   async function handleOverlayEdit(): Promise<void> {
     const next = !overlayEditing
@@ -268,7 +428,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                 停止监控
               </Button>
             ) : (
-              <Button disabled={busy || !hasTemplate} onClick={() => void startMonitor()}>
+              <Button disabled={busy || !canStart} onClick={() => void startMonitor()}>
                 <Play aria-hidden="true" />
                 开始监控
               </Button>
@@ -279,7 +439,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
             </Button>
             <Dialog open={settingsDialogOpen} onOpenChange={handleSettingsDialogOpenChange}>
               <DialogTrigger asChild>
-                <Button disabled={busy} variant="outline">
+                <Button disabled={busy || configurationLocked} variant="outline">
                   <Settings2 aria-hidden="true" />
                   识别与提醒设置
                 </Button>
@@ -287,10 +447,10 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               <DialogContent className="max-h-[calc(100vh-48px)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[1000px]">
                 <DialogHeader className="border-b border-border px-5 py-4 pr-14">
                   <DialogTitle>识别与提醒设置</DialogTitle>
-                  <DialogDescription>调整识别、捕获与声音参数，点击保存后生效。</DialogDescription>
+                <DialogDescription>调整浮窗与系统捕获参数，点击保存后生效。</DialogDescription>
                 </DialogHeader>
                 <div className="buff-settings-dialog">
-                  <div className="buff-settings-grid">
+                  <div className="buff-settings-grid buff-settings-grid--global">
                     <label>
                       <span>浮窗配色</span>
                       <select
@@ -302,7 +462,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                             overlay: {
                               ...current.overlay,
                               colorScheme: event.target
-                                .value as BuffAssistantSettings['overlay']['colorScheme']
+                                .value as BuffGlobalSettings['overlay']['colorScheme']
                             }
                           }))
                         }
@@ -310,93 +470,6 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                         <option value="gold">金色（当前）</option>
                         <option value="blackWhite">黑底白字</option>
                       </select>
-                    </label>
-                    <label>
-                      <span>周期（秒）</span>
-                      <input
-                        max={120}
-                        min={5}
-                        step={0.01}
-                        type="number"
-                        value={settings.cycleMs / 1000}
-                        onChange={(event) =>
-                          setSettings((current) => ({
-                            ...current,
-                            cycleMs: Math.round(Number(event.target.value) * 1000)
-                          }))
-                        }
-                      />
-                    </label>
-                    <div className="buff-settings-field">
-                      <label htmlFor="deadline-grace-ms">
-                        <span className="buff-setting-label">
-                          触发宽限期
-                          <SettingTooltip
-                            label="查看触发宽限期说明"
-                            content="单位：毫秒，建议值 1500"
-                          />
-                        </span>
-                      </label>
-                      <input
-                        id="deadline-grace-ms"
-                        max={2000}
-                        min={0}
-                        step={50}
-                        type="number"
-                        value={settings.deadlineGraceMs}
-                        onChange={(event) =>
-                          setSettings((current) => ({
-                            ...current,
-                            deadlineGraceMs: Number(event.target.value)
-                          }))
-                        }
-                      />
-                    </div>
-                    <label>
-                      <span>匹配阈值</span>
-                      <input
-                        max={0.99}
-                        min={0.5}
-                        step={0.01}
-                        type="number"
-                        value={settings.threshold}
-                        onChange={(event) =>
-                          setSettings((current) => ({
-                            ...current,
-                            threshold: Number(event.target.value)
-                          }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      <span>确认帧数</span>
-                      <input
-                        max={12}
-                        min={1}
-                        type="number"
-                        value={settings.confirmFrames}
-                        onChange={(event) =>
-                          setSettings((current) => ({
-                            ...current,
-                            confirmFrames: Number(event.target.value)
-                          }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      <span>消失帧数</span>
-                      <input
-                        max={30}
-                        min={1}
-                        type="number"
-                        value={settings.missingFrames}
-                        onChange={(event) =>
-                          setSettings((current) => ({
-                            ...current,
-                            missingFrames: Number(event.target.value)
-                          }))
-                        }
-                      />
                     </label>
                   </div>
                   <div className="buff-sound-options">
@@ -451,126 +524,6 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                         {state.captureBorderNotice}
                       </p>
                     ) : null}
-                    <SoundRow
-                      checked={settings.sound.triggerEnabled}
-                      cue="triggered"
-                      label="真实触发确认音"
-                      source={settings.sound.triggerSource}
-                      templates={soundTemplates}
-                      uploading={uploadingCue === 'triggered'}
-                      onChange={(checked) =>
-                        setSettings((current) => ({
-                          ...current,
-                          sound: { ...current.sound, triggerEnabled: checked }
-                        }))
-                      }
-                      onSourceChange={(source) =>
-                        setSettings((current) => ({
-                          ...current,
-                          sound: { ...current.sound, triggerSource: source }
-                        }))
-                      }
-                      onTest={() => void previewSound('triggered', settings.sound.triggerSource)}
-                      onUpload={() => void importSound('triggered', 'triggerSource')}
-                    />
-                    <SoundRow
-                      checked={settings.sound.prewarnThreeEnabled}
-                      cue="prewarnThree"
-                      label="倒计时 3 秒提示音"
-                      source={settings.sound.prewarnThreeSource}
-                      templates={soundTemplates}
-                      uploading={uploadingCue === 'prewarnThree'}
-                      onChange={(checked) =>
-                        setSettings((current) => ({
-                          ...current,
-                          sound: { ...current.sound, prewarnThreeEnabled: checked }
-                        }))
-                      }
-                      onSourceChange={(source) =>
-                        setSettings((current) => ({
-                          ...current,
-                          sound: { ...current.sound, prewarnThreeSource: source }
-                        }))
-                      }
-                      onTest={() =>
-                        void previewSound('prewarnThree', settings.sound.prewarnThreeSource)
-                      }
-                      onUpload={() => void importSound('prewarnThree', 'prewarnThreeSource')}
-                    />
-                    <SoundRow
-                      checked={settings.sound.prewarnTwoEnabled}
-                      cue="prewarnTwo"
-                      label="倒计时 2 秒提示音"
-                      source={settings.sound.prewarnTwoSource}
-                      templates={soundTemplates}
-                      uploading={uploadingCue === 'prewarnTwo'}
-                      onChange={(checked) =>
-                        setSettings((current) => ({
-                          ...current,
-                          sound: { ...current.sound, prewarnTwoEnabled: checked }
-                        }))
-                      }
-                      onSourceChange={(source) =>
-                        setSettings((current) => ({
-                          ...current,
-                          sound: { ...current.sound, prewarnTwoSource: source }
-                        }))
-                      }
-                      onTest={() =>
-                        void previewSound('prewarnTwo', settings.sound.prewarnTwoSource)
-                      }
-                      onUpload={() => void importSound('prewarnTwo', 'prewarnTwoSource')}
-                    />
-                    <SoundRow
-                      checked={settings.sound.prewarnOneEnabled}
-                      cue="prewarnOne"
-                      label="倒计时 1 秒提示音"
-                      source={settings.sound.prewarnOneSource}
-                      templates={soundTemplates}
-                      uploading={uploadingCue === 'prewarnOne'}
-                      onChange={(checked) =>
-                        setSettings((current) => ({
-                          ...current,
-                          sound: { ...current.sound, prewarnOneEnabled: checked }
-                        }))
-                      }
-                      onSourceChange={(source) =>
-                        setSettings((current) => ({
-                          ...current,
-                          sound: { ...current.sound, prewarnOneSource: source }
-                        }))
-                      }
-                      onTest={() =>
-                        void previewSound('prewarnOne', settings.sound.prewarnOneSource)
-                      }
-                      onUpload={() => void importSound('prewarnOne', 'prewarnOneSource')}
-                    />
-                    <label className="buff-volume-row">
-                      <Volume2 aria-hidden="true" />
-                      <span>提示音量</span>
-                      <input
-                        max={1}
-                        min={0}
-                        step={0.05}
-                        type="range"
-                        value={settings.sound.volume}
-                        onChange={(event) =>
-                          setSettings((current) => ({
-                            ...current,
-                            sound: { ...current.sound, volume: Number(event.target.value) }
-                          }))
-                        }
-                      />
-                      <strong>{Math.round(settings.sound.volume * 100)}%</strong>
-                    </label>
-                    <div className="buff-sound-tip">
-                      <p>没有合适的提示音？可前往 TTS Online 将文本转换为语音，再下载 WAV 上传。</p>
-                      <button type="button" onClick={() => void openTtsOnline()}>
-                        <ExternalLink aria-hidden="true" />
-                        前往 TTS Online
-                      </button>
-                    </div>
-                    {soundError ? <p className="buff-sound-error">{soundError}</p> : null}
                   </div>
                 </div>
                 <DialogFooter className="border-t border-border px-5 py-4">
@@ -596,12 +549,12 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
             <div>
               <ImagePlus aria-hidden="true" />
               <div>
-                <h3>配置金周天图标模板</h3>
-                <p>捕获包含金周天的画面，框选 Buff 栏后直接裁出图标主体。</p>
+                <h3>共享捕获区域</h3>
+                <p>所有监听图标共用一个游戏窗口和 Buff 搜索区域。</p>
               </div>
             </div>
             <Button
-              disabled={busy}
+              disabled={busy || configurationLocked}
               size="sm"
               variant="outline"
               onClick={() => void refreshWindows()}
@@ -613,6 +566,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
 
           <div className="buff-window-row">
             <select
+              disabled={configurationLocked}
               aria-label="目标游戏窗口"
               value={selectedWindowId}
               onChange={(event) => setSelectedWindowId(event.target.value)}
@@ -626,7 +580,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               ))}
             </select>
             <Button
-              disabled={busy || !selectedWindowId}
+              disabled={busy || configurationLocked || !selectedWindowId}
               variant="outline"
               onClick={() => void handlePreview()}
             >
@@ -641,7 +595,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                 <span>1</span>
                 <div>
                   <strong>框选 Buff 栏搜索区域</strong>
-                  <p>区域越小识别越快，但要覆盖金周天可能出现的位置。</p>
+                  <p>区域越小识别越快，但要覆盖所有监听图标可能出现的位置。</p>
                 </div>
               </div>
               <RegionSelector
@@ -654,90 +608,203 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
             </div>
           ) : null}
 
-          {templateSource ? (
-            <div className="buff-wizard-step">
-              <div className="buff-wizard-step__title">
-                <span>2</span>
-                <div>
-                  <strong>裁剪金周天图标主体</strong>
-                  <p>下方仅显示刚才框选的 Buff 搜索区域，不要包含相邻 Buff。</p>
-                </div>
+        </section>
+
+        <section className="buff-card buff-listener-section">
+          <header>
+            <div>
+              <MonitorPlay aria-hidden="true" />
+              <div>
+                <h3>监听图标</h3>
+                <p>已添加 {state.config.listeners.length}/8 个，启用项会同时监听。</p>
               </div>
-              <RegionSelector
-                imageUrl={templateSource}
-                label="金周天图标"
-                value={templateCrop}
-                onChange={handleTemplateCropChange}
-                onRequestExpand={() => setTemplateCropEditorOpen(true)}
-              />
-              {templateCrop ? (
-                <>
-                  <div className="buff-wizard-step__title buff-wizard-step__title--sub">
-                    <span>3</span>
+            </div>
+            <Button
+              disabled={
+                busy || configurationLocked || !templateSource || state.config.listeners.length >= 8
+              }
+              size="sm"
+              onClick={openAddListener}
+            >
+              <Plus aria-hidden="true" />
+              添加监听图标
+            </Button>
+          </header>
+          {state.config.listeners.length === 0 ? (
+            <div className="buff-listener-empty">
+              捕获预览并框选共享搜索区域后，即可添加第一个监听图标。
+            </div>
+          ) : (
+            <div className="buff-listener-list">
+              {state.config.listeners.map((listener) => {
+                const metric = metrics[listener.id]
+                const runtime = state.listeners.find((item) => item.id === listener.id)
+                return (
+                  <article className="buff-listener-item" key={listener.id}>
+                    <label className="buff-listener-toggle">
+                      <input
+                        checked={listener.enabled}
+                        disabled={busy || configurationLocked}
+                        type="checkbox"
+                        onChange={(event) =>
+                          void updateListener(
+                            listener.id,
+                            listener.name,
+                            event.target.checked,
+                            listener.settings
+                          )
+                        }
+                      />
+                      <span>{listener.name}</span>
+                    </label>
+                    <div className="buff-listener-status">
+                      <span>{listener.template ? '模板已配置' : '需要重新裁剪模板'}</span>
+                      <span>
+                        置信度 {Math.round((metric?.confidence ?? runtime?.lastConfidence ?? 0) * 100)}%
+                      </span>
+                      <span>{runtimeActivityLabel(runtime?.activity ?? 'stopped')}</span>
+                    </div>
+                    <div className="buff-card__actions">
+                      {state.activity === 'testing' && runtime?.activity === 'testing' ? (
+                        <Button disabled={busy} size="sm" variant="outline" onClick={() => void stopTest()}>
+                          停止测试
+                        </Button>
+                      ) : (
+                        <Button
+                          disabled={busy || configurationLocked || !listener.template || !selectedWindowId}
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void startTest(selectedWindowId, listener.id)}
+                        >
+                          测试
+                        </Button>
+                      )}
+                      <Button
+                        disabled={busy || configurationLocked}
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void openEditListener(listener)}
+                      >
+                        <Pencil aria-hidden="true" />
+                        编辑
+                      </Button>
+                      <Button
+                        aria-label={`删除${listener.name}`}
+                        disabled={busy || configurationLocked}
+                        size="icon-compact"
+                        variant="destructive"
+                        onClick={() => {
+                          if (window.confirm(`确定删除监听项“${listener.name}”吗？`)) {
+                            void deleteListener(listener.id)
+                          }
+                        }}
+                      >
+                        <Trash2 aria-hidden="true" />
+                      </Button>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          )}
+        </section>
+
+        <Dialog open={listenerDialogOpen} onOpenChange={setListenerDialogOpen}>
+          <DialogContent className="max-h-[calc(100vh-48px)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[1000px]">
+            <DialogHeader className="border-b border-border px-5 py-4 pr-14">
+              <DialogTitle>{editingListenerId ? '编辑监听图标' : '添加监听图标'}</DialogTitle>
+              <DialogDescription>名称、模板、识别参数、周期和提示音均仅作用于当前项。</DialogDescription>
+            </DialogHeader>
+            <div className="buff-listener-dialog">
+              <div className="buff-listener-basics">
+                <label htmlFor="buff-listener-name">
+                  <span>名称</span>
+                  <Input
+                    autoComplete="off"
+                    id="buff-listener-name"
+                    maxLength={20}
+                    placeholder="请输入监听项名称"
+                    type="text"
+                    value={listenerName}
+                    onChange={(event) => setListenerName(event.target.value)}
+                  />
+                </label>
+                <label className="buff-listener-enabled">
+                  <input
+                    checked={listenerEnabled}
+                    type="checkbox"
+                    onChange={(event) => setListenerEnabled(event.target.checked)}
+                  />
+                  启用监听
+                </label>
+              </div>
+              {loadingListenerTemplate ? (
+                <p className="buff-listener-template-loading">正在加载已保存的图标和遮罩…</p>
+              ) : listenerEditorSource ? (
+                <div className="buff-listener-template-editor">
+                  <div className="buff-wizard-step__title">
+                    <span>1</span>
                     <div>
-                      <strong>涂抹忽略区域</strong>
-                      <p>在倒计时数字、层数或动态闪光上涂抹；不需要时可直接保存。</p>
+                      <strong>裁剪图标主体</strong>
+                      <p>
+                        {usingSavedTemplate
+                          ? editingFromSharedSource
+                            ? '已恢复保存时的完整预览和裁剪范围。'
+                            : '未找到完整预览，当前显示已保存的图标。'
+                          : '只框选当前图标，不要包含相邻 Buff。'}
+                      </p>
                     </div>
                   </div>
-                  <MaskEditor
-                    crop={templateCrop}
-                    imageUrl={templateSource}
-                    ref={maskRef}
-                    value={maskHistory}
-                    onChange={setMaskHistory}
-                    onRequestExpand={() => setMaskEditorOpen(true)}
+                  <RegionSelector
+                    imageUrl={listenerEditorSource}
+                    label={listenerName || '监听图标'}
+                    upscaleSmallImage={usingSavedTemplate && !editingFromSharedSource}
+                    value={templateCrop}
+                    onChange={handleTemplateCropChange}
+                    onRequestExpand={() => setTemplateCropEditorOpen(true)}
                   />
-                  <div className="buff-card__actions">
-                    <Button disabled={busy} onClick={() => void handleSaveTemplate()}>
-                      <Save aria-hidden="true" />
-                      保存金周天模板
+                  {templateCrop ? (
+                    <MaskEditor
+                      crop={templateCrop}
+                      imageUrl={listenerEditorSource}
+                      ref={maskRef}
+                      value={maskHistory}
+                      onChange={setMaskHistory}
+                      onRequestExpand={() => setMaskEditorOpen(true)}
+                    />
+                  ) : null}
+                  {usingSavedTemplate && templateSource ? (
+                    <Button type="button" variant="outline" onClick={startListenerRecrop}>
+                      <ImagePlus aria-hidden="true" />
+                      从当前预览重新裁剪
                     </Button>
-                  </div>
-                </>
-              ) : null}
-            </div>
-          ) : null}
-
-          {hasTemplate ? (
-            <div className="buff-template-test">
-              <div>
-                <strong>实时识别测试</strong>
-                <span>
-                  置信度 {Math.round(metric.confidence * 100)}% ·{' '}
-                  {metric.present ? '已确认图标' : '未确认'}
-                </span>
-                <div className="buff-confidence-track">
-                  <span style={{ width: `${Math.min(100, metric.confidence * 100)}%` }} />
+                  ) : null}
                 </div>
-              </div>
-              <div className="buff-card__actions">
-                {state.activity === 'testing' ? (
-                  <Button disabled={busy} variant="outline" onClick={() => void stopTest()}>
-                    停止测试
-                  </Button>
-                ) : (
-                  <Button
-                    disabled={busy || !selectedWindowId}
-                    variant="outline"
-                    onClick={() => void startTest(selectedWindowId)}
-                  >
-                    开始测试
-                  </Button>
-                )}
-                <Button
-                  disabled={busy}
-                  variant="destructive"
-                  onClick={() => {
-                    if (window.confirm('确定删除当前金周天模板吗？')) void deleteTemplate()
-                  }}
-                >
-                  <Trash2 aria-hidden="true" />
-                  删除模板
-                </Button>
-              </div>
+              ) : null}
+              <ListenerSettingsEditor
+                settings={listenerSettings}
+                soundError={soundError}
+                soundTemplates={soundTemplates}
+                uploadingCue={uploadingCue}
+                onChange={setListenerSettings}
+                onOpenTts={() => void openTtsOnline()}
+                onPreviewSound={(cue, source) => void previewSound(cue, source)}
+                onUploadSound={(cue, field) => void importSound(cue, field)}
+              />
+              {listenerError ? <p className="buff-sound-error" role="alert">{listenerError}</p> : null}
             </div>
-          ) : null}
-        </section>
+            <DialogFooter className="border-t border-border px-5 py-4">
+              <Button variant="outline" onClick={() => setListenerDialogOpen(false)}>取消</Button>
+              <Button
+                disabled={busy || loadingListenerTemplate}
+                onClick={() => void handleSaveListener()}
+              >
+                <Save aria-hidden="true" />
+                保存监听项
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {preview ? (
           <RegionEditorDialog
@@ -753,16 +820,16 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           />
         ) : null}
 
-        {templateSource ? (
+        {listenerEditorSource ? (
           <RegionEditorDialog
-            description="框内拖动可整体移动，拖动四边或四角可贴合金周天图标主体。"
-            imageUrl={templateSource}
-            label="金周天图标"
+            description="框内拖动可整体移动，拖动四边或四角可贴合监听图标主体。"
+            imageUrl={listenerEditorSource}
+            label={listenerName || '监听图标'}
             open={templateCropEditorOpen}
-            title="精调金周天图标主体"
+            title="精调监听图标主体"
             value={templateCrop}
             warning={
-              maskHistory.present.length > 0
+              maskHistory.present.length > 0 || maskHistory.baseMaskDataUrl
                 ? '应用新的图标范围后，将清空已涂抹的忽略区域。'
                 : undefined
             }
@@ -771,10 +838,10 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           />
         ) : null}
 
-        {templateSource && templateCrop ? (
+        {listenerEditorSource && templateCrop ? (
           <MaskEditorDialog
             crop={templateCrop}
-            imageUrl={templateSource}
+            imageUrl={listenerEditorSource}
             open={maskEditorOpen}
             value={maskHistory}
             onApply={setMaskHistory}
@@ -811,6 +878,190 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
       </div>
     </TooltipProvider>
   )
+}
+
+type ListenerSettingsEditorProps = {
+  settings: BuffListenerSettings
+  soundTemplates: BuffSoundTemplateSummary[]
+  uploadingCue: BuffSoundCue | null
+  soundError: string | null
+  onChange: (settings: BuffListenerSettings) => void
+  onPreviewSound: (cue: BuffSoundCue, source: BuffSoundSource) => void
+  onUploadSound: (cue: BuffSoundCue, field: SoundSourceField) => void
+  onOpenTts: () => void
+}
+
+function ListenerSettingsEditor({
+  settings,
+  soundTemplates,
+  uploadingCue,
+  soundError,
+  onChange,
+  onPreviewSound,
+  onUploadSound,
+  onOpenTts
+}: ListenerSettingsEditorProps) {
+  const setSound = (patch: Partial<BuffListenerSettings['sound']>) =>
+    onChange({ ...settings, sound: { ...settings.sound, ...patch } })
+
+  return (
+    <div className="buff-listener-settings">
+      <div className="buff-settings-grid">
+        <label>
+          <span>周期（秒）</span>
+          <input
+            max={120}
+            min={5}
+            step={0.01}
+            type="number"
+            value={settings.cycleMs / 1000}
+            onChange={(event) =>
+              onChange({ ...settings, cycleMs: Math.round(Number(event.target.value) * 1000) })
+            }
+          />
+        </label>
+        <div className="buff-settings-field">
+          <label htmlFor="listener-deadline-grace-ms">
+            <span className="buff-setting-label">
+              触发宽限期
+              <SettingTooltip label="查看触发宽限期说明" content="单位：毫秒，建议值 1500" />
+            </span>
+          </label>
+          <input
+            id="listener-deadline-grace-ms"
+            max={2000}
+            min={0}
+            step={50}
+            type="number"
+            value={settings.deadlineGraceMs}
+            onChange={(event) =>
+              onChange({ ...settings, deadlineGraceMs: Number(event.target.value) })
+            }
+          />
+        </div>
+        <label>
+          <span>匹配阈值</span>
+          <input
+            max={0.99}
+            min={0.5}
+            step={0.01}
+            type="number"
+            value={settings.threshold}
+            onChange={(event) => onChange({ ...settings, threshold: Number(event.target.value) })}
+          />
+        </label>
+        <label>
+          <span>确认帧数</span>
+          <input
+            max={12}
+            min={1}
+            type="number"
+            value={settings.confirmFrames}
+            onChange={(event) =>
+              onChange({ ...settings, confirmFrames: Number(event.target.value) })
+            }
+          />
+        </label>
+        <label>
+          <span>消失帧数</span>
+          <input
+            max={30}
+            min={1}
+            type="number"
+            value={settings.missingFrames}
+            onChange={(event) =>
+              onChange({ ...settings, missingFrames: Number(event.target.value) })
+            }
+          />
+        </label>
+      </div>
+      <div className="buff-sound-options">
+        <SoundRow
+          checked={settings.sound.triggerEnabled}
+          cue="triggered"
+          label="真实触发确认音"
+          source={settings.sound.triggerSource}
+          templates={soundTemplates}
+          uploading={uploadingCue === 'triggered'}
+          onChange={(checked) => setSound({ triggerEnabled: checked })}
+          onSourceChange={(source) => setSound({ triggerSource: source })}
+          onTest={() => onPreviewSound('triggered', settings.sound.triggerSource)}
+          onUpload={() => onUploadSound('triggered', 'triggerSource')}
+        />
+        <SoundRow
+          checked={settings.sound.prewarnThreeEnabled}
+          cue="prewarnThree"
+          label="倒计时 3 秒提示音"
+          source={settings.sound.prewarnThreeSource}
+          templates={soundTemplates}
+          uploading={uploadingCue === 'prewarnThree'}
+          onChange={(checked) => setSound({ prewarnThreeEnabled: checked })}
+          onSourceChange={(source) => setSound({ prewarnThreeSource: source })}
+          onTest={() => onPreviewSound('prewarnThree', settings.sound.prewarnThreeSource)}
+          onUpload={() => onUploadSound('prewarnThree', 'prewarnThreeSource')}
+        />
+        <SoundRow
+          checked={settings.sound.prewarnTwoEnabled}
+          cue="prewarnTwo"
+          label="倒计时 2 秒提示音"
+          source={settings.sound.prewarnTwoSource}
+          templates={soundTemplates}
+          uploading={uploadingCue === 'prewarnTwo'}
+          onChange={(checked) => setSound({ prewarnTwoEnabled: checked })}
+          onSourceChange={(source) => setSound({ prewarnTwoSource: source })}
+          onTest={() => onPreviewSound('prewarnTwo', settings.sound.prewarnTwoSource)}
+          onUpload={() => onUploadSound('prewarnTwo', 'prewarnTwoSource')}
+        />
+        <SoundRow
+          checked={settings.sound.prewarnOneEnabled}
+          cue="prewarnOne"
+          label="倒计时 1 秒提示音"
+          source={settings.sound.prewarnOneSource}
+          templates={soundTemplates}
+          uploading={uploadingCue === 'prewarnOne'}
+          onChange={(checked) => setSound({ prewarnOneEnabled: checked })}
+          onSourceChange={(source) => setSound({ prewarnOneSource: source })}
+          onTest={() => onPreviewSound('prewarnOne', settings.sound.prewarnOneSource)}
+          onUpload={() => onUploadSound('prewarnOne', 'prewarnOneSource')}
+        />
+        <label className="buff-volume-row">
+          <Volume2 aria-hidden="true" />
+          <span>提示音量</span>
+          <input
+            max={1}
+            min={0}
+            step={0.05}
+            type="range"
+            value={settings.sound.volume}
+            onChange={(event) => setSound({ volume: Number(event.target.value) })}
+          />
+          <strong>{Math.round(settings.sound.volume * 100)}%</strong>
+        </label>
+        <div className="buff-sound-tip">
+          <p>可使用 TTS Online 生成不同监听项的语音提示。</p>
+          <button type="button" onClick={onOpenTts}>
+            <ExternalLink aria-hidden="true" />
+            前往 TTS Online
+          </button>
+        </div>
+        {soundError ? <p className="buff-sound-error">{soundError}</p> : null}
+      </div>
+    </div>
+  )
+}
+
+function runtimeActivityLabel(activity: string): string {
+  const labels: Record<string, string> = {
+    stopped: '已停止',
+    waiting: '等待触发',
+    tracking: '倒计时中',
+    prewarning: '即将触发',
+    confirming: '等待确认',
+    testing: '测试中',
+    targetUnavailable: '等待窗口',
+    error: '识别错误'
+  }
+  return labels[activity] ?? activity
 }
 
 type SettingTooltipProps = {
@@ -958,8 +1209,140 @@ function cropImageDataUrl(imageUrl: string, region: NormalizedRect): Promise<str
   })
 }
 
+async function locateTemplateCrop(
+  sourceUrl: string,
+  templateUrl: string
+): Promise<NormalizedRect | null> {
+  const [source, template] = await Promise.all([loadImage(sourceUrl), loadImage(templateUrl)])
+  if (
+    template.naturalWidth > source.naturalWidth ||
+    template.naturalHeight > source.naturalHeight
+  ) {
+    return null
+  }
+  const sourcePixels = imagePixels(source)
+  const templatePixels = imagePixels(template)
+  const samplePoints = templateMatchSamplePoints(template.naturalWidth, template.naturalHeight)
+  const maxX = source.naturalWidth - template.naturalWidth
+  const maxY = source.naturalHeight - template.naturalHeight
+  for (let y = 0; y <= maxY; y += 1) {
+    for (let x = 0; x <= maxX; x += 1) {
+      if (
+        samplePoints.every(([sampleX, sampleY]) =>
+          pixelsEqual(
+            sourcePixels,
+            ((y + sampleY) * source.naturalWidth + x + sampleX) * 4,
+            templatePixels,
+            (sampleY * template.naturalWidth + sampleX) * 4
+          )
+        ) &&
+        templatePixelsMatchAt(
+          sourcePixels,
+          source.naturalWidth,
+          templatePixels,
+          template.naturalWidth,
+          template.naturalHeight,
+          x,
+          y
+        )
+      ) {
+        return {
+          x: x / source.naturalWidth,
+          y: y / source.naturalHeight,
+          width: template.naturalWidth / source.naturalWidth,
+          height: template.naturalHeight / source.naturalHeight
+        }
+      }
+    }
+  }
+  return null
+}
+
+function templatePixelsMatchAt(
+  source: Uint8ClampedArray,
+  sourceWidth: number,
+  template: Uint8ClampedArray,
+  templateWidth: number,
+  templateHeight: number,
+  offsetX: number,
+  offsetY: number
+): boolean {
+  for (let y = 0; y < templateHeight; y += 1) {
+    for (let x = 0; x < templateWidth; x += 1) {
+      if (
+        !pixelsEqual(
+          source,
+          ((offsetY + y) * sourceWidth + offsetX + x) * 4,
+          template,
+          (y * templateWidth + x) * 4
+        )
+      ) {
+        return false
+      }
+    }
+  }
+  return true
+}
+
+function loadImage(imageUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.decoding = 'async'
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('无法读取模板图片'))
+    image.src = imageUrl
+  })
+}
+
+function imagePixels(image: HTMLImageElement): Uint8ClampedArray {
+  const canvas = document.createElement('canvas')
+  canvas.width = image.naturalWidth
+  canvas.height = image.naturalHeight
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('无法创建模板匹配画布')
+  context.drawImage(image, 0, 0)
+  return context.getImageData(0, 0, canvas.width, canvas.height).data
+}
+
+function templateMatchSamplePoints(width: number, height: number): Array<[number, number]> {
+  const points: Array<[number, number]> = []
+  for (const yRatio of [0, 0.25, 0.5, 0.75, 1]) {
+    for (const xRatio of [0, 0.25, 0.5, 0.75, 1]) {
+      points.push([
+        Math.min(width - 1, Math.round((width - 1) * xRatio)),
+        Math.min(height - 1, Math.round((height - 1) * yRatio))
+      ])
+    }
+  }
+  return points
+}
+
+function pixelsEqual(
+  first: Uint8ClampedArray,
+  firstOffset: number,
+  second: Uint8ClampedArray,
+  secondOffset: number
+): boolean {
+  return (
+    first[firstOffset] === second[secondOffset] &&
+    first[firstOffset + 1] === second[secondOffset + 1] &&
+    first[firstOffset + 2] === second[secondOffset + 2] &&
+    first[firstOffset + 3] === second[secondOffset + 3]
+  )
+}
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value))
+}
+
+function sameRegion(left: NormalizedRect | null, right: NormalizedRect): boolean {
+  if (!left) return false
+  return (
+    Math.abs(left.x - right.x) < 0.000_001 &&
+    Math.abs(left.y - right.y) < 0.000_001 &&
+    Math.abs(left.width - right.width) < 0.000_001 &&
+    Math.abs(left.height - right.height) < 0.000_001
+  )
 }
 
 function toMessage(reason: unknown): string {

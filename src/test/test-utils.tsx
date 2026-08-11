@@ -7,27 +7,11 @@ import type { BuffAssistantState, BuffSentinelAPI } from '@/lib/buff-sentinel-ap
 export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
   const buffState: BuffAssistantState = buffStateOverride ?? {
     config: {
-      schemaVersion: 9,
+      schemaVersion: 10,
       target: null,
       searchRegion: null,
-      template: null,
+      listeners: [],
       settings: {
-        cycleMs: 20_000,
-        deadlineGraceMs: 1500,
-        threshold: 0.95,
-        confirmFrames: 3,
-        missingFrames: 5,
-        sound: {
-          triggerEnabled: true,
-          prewarnThreeEnabled: true,
-          prewarnTwoEnabled: true,
-          prewarnOneEnabled: true,
-          triggerSource: { type: 'sine' },
-          prewarnThreeSource: { type: 'sine' },
-          prewarnTwoSource: { type: 'sine' },
-          prewarnOneSource: { type: 'sine' },
-          volume: 0.45
-        },
         overlay: {
           x: 40,
           y: 100,
@@ -44,8 +28,7 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
     },
     activity: 'stopped',
     isMonitoring: false,
-    expectedAtUnixMs: null,
-    lastConfidence: 0,
+    listeners: [],
     lastError: null,
     captureBorderSupported: true,
     captureBorderNotice: null
@@ -59,8 +42,14 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
     captureBuffPreview: vi.fn(async () => {
       throw new Error('not configured')
     }),
-    saveBuffTemplate: vi.fn(async () => buffState),
-    deleteBuffTemplate: vi.fn(async () => buffState),
+    getBuffListenerTemplate: vi.fn(async () => ({
+      imageDataUrl: 'data:image/png;base64,dGVtcGxhdGU=',
+      maskDataUrl: 'data:image/png;base64,bWFzaw==',
+      crop: { x: 0.2, y: 0.2, width: 0.3, height: 0.3 }
+    })),
+    saveBuffListener: vi.fn(async () => buffState),
+    updateBuffListener: vi.fn(async () => buffState),
+    deleteBuffListener: vi.fn(async () => buffState),
     updateBuffAssistantSettings: vi.fn(async () => buffState),
     requestBuffBorderlessCaptureAccess: vi.fn<
       BuffSentinelAPI['requestBuffBorderlessCaptureAccess']

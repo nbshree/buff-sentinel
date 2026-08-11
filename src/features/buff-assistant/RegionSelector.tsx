@@ -21,6 +21,7 @@ type RegionSelectorProps = {
   onChange: (rect: NormalizedRect) => void
   onRequestExpand?: () => void
   expanded?: boolean
+  upscaleSmallImage?: boolean
 }
 
 const resizeHandles: ResizeHandle[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
@@ -32,12 +33,20 @@ export function RegionSelector({
   label,
   onChange,
   onRequestExpand,
-  expanded = false
+  expanded = false,
+  upscaleSmallImage = false
 }: RegionSelectorProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const interactionRef = useRef<Interaction | null>(null)
   const [draft, setDraft] = useState<NormalizedRect | null>(null)
+  const [previewSize, setPreviewSize] = useState<{
+    imageUrl: string
+    width: number
+    height: number
+  } | null>(null)
   const selection = draft ?? value
+  const scaledPreview =
+    !expanded && upscaleSmallImage && previewSize?.imageUrl === imageUrl ? previewSize : null
 
   function pointFromEvent(event: PointerEvent<HTMLDivElement>): Point {
     const bounds = hostRef.current?.getBoundingClientRect()
@@ -126,7 +135,29 @@ export function RegionSelector({
       onPointerMove={handlePointerMove}
       onPointerUp={finishInteraction}
     >
-      <img alt="游戏窗口捕获预览" draggable={false} src={imageUrl} />
+      <img
+        alt="游戏窗口捕获预览"
+        draggable={false}
+        src={imageUrl}
+        style={
+          scaledPreview
+            ? { width: `${scaledPreview.width}px`, height: `${scaledPreview.height}px` }
+            : undefined
+        }
+        onLoad={(event) => {
+          if (!upscaleSmallImage || expanded) return
+          const image = event.currentTarget
+          const scale = Math.max(
+            1,
+            Math.min(420 / image.naturalWidth, 260 / image.naturalHeight)
+          )
+          setPreviewSize({
+            imageUrl,
+            width: Math.round(image.naturalWidth * scale),
+            height: Math.round(image.naturalHeight * scale)
+          })
+        }}
+      />
       {selection ? (
         <div
           className="buff-region-selector__selection"

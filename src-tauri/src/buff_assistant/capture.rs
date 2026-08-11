@@ -84,13 +84,27 @@ pub struct RuntimeCaptureFlags {
     pub app: AppHandle,
     pub purpose: CapturePurpose,
     pub region: NormalizedRect,
-    pub template: Option<TemplateData>,
+    pub listeners: Vec<RuntimeListenerFlags>,
     pub reference_width: u32,
     pub reference_height: u32,
+    pub show_system_border: bool,
+}
+
+#[derive(Clone)]
+pub struct RuntimeListenerFlags {
+    pub id: String,
+    pub template: TemplateData,
     pub threshold: f32,
     pub confirm_frames: u32,
     pub missing_frames: u32,
-    pub show_system_border: bool,
+}
+
+pub struct RuntimeDetection {
+    pub listener_id: String,
+    pub confidence: f32,
+    pub present: bool,
+    pub absence_confirmed: bool,
+    pub detected_at: Option<Instant>,
 }
 
 pub struct RuntimeCaptureHandler {
@@ -112,9 +126,14 @@ struct RuntimeFrame {
 
 struct RuntimeCaptureProcessor {
     flags: RuntimeCaptureFlags,
+    listeners: Vec<RuntimeListenerProcessor>,
+    last_metric_at: Instant,
+}
+
+struct RuntimeListenerProcessor {
+    flags: RuntimeListenerFlags,
     detector: StablePresenceDetector,
     prepared_template: Option<(f32, TemplateData)>,
-    last_metric_at: Instant,
     match_started_at: Option<Instant>,
 }
 
@@ -191,71 +210,80 @@ impl GraphicsCaptureApiHandler for RuntimeCaptureHandler {
 
 impl RuntimeCaptureProcessor {
     fn new(flags: RuntimeCaptureFlags) -> Self {
-        let detector = StablePresenceDetector::new(flags.confirm_frames, flags.missing_frames);
+        let listeners = flags
+            .listeners
+            .iter()
+            .cloned()
+            .map(|listener| RuntimeListenerProcessor {
+                detector: StablePresenceDetector::new(
+                    listener.confirm_frames,
+                    listener.missing_frames,
+                ),
+                flags: listener,
+                prepared_template: None,
+                match_started_at: None,
+            })
+            .collect();
         Self {
             flags,
-            detector,
-            prepared_template: None,
+            listeners,
             last_metric_at: Instant::now() - Duration::from_secs(1),
-            match_started_at: None,
         }
     }
 
     fn process(&mut self, frame: RuntimeFrame) -> Result<(), String> {
         super::handle_capture_frame(&self.flags.app, self.flags.purpose);
         let gray = rgba_to_gray(frame.image.width, frame.image.height, &frame.image.rgba)?;
-        let template = self.template_for_frame(frame.frame_width, frame.frame_height)?;
-        let confidence = match_template(&gray, template);
-        let matched = confidence >= self.flags.threshold;
-        if matched {
-            self.match_started_at.get_or_insert(frame.captured_at);
-        } else {
-            self.match_started_at = None;
-        }
-        let present = self.detector.update(matched);
-        let absence_confirmed = self.detector.absence_confirmed();
-        let detected_at = present.then_some(self.match_started_at).flatten();
-        let should_emit_metric = self.last_metric_at.elapsed() >= Duration::from_millis(200);
-        if should_emit_metric {
-            self.last_metric_at = Instant::now();
-        }
-        super::handle_detection_frame(
-            &self.flags.app,
-            self.flags.purpose,
-            confidence,
-            present,
-            absence_confirmed,
-            detected_at,
-            should_emit_metric,
-        );
-        Ok(())
-    }
-
-    fn template_for_frame(
-        &mut self,
-        frame_width: u32,
-        frame_height: u32,
-    ) -> Result<&TemplateData, String> {
-        let original = self
-            .flags
-            .template
-            .as_ref()
-            .ok_or_else(|| "尚未配置 Buff 图标模板".to_string())?;
         let scale = reference_scale(
-            frame_width,
-            frame_height,
+            frame.frame_width,
+            frame.frame_height,
             self.flags.reference_width,
             self.flags.reference_height,
             self.flags.region,
         )?;
+        let mut detections = Vec::with_capacity(self.listeners.len());
+        for listener in &mut self.listeners {
+            let template = listener.template_for_scale(scale);
+            let confidence = match_template(&gray, template);
+            let matched = confidence >= listener.flags.threshold;
+            if matched {
+                listener.match_started_at.get_or_insert(frame.captured_at);
+            } else {
+                listener.match_started_at = None;
+            }
+            let present = listener.detector.update(matched);
+            detections.push(RuntimeDetection {
+                listener_id: listener.flags.id.clone(),
+                confidence,
+                present,
+                absence_confirmed: listener.detector.absence_confirmed(),
+                detected_at: present.then_some(listener.match_started_at).flatten(),
+            });
+        }
+        let should_emit_metric = self.last_metric_at.elapsed() >= Duration::from_millis(200);
+        if should_emit_metric {
+            self.last_metric_at = Instant::now();
+        }
+        super::handle_detection_batch(
+            &self.flags.app,
+            self.flags.purpose,
+            detections,
+            should_emit_metric,
+        );
+        Ok(())
+    }
+}
+
+impl RuntimeListenerProcessor {
+    fn template_for_scale(&mut self, scale: f32) -> &TemplateData {
         let rebuild = self
             .prepared_template
             .as_ref()
             .is_none_or(|(current, _)| (current - scale).abs() > 0.01);
         if rebuild {
-            self.prepared_template = Some((scale, original.scaled(scale)));
+            self.prepared_template = Some((scale, self.flags.template.scaled(scale)));
         }
-        Ok(&self.prepared_template.as_ref().unwrap().1)
+        &self.prepared_template.as_ref().unwrap().1
     }
 }
 

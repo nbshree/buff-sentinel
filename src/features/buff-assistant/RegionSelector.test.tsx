@@ -121,4 +121,25 @@ describe('RegionSelector', () => {
 
     expect(onChange).toHaveBeenCalledWith({ x: 0.1, y: 0.1, width: 0.3, height: 0.3 })
   })
+
+  it('upscales a small saved template for inline editing', () => {
+    render(
+      <RegionSelector
+        imageUrl="saved-template.png"
+        label="已保存模板"
+        upscaleSmallImage
+        value={{ x: 0, y: 0, width: 1, height: 1 }}
+        onChange={vi.fn()}
+      />
+    )
+    const image = screen.getByAltText('游戏窗口捕获预览')
+    Object.defineProperties(image, {
+      naturalWidth: { configurable: true, value: 130 },
+      naturalHeight: { configurable: true, value: 75 }
+    })
+
+    fireEvent.load(image)
+
+    expect(image).toHaveStyle({ width: '420px', height: '242px' })
+  })
 })

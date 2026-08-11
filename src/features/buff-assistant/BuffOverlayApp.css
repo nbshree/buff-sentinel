@@ -113,10 +113,52 @@
 
 .buff-overlay__label,
 .buff-overlay__countdown,
+.buff-overlay__items,
 .buff-overlay small,
 .buff-overlay__waiting {
   position: relative;
   z-index: 1;
+}
+
+.buff-overlay__items {
+  display: grid;
+  width: 100%;
+  gap: calc(4px * var(--buff-overlay-scale, 1));
+}
+
+.buff-overlay__item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(10px * var(--buff-overlay-scale, 1));
+  border-bottom: 1px solid rgb(255 225 139 / 18%);
+  padding: calc(4px * var(--buff-overlay-scale, 1)) calc(8px * var(--buff-overlay-scale, 1));
+}
+
+.buff-overlay__item:last-child {
+  border-bottom: 0;
+}
+
+.buff-overlay__item .buff-overlay__label {
+  overflow: hidden;
+  font-size: calc(15px * var(--buff-overlay-scale, 1));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.buff-overlay__item .buff-overlay__countdown strong {
+  font-size: calc(25px * var(--buff-overlay-scale, 1));
+}
+
+.buff-overlay__confirming {
+  color: #ffe17d;
+  font-size: calc(13px * var(--buff-overlay-scale, 1));
+  font-weight: 700;
+}
+
+.buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__confirming {
+  color: #fff;
 }
 
 .buff-overlay__label {
