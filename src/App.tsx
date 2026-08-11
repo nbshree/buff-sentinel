@@ -27,14 +27,7 @@ function App(): React.JSX.Element {
 
   return (
     <main className="app-shell">
-      <WindowTitleBar title="Buff 哨兵" />
-      <header className="app-header">
-        <div>
-          <h1>Buff 哨兵</h1>
-          <p>Buff Sentinel · 屏幕状态识别与提醒</p>
-        </div>
-        {appVersion ? <span className="app-version">v{appVersion}</span> : null}
-      </header>
+      <WindowTitleBar title="Buff 哨兵" version={appVersion ? `v${appVersion}` : undefined} />
       <section className="app-content" aria-label="Buff 助手">
         <BuffAssistantPage controller={controller} />
       </section>

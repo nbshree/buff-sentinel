@@ -17,6 +17,7 @@ const resizeDirections: WindowResizeDirection[] = [
 
 type WindowTitleBarProps = {
   title?: string
+  version?: string
   className?: string
 }
 
@@ -24,7 +25,11 @@ function reportWindowError(action: string, error: unknown) {
   console.error(`${action}失败`, error)
 }
 
-export function WindowTitleBar({ title = 'Buff 哨兵', className = '' }: WindowTitleBarProps) {
+export function WindowTitleBar({
+  title = 'Buff 哨兵',
+  version,
+  className = ''
+}: WindowTitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false)
 
   const refreshMaximizedState = useCallback(async () => {
@@ -98,6 +103,7 @@ export function WindowTitleBar({ title = 'Buff 哨兵', className = '' }: Window
       >
         <MousePointerClick aria-hidden="true" className="window-title-bar__app-icon" size={18} />
         <span className="window-title-bar__title">{title}</span>
+        {version ? <span className="window-title-bar__version">{version}</span> : null}
       </div>
 
       <div className="window-title-bar__controls" aria-label="窗口控制" role="group">

@@ -102,37 +102,6 @@ select {
   flex-direction: column;
 }
 
-.app-header {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 30px 10px;
-}
-
-.app-header h1 {
-  margin: 0;
-  font-size: 26px;
-  letter-spacing: 0.08em;
-}
-
-.app-header p {
-  margin: 4px 0 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-}
-
-.app-version {
-  border: 1px solid var(--border-default);
-  border-radius: 999px;
-  padding: 5px 10px;
-  background: rgb(255 255 255 / 68%);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 700;
-}
-
 .app-content {
   display: flex;
   flex: 1;

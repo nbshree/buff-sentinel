@@ -1,6 +1,6 @@
 import {
-  BellRing,
   ExternalLink,
+  CircleHelp,
   Eye,
   ImagePlus,
   MonitorPlay,
@@ -17,6 +17,21 @@ import {
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '../../components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
+} from '../../components/ui/dialog'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '../../components/ui/tooltip'
 import type { BuffAssistantController } from '../../hooks/useBuffAssistantController'
 import type {
   BuffAssistantSettings,
@@ -73,6 +88,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const [searchRegionEditorOpen, setSearchRegionEditorOpen] = useState(false)
   const [templateCropEditorOpen, setTemplateCropEditorOpen] = useState(false)
   const [maskEditorOpen, setMaskEditorOpen] = useState(false)
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
   const [settings, setSettings] = useState<BuffAssistantSettings>(state.config.settings)
   const [overlayEditing, setOverlayEditingState] = useState(false)
   const [soundTemplates, setSoundTemplates] = useState<BuffSoundTemplateSummary[]>([])
@@ -81,8 +97,8 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const maskRef = useRef<MaskEditorHandle>(null)
 
   useEffect(() => {
-    setSettings(state.config.settings)
-  }, [state.config.settings])
+    if (!settingsDialogOpen) setSettings(state.config.settings)
+  }, [settingsDialogOpen, state.config.settings])
 
   useEffect(() => {
     void refreshWindows().catch(() => undefined)
@@ -172,7 +188,6 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     }
   }, [preview, searchRegion])
 
-  const status = describeStatus(state.activity, state.isMonitoring)
   const hasTemplate = Boolean(
     state.config.template && state.config.target && state.config.searchRegion
   )
@@ -207,8 +222,8 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     setOverlayEditingState(next)
   }
 
-  async function handleSystemCaptureBorderChange(checked: boolean): Promise<void> {
-    if (checked) {
+  async function handleHideSystemCaptureBorderChange(hidden: boolean): Promise<void> {
+    if (!hidden) {
       setSettings((current) => ({
         ...current,
         capture: { ...current.capture, showSystemBorder: true }
@@ -223,56 +238,30 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     }))
   }
 
+  function handleSettingsDialogOpenChange(open: boolean): void {
+    if (open) {
+      setSettings(state.config.settings)
+      setSoundError(null)
+    }
+    setSettingsDialogOpen(open)
+  }
+
+  async function handleSaveSettings(): Promise<void> {
+    await updateSettings(settings)
+    setSettingsDialogOpen(false)
+  }
+
   return (
-    <div className="buff-assistant-page">
-      <section className="buff-assistant-hero">
-        <div>
-          <span className="buff-assistant-eyebrow">金周天 · 屏幕识别</span>
-          <h2>自动监听真实触发，脱战后自动丢弃旧时间轴</h2>
-          <p>第一次识别成功后立即显示固定 20 秒倒计时；提前 3、2、1 秒预警。</p>
-        </div>
-        <div
-          aria-label={`当前状态：${status}`}
-          className="buff-assistant-status"
-          data-status={state.activity}
-        >
-          <span className="buff-assistant-status__dot" />
-          <strong>{status}</strong>
-        </div>
-      </section>
-
-      {error || state.lastError ? (
-        <div className="buff-assistant-error" role="alert">
-          {error ?? state.lastError}
-        </div>
-      ) : null}
-
-      <section className="buff-assistant-grid">
-        <article className="buff-card buff-card--runtime">
-          <header>
-            <div>
-              <BellRing aria-hidden="true" />
-              <div>
-                <h3>日常监控</h3>
-                <p>开始后可关闭主窗口到托盘，识别和悬浮提示会继续运行。</p>
-              </div>
-            </div>
-          </header>
-          <div className="buff-runtime-summary">
-            <div>
-              <span>模板</span>
-              <strong>{state.config.template ? '金周天已配置' : '尚未配置'}</strong>
-            </div>
-            <div>
-              <span>识别阈值</span>
-              <strong>{Math.round(state.config.settings.threshold * 100)}%</strong>
-            </div>
-            <div>
-              <span>固定周期</span>
-              <strong>{(state.config.settings.cycleMs / 1000).toFixed(1)} 秒</strong>
-            </div>
+    <TooltipProvider>
+      <div className="buff-assistant-page">
+        {error || state.lastError ? (
+          <div className="buff-assistant-error" role="alert">
+            {error ?? state.lastError}
           </div>
-          <div className="buff-card__actions">
+        ) : null}
+
+        <section className="buff-card buff-monitor-toolbar">
+          <div className="buff-card__actions buff-monitor-actions">
             {state.isMonitoring ? (
               <Button disabled={busy} variant="destructive" onClick={() => void stopMonitor()}>
                 <Square aria-hidden="true" />
@@ -288,500 +277,557 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               <MonitorPlay aria-hidden="true" />
               {overlayEditing ? '保存悬浮位置' : '调整悬浮位置'}
             </Button>
+            <Dialog open={settingsDialogOpen} onOpenChange={handleSettingsDialogOpenChange}>
+              <DialogTrigger asChild>
+                <Button disabled={busy} variant="outline">
+                  <Settings2 aria-hidden="true" />
+                  识别与提醒设置
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[calc(100vh-48px)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[1000px]">
+                <DialogHeader className="border-b border-border px-5 py-4 pr-14">
+                  <DialogTitle>识别与提醒设置</DialogTitle>
+                  <DialogDescription>调整识别、捕获与声音参数，点击保存后生效。</DialogDescription>
+                </DialogHeader>
+                <div className="buff-settings-dialog">
+                  <div className="buff-settings-grid">
+                    <label>
+                      <span>浮窗配色</span>
+                      <select
+                        aria-label="浮窗配色"
+                        value={settings.overlay.colorScheme}
+                        onChange={(event) =>
+                          setSettings((current) => ({
+                            ...current,
+                            overlay: {
+                              ...current.overlay,
+                              colorScheme: event.target
+                                .value as BuffAssistantSettings['overlay']['colorScheme']
+                            }
+                          }))
+                        }
+                      >
+                        <option value="gold">金色（当前）</option>
+                        <option value="blackWhite">黑底白字</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>周期（秒）</span>
+                      <input
+                        max={120}
+                        min={5}
+                        step={0.01}
+                        type="number"
+                        value={settings.cycleMs / 1000}
+                        onChange={(event) =>
+                          setSettings((current) => ({
+                            ...current,
+                            cycleMs: Math.round(Number(event.target.value) * 1000)
+                          }))
+                        }
+                      />
+                    </label>
+                    <div className="buff-settings-field">
+                      <label htmlFor="deadline-grace-ms">
+                        <span className="buff-setting-label">
+                          触发宽限期
+                          <SettingTooltip
+                            label="查看触发宽限期说明"
+                            content="单位：毫秒，建议值 1500"
+                          />
+                        </span>
+                      </label>
+                      <input
+                        id="deadline-grace-ms"
+                        max={2000}
+                        min={0}
+                        step={50}
+                        type="number"
+                        value={settings.deadlineGraceMs}
+                        onChange={(event) =>
+                          setSettings((current) => ({
+                            ...current,
+                            deadlineGraceMs: Number(event.target.value)
+                          }))
+                        }
+                      />
+                    </div>
+                    <label>
+                      <span>匹配阈值</span>
+                      <input
+                        max={0.99}
+                        min={0.5}
+                        step={0.01}
+                        type="number"
+                        value={settings.threshold}
+                        onChange={(event) =>
+                          setSettings((current) => ({
+                            ...current,
+                            threshold: Number(event.target.value)
+                          }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>确认帧数</span>
+                      <input
+                        max={12}
+                        min={1}
+                        type="number"
+                        value={settings.confirmFrames}
+                        onChange={(event) =>
+                          setSettings((current) => ({
+                            ...current,
+                            confirmFrames: Number(event.target.value)
+                          }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>消失帧数</span>
+                      <input
+                        max={30}
+                        min={1}
+                        type="number"
+                        value={settings.missingFrames}
+                        onChange={(event) =>
+                          setSettings((current) => ({
+                            ...current,
+                            missingFrames: Number(event.target.value)
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="buff-sound-options">
+                    <div className="buff-check-row">
+                      <input
+                        checked={settings.overlay.excludeFromCapture}
+                        disabled={busy}
+                        id="exclude-overlay-capture"
+                        type="checkbox"
+                        onChange={(event) =>
+                          setSettings((current) => ({
+                            ...current,
+                            overlay: {
+                              ...current.overlay,
+                              excludeFromCapture: event.target.checked
+                            }
+                          }))
+                        }
+                      />
+                      <div className="buff-check-label">
+                        <label htmlFor="exclude-overlay-capture">排除录屏捕获</label>
+                        <SettingTooltip
+                          label="查看排除录屏捕获说明"
+                          content="开启后，OBS 等使用系统捕获接口的工具通常不会录入 Buff 悬浮窗；游戏捕获、驱动级采集和采集卡可能不受支持。"
+                        />
+                      </div>
+                    </div>
+                    <div className="buff-check-row">
+                      <input
+                        checked={!settings.capture.showSystemBorder}
+                        disabled={busy || !state.captureBorderSupported}
+                        id="hide-system-capture-border"
+                        type="checkbox"
+                        onChange={(event) =>
+                          void handleHideSystemCaptureBorderChange(event.target.checked)
+                        }
+                      />
+                      <div className="buff-check-label">
+                        <label htmlFor="hide-system-capture-border">隐藏系统捕获黄色边框</label>
+                        <SettingTooltip
+                          label="查看隐藏系统捕获黄色边框说明"
+                          content={
+                            state.captureBorderSupported
+                              ? '隐藏时 Windows 可能请求授权；该边框由 Windows Graphics Capture 绘制，不会进入捕获画面。'
+                              : '当前 Windows 版本不支持隐藏系统捕获黄色边框。'
+                          }
+                        />
+                      </div>
+                    </div>
+                    {state.captureBorderNotice ? (
+                      <p className="buff-setting-help buff-setting-help--warning">
+                        {state.captureBorderNotice}
+                      </p>
+                    ) : null}
+                    <SoundRow
+                      checked={settings.sound.triggerEnabled}
+                      cue="triggered"
+                      label="真实触发确认音"
+                      source={settings.sound.triggerSource}
+                      templates={soundTemplates}
+                      uploading={uploadingCue === 'triggered'}
+                      onChange={(checked) =>
+                        setSettings((current) => ({
+                          ...current,
+                          sound: { ...current.sound, triggerEnabled: checked }
+                        }))
+                      }
+                      onSourceChange={(source) =>
+                        setSettings((current) => ({
+                          ...current,
+                          sound: { ...current.sound, triggerSource: source }
+                        }))
+                      }
+                      onTest={() => void previewSound('triggered', settings.sound.triggerSource)}
+                      onUpload={() => void importSound('triggered', 'triggerSource')}
+                    />
+                    <SoundRow
+                      checked={settings.sound.prewarnThreeEnabled}
+                      cue="prewarnThree"
+                      label="倒计时 3 秒提示音"
+                      source={settings.sound.prewarnThreeSource}
+                      templates={soundTemplates}
+                      uploading={uploadingCue === 'prewarnThree'}
+                      onChange={(checked) =>
+                        setSettings((current) => ({
+                          ...current,
+                          sound: { ...current.sound, prewarnThreeEnabled: checked }
+                        }))
+                      }
+                      onSourceChange={(source) =>
+                        setSettings((current) => ({
+                          ...current,
+                          sound: { ...current.sound, prewarnThreeSource: source }
+                        }))
+                      }
+                      onTest={() =>
+                        void previewSound('prewarnThree', settings.sound.prewarnThreeSource)
+                      }
+                      onUpload={() => void importSound('prewarnThree', 'prewarnThreeSource')}
+                    />
+                    <SoundRow
+                      checked={settings.sound.prewarnTwoEnabled}
+                      cue="prewarnTwo"
+                      label="倒计时 2 秒提示音"
+                      source={settings.sound.prewarnTwoSource}
+                      templates={soundTemplates}
+                      uploading={uploadingCue === 'prewarnTwo'}
+                      onChange={(checked) =>
+                        setSettings((current) => ({
+                          ...current,
+                          sound: { ...current.sound, prewarnTwoEnabled: checked }
+                        }))
+                      }
+                      onSourceChange={(source) =>
+                        setSettings((current) => ({
+                          ...current,
+                          sound: { ...current.sound, prewarnTwoSource: source }
+                        }))
+                      }
+                      onTest={() =>
+                        void previewSound('prewarnTwo', settings.sound.prewarnTwoSource)
+                      }
+                      onUpload={() => void importSound('prewarnTwo', 'prewarnTwoSource')}
+                    />
+                    <SoundRow
+                      checked={settings.sound.prewarnOneEnabled}
+                      cue="prewarnOne"
+                      label="倒计时 1 秒提示音"
+                      source={settings.sound.prewarnOneSource}
+                      templates={soundTemplates}
+                      uploading={uploadingCue === 'prewarnOne'}
+                      onChange={(checked) =>
+                        setSettings((current) => ({
+                          ...current,
+                          sound: { ...current.sound, prewarnOneEnabled: checked }
+                        }))
+                      }
+                      onSourceChange={(source) =>
+                        setSettings((current) => ({
+                          ...current,
+                          sound: { ...current.sound, prewarnOneSource: source }
+                        }))
+                      }
+                      onTest={() =>
+                        void previewSound('prewarnOne', settings.sound.prewarnOneSource)
+                      }
+                      onUpload={() => void importSound('prewarnOne', 'prewarnOneSource')}
+                    />
+                    <label className="buff-volume-row">
+                      <Volume2 aria-hidden="true" />
+                      <span>提示音量</span>
+                      <input
+                        max={1}
+                        min={0}
+                        step={0.05}
+                        type="range"
+                        value={settings.sound.volume}
+                        onChange={(event) =>
+                          setSettings((current) => ({
+                            ...current,
+                            sound: { ...current.sound, volume: Number(event.target.value) }
+                          }))
+                        }
+                      />
+                      <strong>{Math.round(settings.sound.volume * 100)}%</strong>
+                    </label>
+                    <div className="buff-sound-tip">
+                      <p>没有合适的提示音？可前往 TTS Online 将文本转换为语音，再下载 WAV 上传。</p>
+                      <button type="button" onClick={() => void openTtsOnline()}>
+                        <ExternalLink aria-hidden="true" />
+                        前往 TTS Online
+                      </button>
+                    </div>
+                    {soundError ? <p className="buff-sound-error">{soundError}</p> : null}
+                  </div>
+                </div>
+                <DialogFooter className="border-t border-border px-5 py-4">
+                  <Button
+                    disabled={busy}
+                    variant="outline"
+                    onClick={() => setSettingsDialogOpen(false)}
+                  >
+                    取消
+                  </Button>
+                  <Button disabled={busy} onClick={() => void handleSaveSettings()}>
+                    <Save aria-hidden="true" />
+                    保存设置
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
-        </article>
+        </section>
 
-        <article className="buff-card">
+        <section className="buff-card buff-template-wizard">
           <header>
             <div>
-              <Settings2 aria-hidden="true" />
+              <ImagePlus aria-hidden="true" />
               <div>
-                <h3>识别与提醒设置</h3>
-                <p>更改识别参数后，正在运行的监控会重新等待脱战后的下一次触发。</p>
+                <h3>配置金周天图标模板</h3>
+                <p>捕获包含金周天的画面，框选 Buff 栏后直接裁出图标主体。</p>
               </div>
             </div>
+            <Button
+              disabled={busy}
+              size="sm"
+              variant="outline"
+              onClick={() => void refreshWindows()}
+            >
+              <RefreshCw aria-hidden="true" />
+              刷新窗口
+            </Button>
           </header>
-          <div className="buff-settings-grid">
-            <label>
-              <span>浮窗配色</span>
-              <select
-                aria-label="浮窗配色"
-                value={settings.overlay.colorScheme}
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    overlay: {
-                      ...current.overlay,
-                      colorScheme: event.target
-                        .value as BuffAssistantSettings['overlay']['colorScheme']
-                    }
-                  }))
-                }
-              >
-                <option value="gold">金色（当前）</option>
-                <option value="blackWhite">黑底白字</option>
-              </select>
-            </label>
-            <label>
-              <span>周期（秒）</span>
-              <input
-                max={120}
-                min={5}
-                step={0.01}
-                type="number"
-                value={settings.cycleMs / 1000}
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    cycleMs: Math.round(Number(event.target.value) * 1000)
-                  }))
-                }
-              />
-            </label>
-            <label>
-              <span>
-                触发宽限期（毫秒）
-                <em className="buff-setting-recommendation">建议值：1500</em>
-              </span>
-              <input
-                max={2000}
-                min={0}
-                step={50}
-                type="number"
-                value={settings.deadlineGraceMs}
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    deadlineGraceMs: Number(event.target.value)
-                  }))
-                }
-              />
-            </label>
-            <label>
-              <span>匹配阈值</span>
-              <input
-                max={0.99}
-                min={0.5}
-                step={0.01}
-                type="number"
-                value={settings.threshold}
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    threshold: Number(event.target.value)
-                  }))
-                }
-              />
-            </label>
-            <label>
-              <span>确认帧数</span>
-              <input
-                max={12}
-                min={1}
-                type="number"
-                value={settings.confirmFrames}
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    confirmFrames: Number(event.target.value)
-                  }))
-                }
-              />
-            </label>
-            <label>
-              <span>消失帧数</span>
-              <input
-                max={30}
-                min={1}
-                type="number"
-                value={settings.missingFrames}
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    missingFrames: Number(event.target.value)
-                  }))
-                }
-              />
-            </label>
-          </div>
-          <div className="buff-sound-options">
-            <label className="buff-check-row">
-              <input
-                checked={settings.overlay.excludeFromCapture}
-                disabled={busy}
-                type="checkbox"
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    overlay: {
-                      ...current.overlay,
-                      excludeFromCapture: event.target.checked
-                    }
-                  }))
-                }
-              />
-              排除录屏捕获
-            </label>
-            <p className="buff-setting-help">
-              开启后，OBS 等使用系统捕获接口的工具通常不会录入 Buff 悬浮窗；游戏捕获、
-              驱动级采集和采集卡可能不受支持。
-            </p>
-            <label className="buff-check-row">
-              <input
-                checked={settings.capture.showSystemBorder}
-                disabled={busy || !state.captureBorderSupported}
-                type="checkbox"
-                onChange={(event) => void handleSystemCaptureBorderChange(event.target.checked)}
-              />
-              显示系统捕获黄色边框
-            </label>
-            <p className="buff-setting-help">
-              {state.captureBorderSupported
-                ? '由 Windows Graphics Capture 绘制，不会进入捕获画面。关闭时 Windows 可能请求授权。'
-                : '当前 Windows 版本不支持隐藏系统捕获黄色边框。'}
-            </p>
-            {state.captureBorderNotice ? (
-              <p className="buff-setting-help buff-setting-help--warning">
-                {state.captureBorderNotice}
-              </p>
-            ) : null}
-            <SoundRow
-              checked={settings.sound.triggerEnabled}
-              cue="triggered"
-              label="真实触发确认音"
-              source={settings.sound.triggerSource}
-              templates={soundTemplates}
-              uploading={uploadingCue === 'triggered'}
-              onChange={(checked) =>
-                setSettings((current) => ({
-                  ...current,
-                  sound: { ...current.sound, triggerEnabled: checked }
-                }))
-              }
-              onSourceChange={(source) =>
-                setSettings((current) => ({
-                  ...current,
-                  sound: { ...current.sound, triggerSource: source }
-                }))
-              }
-              onTest={() => void previewSound('triggered', settings.sound.triggerSource)}
-              onUpload={() => void importSound('triggered', 'triggerSource')}
-            />
-            <SoundRow
-              checked={settings.sound.prewarnThreeEnabled}
-              cue="prewarnThree"
-              label="倒计时 3 秒提示音"
-              source={settings.sound.prewarnThreeSource}
-              templates={soundTemplates}
-              uploading={uploadingCue === 'prewarnThree'}
-              onChange={(checked) =>
-                setSettings((current) => ({
-                  ...current,
-                  sound: { ...current.sound, prewarnThreeEnabled: checked }
-                }))
-              }
-              onSourceChange={(source) =>
-                setSettings((current) => ({
-                  ...current,
-                  sound: { ...current.sound, prewarnThreeSource: source }
-                }))
-              }
-              onTest={() => void previewSound('prewarnThree', settings.sound.prewarnThreeSource)}
-              onUpload={() => void importSound('prewarnThree', 'prewarnThreeSource')}
-            />
-            <SoundRow
-              checked={settings.sound.prewarnTwoEnabled}
-              cue="prewarnTwo"
-              label="倒计时 2 秒提示音"
-              source={settings.sound.prewarnTwoSource}
-              templates={soundTemplates}
-              uploading={uploadingCue === 'prewarnTwo'}
-              onChange={(checked) =>
-                setSettings((current) => ({
-                  ...current,
-                  sound: { ...current.sound, prewarnTwoEnabled: checked }
-                }))
-              }
-              onSourceChange={(source) =>
-                setSettings((current) => ({
-                  ...current,
-                  sound: { ...current.sound, prewarnTwoSource: source }
-                }))
-              }
-              onTest={() => void previewSound('prewarnTwo', settings.sound.prewarnTwoSource)}
-              onUpload={() => void importSound('prewarnTwo', 'prewarnTwoSource')}
-            />
-            <SoundRow
-              checked={settings.sound.prewarnOneEnabled}
-              cue="prewarnOne"
-              label="倒计时 1 秒提示音"
-              source={settings.sound.prewarnOneSource}
-              templates={soundTemplates}
-              uploading={uploadingCue === 'prewarnOne'}
-              onChange={(checked) =>
-                setSettings((current) => ({
-                  ...current,
-                  sound: { ...current.sound, prewarnOneEnabled: checked }
-                }))
-              }
-              onSourceChange={(source) =>
-                setSettings((current) => ({
-                  ...current,
-                  sound: { ...current.sound, prewarnOneSource: source }
-                }))
-              }
-              onTest={() => void previewSound('prewarnOne', settings.sound.prewarnOneSource)}
-              onUpload={() => void importSound('prewarnOne', 'prewarnOneSource')}
-            />
-            <label className="buff-volume-row">
-              <Volume2 aria-hidden="true" />
-              <span>提示音量</span>
-              <input
-                max={1}
-                min={0}
-                step={0.05}
-                type="range"
-                value={settings.sound.volume}
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    sound: { ...current.sound, volume: Number(event.target.value) }
-                  }))
-                }
-              />
-              <strong>{Math.round(settings.sound.volume * 100)}%</strong>
-            </label>
-            <div className="buff-sound-tip">
-              <p>没有合适的提示音？可前往 TTS Online 将文本转换为语音，再下载 WAV 上传。</p>
-              <button type="button" onClick={() => void openTtsOnline()}>
-                <ExternalLink aria-hidden="true" />
-                前往 TTS Online
-              </button>
-            </div>
-            {soundError ? <p className="buff-sound-error">{soundError}</p> : null}
-          </div>
-          <div className="buff-card__actions">
-            <Button disabled={busy} onClick={() => void updateSettings(settings)}>
-              <Save aria-hidden="true" />
-              保存设置
+
+          <div className="buff-window-row">
+            <select
+              aria-label="目标游戏窗口"
+              value={selectedWindowId}
+              onChange={(event) => setSelectedWindowId(event.target.value)}
+            >
+              {windows.length === 0 ? <option value="">没有可捕获窗口</option> : null}
+              {windows.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.processName} · {candidate.windowTitle} · {candidate.width}×
+                  {candidate.height}
+                </option>
+              ))}
+            </select>
+            <Button
+              disabled={busy || !selectedWindowId}
+              variant="outline"
+              onClick={() => void handlePreview()}
+            >
+              <Eye aria-hidden="true" />
+              捕获预览
             </Button>
           </div>
-        </article>
-      </section>
 
-      <section className="buff-card buff-template-wizard">
-        <header>
-          <div>
-            <ImagePlus aria-hidden="true" />
-            <div>
-              <h3>配置金周天图标模板</h3>
-              <p>捕获包含金周天的画面，框选 Buff 栏后直接裁出图标主体。</p>
+          {preview ? (
+            <div className="buff-wizard-step">
+              <div className="buff-wizard-step__title">
+                <span>1</span>
+                <div>
+                  <strong>框选 Buff 栏搜索区域</strong>
+                  <p>区域越小识别越快，但要覆盖金周天可能出现的位置。</p>
+                </div>
+              </div>
+              <RegionSelector
+                imageUrl={preview.dataUrl}
+                label="Buff 搜索区域"
+                value={searchRegion}
+                onChange={handleSearchRegionChange}
+                onRequestExpand={() => setSearchRegionEditorOpen(true)}
+              />
             </div>
-          </div>
-          <Button disabled={busy} size="sm" variant="outline" onClick={() => void refreshWindows()}>
-            <RefreshCw aria-hidden="true" />
-            刷新窗口
-          </Button>
-        </header>
+          ) : null}
 
-        <div className="buff-window-row">
-          <select
-            aria-label="目标游戏窗口"
-            value={selectedWindowId}
-            onChange={(event) => setSelectedWindowId(event.target.value)}
-          >
-            {windows.length === 0 ? <option value="">没有可捕获窗口</option> : null}
-            {windows.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {candidate.processName} · {candidate.windowTitle} · {candidate.width}×
-                {candidate.height}
-              </option>
-            ))}
-          </select>
-          <Button
-            disabled={busy || !selectedWindowId}
-            variant="outline"
-            onClick={() => void handlePreview()}
-          >
-            <Eye aria-hidden="true" />
-            捕获预览
-          </Button>
-        </div>
+          {templateSource ? (
+            <div className="buff-wizard-step">
+              <div className="buff-wizard-step__title">
+                <span>2</span>
+                <div>
+                  <strong>裁剪金周天图标主体</strong>
+                  <p>下方仅显示刚才框选的 Buff 搜索区域，不要包含相邻 Buff。</p>
+                </div>
+              </div>
+              <RegionSelector
+                imageUrl={templateSource}
+                label="金周天图标"
+                value={templateCrop}
+                onChange={handleTemplateCropChange}
+                onRequestExpand={() => setTemplateCropEditorOpen(true)}
+              />
+              {templateCrop ? (
+                <>
+                  <div className="buff-wizard-step__title buff-wizard-step__title--sub">
+                    <span>3</span>
+                    <div>
+                      <strong>涂抹忽略区域</strong>
+                      <p>在倒计时数字、层数或动态闪光上涂抹；不需要时可直接保存。</p>
+                    </div>
+                  </div>
+                  <MaskEditor
+                    crop={templateCrop}
+                    imageUrl={templateSource}
+                    ref={maskRef}
+                    value={maskHistory}
+                    onChange={setMaskHistory}
+                    onRequestExpand={() => setMaskEditorOpen(true)}
+                  />
+                  <div className="buff-card__actions">
+                    <Button disabled={busy} onClick={() => void handleSaveTemplate()}>
+                      <Save aria-hidden="true" />
+                      保存金周天模板
+                    </Button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ) : null}
 
-        {preview ? (
-          <div className="buff-wizard-step">
-            <div className="buff-wizard-step__title">
-              <span>1</span>
+          {hasTemplate ? (
+            <div className="buff-template-test">
               <div>
-                <strong>框选 Buff 栏搜索区域</strong>
-                <p>区域越小识别越快，但要覆盖金周天可能出现的位置。</p>
+                <strong>实时识别测试</strong>
+                <span>
+                  置信度 {Math.round(metric.confidence * 100)}% ·{' '}
+                  {metric.present ? '已确认图标' : '未确认'}
+                </span>
+                <div className="buff-confidence-track">
+                  <span style={{ width: `${Math.min(100, metric.confidence * 100)}%` }} />
+                </div>
+              </div>
+              <div className="buff-card__actions">
+                {state.activity === 'testing' ? (
+                  <Button disabled={busy} variant="outline" onClick={() => void stopTest()}>
+                    停止测试
+                  </Button>
+                ) : (
+                  <Button
+                    disabled={busy || !selectedWindowId}
+                    variant="outline"
+                    onClick={() => void startTest(selectedWindowId)}
+                  >
+                    开始测试
+                  </Button>
+                )}
+                <Button
+                  disabled={busy}
+                  variant="destructive"
+                  onClick={() => {
+                    if (window.confirm('确定删除当前金周天模板吗？')) void deleteTemplate()
+                  }}
+                >
+                  <Trash2 aria-hidden="true" />
+                  删除模板
+                </Button>
               </div>
             </div>
-            <RegionSelector
-              imageUrl={preview.dataUrl}
-              label="Buff 搜索区域"
-              value={searchRegion}
-              onChange={handleSearchRegionChange}
-              onRequestExpand={() => setSearchRegionEditorOpen(true)}
-            />
-          </div>
+          ) : null}
+        </section>
+
+        {preview ? (
+          <RegionEditorDialog
+            description="框内拖动可整体移动，拖动四边或四角可精确调整搜索范围。"
+            imageUrl={preview.dataUrl}
+            label="Buff 搜索区域"
+            open={searchRegionEditorOpen}
+            title="精调 Buff 栏搜索区域"
+            value={searchRegion}
+            warning={templateCrop ? '应用新的搜索区域后，将清空图标裁剪和忽略区域。' : undefined}
+            onApply={handleSearchRegionChange}
+            onOpenChange={setSearchRegionEditorOpen}
+          />
         ) : null}
 
         {templateSource ? (
-          <div className="buff-wizard-step">
-            <div className="buff-wizard-step__title">
-              <span>2</span>
-              <div>
-                <strong>裁剪金周天图标主体</strong>
-                <p>下方仅显示刚才框选的 Buff 搜索区域，不要包含相邻 Buff。</p>
-              </div>
-            </div>
-            <RegionSelector
-              imageUrl={templateSource}
-              label="金周天图标"
-              value={templateCrop}
-              onChange={handleTemplateCropChange}
-              onRequestExpand={() => setTemplateCropEditorOpen(true)}
-            />
-            {templateCrop ? (
-              <>
-                <div className="buff-wizard-step__title buff-wizard-step__title--sub">
-                  <span>3</span>
-                  <div>
-                    <strong>涂抹忽略区域</strong>
-                    <p>在倒计时数字、层数或动态闪光上涂抹；不需要时可直接保存。</p>
-                  </div>
-                </div>
-                <MaskEditor
-                  crop={templateCrop}
-                  imageUrl={templateSource}
-                  ref={maskRef}
-                  value={maskHistory}
-                  onChange={setMaskHistory}
-                  onRequestExpand={() => setMaskEditorOpen(true)}
-                />
-                <div className="buff-card__actions">
-                  <Button disabled={busy} onClick={() => void handleSaveTemplate()}>
-                    <Save aria-hidden="true" />
-                    保存金周天模板
-                  </Button>
-                </div>
-              </>
-            ) : null}
-          </div>
+          <RegionEditorDialog
+            description="框内拖动可整体移动，拖动四边或四角可贴合金周天图标主体。"
+            imageUrl={templateSource}
+            label="金周天图标"
+            open={templateCropEditorOpen}
+            title="精调金周天图标主体"
+            value={templateCrop}
+            warning={
+              maskHistory.present.length > 0
+                ? '应用新的图标范围后，将清空已涂抹的忽略区域。'
+                : undefined
+            }
+            onApply={handleTemplateCropChange}
+            onOpenChange={setTemplateCropEditorOpen}
+          />
         ) : null}
 
-        {hasTemplate ? (
-          <div className="buff-template-test">
-            <div>
-              <strong>实时识别测试</strong>
-              <span>
-                置信度 {Math.round(metric.confidence * 100)}% ·{' '}
-                {metric.present ? '已确认图标' : '未确认'}
-              </span>
-              <div className="buff-confidence-track">
-                <span style={{ width: `${Math.min(100, metric.confidence * 100)}%` }} />
-              </div>
-            </div>
-            <div className="buff-card__actions">
-              {state.activity === 'testing' ? (
-                <Button disabled={busy} variant="outline" onClick={() => void stopTest()}>
-                  停止测试
-                </Button>
-              ) : (
-                <Button
-                  disabled={busy || !selectedWindowId}
-                  variant="outline"
-                  onClick={() => void startTest(selectedWindowId)}
-                >
-                  开始测试
-                </Button>
-              )}
-              <Button
-                disabled={busy}
-                variant="destructive"
-                onClick={() => {
-                  if (window.confirm('确定删除当前金周天模板吗？')) void deleteTemplate()
-                }}
-              >
-                <Trash2 aria-hidden="true" />
-                删除模板
-              </Button>
-            </div>
-          </div>
+        {templateSource && templateCrop ? (
+          <MaskEditorDialog
+            crop={templateCrop}
+            imageUrl={templateSource}
+            open={maskEditorOpen}
+            value={maskHistory}
+            onApply={setMaskHistory}
+            onOpenChange={setMaskEditorOpen}
+          />
         ) : null}
-      </section>
 
-      {preview ? (
-        <RegionEditorDialog
-          description="框内拖动可整体移动，拖动四边或四角可精确调整搜索范围。"
-          imageUrl={preview.dataUrl}
-          label="Buff 搜索区域"
-          open={searchRegionEditorOpen}
-          title="精调 Buff 栏搜索区域"
-          value={searchRegion}
-          warning={templateCrop ? '应用新的搜索区域后，将清空图标裁剪和忽略区域。' : undefined}
-          onApply={handleSearchRegionChange}
-          onOpenChange={setSearchRegionEditorOpen}
-        />
-      ) : null}
+        <section className="buff-execution-log" aria-labelledby="buff-execution-log-title">
+          <header>
+            <h3 id="buff-execution-log-title">
+              <ScrollText aria-hidden="true" />
+              执行日志
+            </h3>
+            <Button
+              aria-label="清空执行日志"
+              disabled={logs.length === 0}
+              size="icon-compact"
+              title="清空日志"
+              type="button"
+              variant="outline"
+              onClick={clearLogs}
+            >
+              <Trash2 aria-hidden="true" />
+            </Button>
+          </header>
+          <div className="buff-execution-log__body" aria-live="polite">
+            {logs.length === 0 ? (
+              <p className="buff-execution-log__empty">暂无日志。</p>
+            ) : (
+              logs.map((item, index) => <p key={`${index}-${item}`}>{item}</p>)
+            )}
+          </div>
+        </section>
+      </div>
+    </TooltipProvider>
+  )
+}
 
-      {templateSource ? (
-        <RegionEditorDialog
-          description="框内拖动可整体移动，拖动四边或四角可贴合金周天图标主体。"
-          imageUrl={templateSource}
-          label="金周天图标"
-          open={templateCropEditorOpen}
-          title="精调金周天图标主体"
-          value={templateCrop}
-          warning={
-            maskHistory.present.length > 0
-              ? '应用新的图标范围后，将清空已涂抹的忽略区域。'
-              : undefined
-          }
-          onApply={handleTemplateCropChange}
-          onOpenChange={setTemplateCropEditorOpen}
-        />
-      ) : null}
+type SettingTooltipProps = {
+  label: string
+  content: string
+}
 
-      {templateSource && templateCrop ? (
-        <MaskEditorDialog
-          crop={templateCrop}
-          imageUrl={templateSource}
-          open={maskEditorOpen}
-          value={maskHistory}
-          onApply={setMaskHistory}
-          onOpenChange={setMaskEditorOpen}
-        />
-      ) : null}
-
-      <section className="buff-execution-log" aria-labelledby="buff-execution-log-title">
-        <header>
-          <h3 id="buff-execution-log-title">
-            <ScrollText aria-hidden="true" />
-            执行日志
-          </h3>
-          <Button
-            aria-label="清空执行日志"
-            disabled={logs.length === 0}
-            size="icon-compact"
-            title="清空日志"
-            type="button"
-            variant="outline"
-            onClick={clearLogs}
-          >
-            <Trash2 aria-hidden="true" />
-          </Button>
-        </header>
-        <div className="buff-execution-log__body" aria-live="polite">
-          {logs.length === 0 ? (
-            <p className="buff-execution-log__empty">暂无日志。</p>
-          ) : (
-            logs.map((item, index) => <p key={`${index}-${item}`}>{item}</p>)
-          )}
-        </div>
-      </section>
-    </div>
+function SettingTooltip({ label, content }: SettingTooltipProps) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button aria-label={label} className="buff-setting-tooltip-trigger" type="button">
+          <CircleHelp aria-hidden="true" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{content}</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -914,21 +960,6 @@ function cropImageDataUrl(imageUrl: string, region: NormalizedRect): Promise<str
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value))
-}
-
-function describeStatus(activity: string, monitoring: boolean): string {
-  if (!monitoring && activity === 'stopped') return '未开始'
-  const labels: Record<string, string> = {
-    waiting: '等待金周天',
-    tracking: '20 秒计时中',
-    prewarning: '即将触发',
-    confirming: '等待触发确认',
-    testing: '模板测试中',
-    targetUnavailable: '等待游戏窗口',
-    error: '运行异常',
-    stopped: '已停止'
-  }
-  return labels[activity] ?? '未知状态'
 }
 
 function toMessage(reason: unknown): string {
