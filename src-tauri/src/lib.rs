@@ -44,6 +44,7 @@ pub fn run() {
             buff_assistant::list_buff_capture_windows,
             buff_assistant::list_buff_sound_templates,
             buff_assistant::capture_buff_preview,
+            buff_assistant::update_buff_search_region,
             buff_assistant::get_buff_listener_template,
             buff_assistant::request_buff_borderless_capture_access,
             buff_assistant::save_buff_listener,

@@ -148,6 +148,16 @@ export function useBuffAssistantController() {
     [run]
   )
 
+  const updateBuffSearchRegion = useCallback(
+    async (searchRegion: NormalizedRect) => {
+      const result = await run(() => window.api.updateBuffSearchRegion(searchRegion))
+      stateRef.current = result
+      setState(result)
+      return result
+    },
+    [run]
+  )
+
   const getListenerTemplate = useCallback(
     (listenerId: string) => run(() => window.api.getBuffListenerTemplate(listenerId)),
     [run]
@@ -161,8 +171,7 @@ export function useBuffAssistantController() {
       settings: BuffListenerSettings,
       searchRegion: NormalizedRect,
       crop: NormalizedRect,
-      maskDataUrl?: string,
-      resetExistingTemplates = false
+      maskDataUrl?: string
     ) => {
       const result = await run(() =>
         window.api.saveBuffListener(
@@ -172,8 +181,7 @@ export function useBuffAssistantController() {
           settings,
           searchRegion,
           crop,
-          maskDataUrl,
-          resetExistingTemplates
+          maskDataUrl
         )
       )
       setState(result)
@@ -286,6 +294,7 @@ export function useBuffAssistantController() {
     setPreview,
     refreshWindows,
     capturePreview,
+    updateBuffSearchRegion,
     getListenerTemplate,
     saveListener,
     updateListener,

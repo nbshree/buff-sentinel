@@ -37,6 +37,7 @@ export type BuffTemplateSummary = {
 export type BuffTemplatePreview = {
   imageDataUrl: string
   maskDataUrl: string
+  sourceDataUrl?: string | null
   crop: NormalizedRect | null
 }
 
@@ -208,6 +209,7 @@ export type BuffSentinelAPI = {
   listBuffCaptureWindows: () => Promise<CaptureWindowCandidate[]>
   listBuffSoundTemplates: () => Promise<BuffSoundTemplateSummary[]>
   captureBuffPreview: (windowId: string) => Promise<BuffCapturePreview>
+  updateBuffSearchRegion: (searchRegion: NormalizedRect) => Promise<BuffAssistantState>
   getBuffListenerTemplate: (listenerId: string) => Promise<BuffTemplatePreview>
   saveBuffListener: (
     listenerId: string | null,
@@ -216,8 +218,7 @@ export type BuffSentinelAPI = {
     settings: BuffListenerSettings,
     searchRegion: NormalizedRect,
     crop: NormalizedRect,
-    maskDataUrl?: string,
-    resetExistingTemplates?: boolean
+    maskDataUrl?: string
   ) => Promise<BuffAssistantState>
   updateBuffListener: (
     listenerId: string,
@@ -320,6 +321,10 @@ export const buffSentinelApi: BuffSentinelAPI = {
     callTauri(() => invoke<BuffSoundTemplateSummary[]>('list_buff_sound_templates')),
   captureBuffPreview: (windowId) =>
     callTauri(() => invoke<BuffCapturePreview>('capture_buff_preview', { windowId })),
+  updateBuffSearchRegion: (searchRegion) =>
+    callTauri(() =>
+      invoke<BuffAssistantState>('update_buff_search_region', { searchRegion })
+    ),
   getBuffListenerTemplate: (listenerId) =>
     callTauri(() =>
       invoke<BuffTemplatePreview>('get_buff_listener_template', { listenerId })
@@ -331,8 +336,7 @@ export const buffSentinelApi: BuffSentinelAPI = {
     settings,
     searchRegion,
     crop,
-    maskDataUrl,
-    resetExistingTemplates = false
+    maskDataUrl
   ) =>
     callTauri(() =>
       invoke<BuffAssistantState>('save_buff_listener', {
@@ -343,8 +347,7 @@ export const buffSentinelApi: BuffSentinelAPI = {
           settings,
           searchRegion,
           crop,
-          maskDataUrl,
-          resetExistingTemplates
+          maskDataUrl
         }
       })
     ),

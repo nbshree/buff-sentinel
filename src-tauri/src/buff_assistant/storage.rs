@@ -337,6 +337,7 @@ pub fn save_template(
     id: &str,
     image: &DynamicImage,
     mask: &GrayImage,
+    source: Option<&DynamicImage>,
 ) -> Result<BuffTemplateSummary, String> {
     let target = template_directory(directory, id);
     fs::create_dir_all(&target).map_err(|error| format!("创建模板目录失败：{error}"))?;
@@ -345,12 +346,31 @@ pub fn save_template(
         .map_err(|error| format!("保存模板图片失败：{error}"))?;
     mask.save(target.join("mask.png"))
         .map_err(|error| format!("保存模板遮罩失败：{error}"))?;
+    if let Some(source) = source {
+        source
+            .save(target.join("source.png"))
+            .map_err(|error| format!("保存模板来源图失败：{error}"))?;
+    }
     Ok(BuffTemplateSummary {
         id: id.to_string(),
         width: image.width(),
         height: image.height(),
         crop: None,
     })
+}
+
+pub fn load_template_editor_assets(
+    directory: &Path,
+    summary: &BuffTemplateSummary,
+) -> Result<(Vec<u8>, Vec<u8>, Option<Vec<u8>>), String> {
+    let (image, mask) = load_template_assets(directory, summary)?;
+    let source_path = template_directory(directory, &summary.id).join("source.png");
+    let source = if source_path.exists() {
+        Some(fs::read(source_path).map_err(|error| format!("读取模板来源图失败：{error}"))?)
+    } else {
+        None
+    };
+    Ok((image, mask, source))
 }
 
 pub fn load_template(
@@ -447,7 +467,8 @@ mod tests {
         let _ = fs::remove_dir_all(&directory);
         let image = DynamicImage::new_rgba8(8, 8);
         let original_mask = GrayImage::from_pixel(8, 8, image::Luma([255]));
-        let summary = save_template(&directory, "listener-test", &image, &original_mask).unwrap();
+        let summary =
+            save_template(&directory, "listener-test", &image, &original_mask, None).unwrap();
 
         let (image_bytes, mask_bytes) = load_template_assets(&directory, &summary).unwrap();
         assert!(!image_bytes.is_empty());

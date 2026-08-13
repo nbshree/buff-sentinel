@@ -79,6 +79,7 @@ pub struct BuffTemplateSummary {
 pub struct BuffTemplatePreview {
     pub image_data_url: String,
     pub mask_data_url: String,
+    pub source_data_url: Option<String>,
     pub crop: Option<NormalizedRect>,
 }
 

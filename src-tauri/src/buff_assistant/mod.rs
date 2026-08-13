@@ -245,6 +245,32 @@ pub fn capture_buff_preview(
 }
 
 #[tauri::command]
+pub fn update_buff_search_region(
+    app: AppHandle,
+    state: State<'_, BuffAssistant>,
+    search_region: NormalizedRect,
+) -> Result<BuffAssistantState, String> {
+    ensure_configuration_unlocked(&state)?;
+    let snapshot = {
+        let mut inner = state.lock();
+        let target = inner
+            .template_preview
+            .as_ref()
+            .map(|preview| preview.target.clone())
+            .or_else(|| inner.config.target.clone())
+            .ok_or_else(|| "请先捕获游戏窗口预览".to_string())?;
+        inner.config.target = Some(target);
+        inner.config.search_region = Some(search_region.sanitized());
+        inner.config.sanitize();
+        inner.listeners = listener_runtime_map(&inner.config);
+        storage::save_config(&inner.storage_directory, &inner.config)?;
+        snapshot_from_runtime(&inner)
+    };
+    emit_state(&app, &snapshot);
+    Ok(snapshot)
+}
+
+#[tauri::command]
 pub async fn request_buff_borderless_capture_access(
     state: State<'_, BuffAssistant>,
 ) -> Result<BorderlessCaptureAccessResult, String> {
@@ -299,7 +325,6 @@ pub fn save_buff_listener(
         search_region,
         crop,
         mask_data_url,
-        reset_existing_templates,
     } = request;
     ensure_configuration_unlocked(&state)?;
     settings.sanitize();
@@ -317,26 +342,6 @@ pub fn save_buff_listener(
         )
     };
     let region = search_region.sanitized();
-    {
-        let inner = state.lock();
-        let target_changed = inner.config.target.as_ref().is_some_and(|configured| {
-            configured.process_name != target.process_name
-                || configured.window_title != target.window_title
-                || configured.class_name != target.class_name
-                || configured.reference_width != target.reference_width
-                || configured.reference_height != target.reference_height
-        });
-        let region_changed = inner
-            .config
-            .search_region
-            .is_some_and(|configured| configured != region);
-        if !inner.config.listeners.is_empty()
-            && (target_changed || region_changed)
-            && !reset_existing_templates
-        {
-            return Err("共享窗口或搜索区域已变化，需要确认后清除旧模板".into());
-        }
-    }
     let source =
         image::load_from_memory(&png).map_err(|error| format!("读取捕获预览失败：{error}"))?;
     let template = crop_template_from_preview(&source, region, crop)?;
@@ -344,20 +349,27 @@ pub fn save_buff_listener(
     let height = template.height();
     let mask = decode_mask(mask_data_url.as_deref(), width, height)?;
     let template_id = format!("buff-listener-{}", now_millis());
-    let mut summary = storage::save_template(&directory, &template_id, &template, &mask)?;
+    let (region_x, region_y, region_end_x, region_end_y) =
+        region.pixel_bounds(source.width(), source.height());
+    let source_region = source.crop_imm(
+        region_x,
+        region_y,
+        region_end_x - region_x,
+        region_end_y - region_y,
+    );
+    let mut summary = storage::save_template(
+        &directory,
+        &template_id,
+        &template,
+        &mask,
+        Some(&source_region),
+    )?;
     summary.crop = Some(crop);
     let snapshot = {
         let mut inner = state.lock();
         if listener_id.is_none() && inner.config.listeners.len() >= MAX_LISTENERS {
             storage::delete_template(&directory, &summary)?;
             return Err(format!("最多只能添加 {MAX_LISTENERS} 个监听图标"));
-        }
-        if reset_existing_templates {
-            for listener in &mut inner.config.listeners {
-                if let Some(previous) = listener.template.take() {
-                    storage::delete_template(&directory, &previous)?;
-                }
-            }
         }
         inner.config.target = Some(BuffTarget {
             reference_width: target.reference_width,
@@ -402,8 +414,6 @@ pub struct SaveBuffListenerRequest {
     search_region: NormalizedRect,
     crop: NormalizedRect,
     mask_data_url: Option<String>,
-    #[serde(default)]
-    reset_existing_templates: bool,
 }
 
 #[tauri::command]
@@ -425,10 +435,11 @@ pub fn get_buff_listener_template(
             .ok_or_else(|| "监听项尚未配置图标模板".to_string())?;
         (inner.storage_directory.clone(), summary)
     };
-    let (image, mask) = storage::load_template_assets(&directory, &summary)?;
+    let (image, mask, source) = storage::load_template_editor_assets(&directory, &summary)?;
     Ok(BuffTemplatePreview {
         image_data_url: png_bytes_data_url(&image),
         mask_data_url: png_bytes_data_url(&mask),
+        source_data_url: source.as_deref().map(png_bytes_data_url),
         crop: summary.crop,
     })
 }
@@ -524,6 +535,7 @@ pub fn update_buff_listener(
                 &template.id,
                 &cropped_image,
                 &mask,
+                None,
             )?;
             next_config.listeners[listener_index].template = Some(summary);
         } else if let Some(mask_data_url) = mask_data_url.as_deref() {

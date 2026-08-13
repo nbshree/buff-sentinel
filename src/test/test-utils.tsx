@@ -42,6 +42,7 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
     captureBuffPreview: vi.fn(async () => {
       throw new Error('not configured')
     }),
+    updateBuffSearchRegion: vi.fn(async () => buffState),
     getBuffListenerTemplate: vi.fn(async () => ({
       imageDataUrl: 'data:image/png;base64,dGVtcGxhdGU=',
       maskDataUrl: 'data:image/png;base64,bWFzaw==',

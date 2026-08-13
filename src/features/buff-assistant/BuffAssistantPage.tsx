@@ -106,6 +106,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     error,
     refreshWindows,
     capturePreview,
+    updateBuffSearchRegion,
     getListenerTemplate,
     saveListener,
     updateListener,
@@ -269,6 +270,9 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     setSearchRegion(region)
     setTemplateCrop(null)
     setMaskHistory(createMaskHistory())
+    if (state.config.listeners.some((listener) => listener.template)) {
+      void updateBuffSearchRegion(region).catch(() => undefined)
+    }
   }
 
   function handleTemplateCropChange(crop: NormalizedRect): void {
@@ -311,18 +315,13 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     try {
       const template = await getListenerTemplate(listener.id)
       if (listenerTemplateRequestRef.current !== requestId) return
-      const restoredCrop =
-        template.crop ??
-        (templateSource
-          ? await locateTemplateCrop(templateSource, template.imageDataUrl).catch(() => null)
-          : null)
-      if (listenerTemplateRequestRef.current !== requestId) return
-      setSavedTemplateSource(template.imageDataUrl)
+      setSavedTemplateSource(template.sourceDataUrl ?? template.imageDataUrl)
       setUsingSavedTemplate(true)
-      const restoreSharedCrop = Boolean(templateSource && restoredCrop)
-      setEditingFromSharedSource(restoreSharedCrop)
+      setEditingFromSharedSource(false)
       setTemplateCrop(
-        restoreSharedCrop && restoredCrop ? restoredCrop : { x: 0, y: 0, width: 1, height: 1 }
+        template.sourceDataUrl && template.crop
+          ? template.crop
+          : { x: 0, y: 0, width: 1, height: 1 }
       )
       setMaskHistory(createMaskHistory(template.maskDataUrl))
     } catch (reason) {
@@ -334,7 +333,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
 
   function startListenerRecrop(): void {
     setUsingSavedTemplate(false)
-    setEditingFromSharedSource(false)
+    setEditingFromSharedSource(true)
     setTemplateCrop(null)
     setMaskHistory(createMaskHistory())
   }
@@ -356,23 +355,9 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           name,
           listenerEnabled,
           listenerSettings,
-          maskRef.current?.getMaskDataUrl(),
-          templateCrop ?? undefined
+          maskRef.current?.getMaskDataUrl()
         )
       } else if (templateCrop && searchRegion) {
-        const sharedChanged =
-          state.config.listeners.length > 0 &&
-          (!sameRegion(state.config.searchRegion, searchRegion) ||
-            state.config.target?.processName !== preview?.target.processName ||
-            state.config.target?.windowTitle !== preview?.target.windowTitle ||
-            state.config.target?.referenceWidth !== preview?.target.referenceWidth ||
-            state.config.target?.referenceHeight !== preview?.target.referenceHeight)
-        if (
-          sharedChanged &&
-          !window.confirm('共享窗口或搜索区域已变化，继续会清除所有旧图标模板，确定继续吗？')
-        ) {
-          return
-        }
         await saveListener(
           editingListenerId,
           name,
@@ -380,8 +365,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           listenerSettings,
           searchRegion,
           templateCrop,
-          maskRef.current?.getMaskDataUrl(),
-          sharedChanged
+          maskRef.current?.getMaskDataUrl()
         )
       } else if (editingListenerId) {
         await updateListener(editingListenerId, name, listenerEnabled, listenerSettings)
@@ -934,16 +918,22 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                 <p className="buff-listener-template-loading">正在加载已保存的图标和遮罩…</p>
               ) : listenerEditorSource ? (
                 <div className="buff-listener-template-editor">
+                  {usingSavedTemplate && templateSource ? (
+                    <Button type="button" variant="outline" onClick={startListenerRecrop}>
+                      <ImagePlus aria-hidden="true" />
+                      从当前 Buff 区域刷新监听图标
+                    </Button>
+                  ) : null}
                   <div className="buff-wizard-step__title">
                     <span>1</span>
                     <div>
                       <strong>裁剪图标主体</strong>
                       <p>
                         {usingSavedTemplate
-                          ? editingFromSharedSource
-                            ? '已恢复保存时的完整预览和裁剪范围。'
-                            : '未找到完整预览，当前显示已保存的图标。'
-                          : '只框选当前图标，不要包含相邻 Buff。'}
+                        ? editingFromSharedSource
+                          ? '当前正在使用最新 Buff 区域，可重新框选并保存为新的监听图标。'
+                          : '当前显示已保存的监听图标；如需更新，请点击下方刷新按钮。'
+                        : '只框选当前图标，不要包含相邻 Buff.'}
                       </p>
                     </div>
                   </div>
@@ -964,12 +954,6 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                       onChange={setMaskHistory}
                       onRequestExpand={() => setMaskEditorOpen(true)}
                     />
-                  ) : null}
-                  {usingSavedTemplate && templateSource ? (
-                    <Button type="button" variant="outline" onClick={startListenerRecrop}>
-                      <ImagePlus aria-hidden="true" />
-                      从当前预览重新裁剪
-                    </Button>
                   ) : null}
                 </div>
               ) : null}
@@ -1012,7 +996,6 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
             open={searchRegionEditorOpen}
             title="精调 Buff 栏搜索区域"
             value={searchRegion}
-            warning={templateCrop ? '应用新的搜索区域后，将清空图标裁剪和忽略区域。' : undefined}
             onApply={handleSearchRegionChange}
             onOpenChange={setSearchRegionEditorOpen}
           />
@@ -1405,140 +1388,8 @@ function cropImageDataUrl(imageUrl: string, region: NormalizedRect): Promise<str
   })
 }
 
-async function locateTemplateCrop(
-  sourceUrl: string,
-  templateUrl: string
-): Promise<NormalizedRect | null> {
-  const [source, template] = await Promise.all([loadImage(sourceUrl), loadImage(templateUrl)])
-  if (
-    template.naturalWidth > source.naturalWidth ||
-    template.naturalHeight > source.naturalHeight
-  ) {
-    return null
-  }
-  const sourcePixels = imagePixels(source)
-  const templatePixels = imagePixels(template)
-  const samplePoints = templateMatchSamplePoints(template.naturalWidth, template.naturalHeight)
-  const maxX = source.naturalWidth - template.naturalWidth
-  const maxY = source.naturalHeight - template.naturalHeight
-  for (let y = 0; y <= maxY; y += 1) {
-    for (let x = 0; x <= maxX; x += 1) {
-      if (
-        samplePoints.every(([sampleX, sampleY]) =>
-          pixelsEqual(
-            sourcePixels,
-            ((y + sampleY) * source.naturalWidth + x + sampleX) * 4,
-            templatePixels,
-            (sampleY * template.naturalWidth + sampleX) * 4
-          )
-        ) &&
-        templatePixelsMatchAt(
-          sourcePixels,
-          source.naturalWidth,
-          templatePixels,
-          template.naturalWidth,
-          template.naturalHeight,
-          x,
-          y
-        )
-      ) {
-        return {
-          x: x / source.naturalWidth,
-          y: y / source.naturalHeight,
-          width: template.naturalWidth / source.naturalWidth,
-          height: template.naturalHeight / source.naturalHeight
-        }
-      }
-    }
-  }
-  return null
-}
-
-function templatePixelsMatchAt(
-  source: Uint8ClampedArray,
-  sourceWidth: number,
-  template: Uint8ClampedArray,
-  templateWidth: number,
-  templateHeight: number,
-  offsetX: number,
-  offsetY: number
-): boolean {
-  for (let y = 0; y < templateHeight; y += 1) {
-    for (let x = 0; x < templateWidth; x += 1) {
-      if (
-        !pixelsEqual(
-          source,
-          ((offsetY + y) * sourceWidth + offsetX + x) * 4,
-          template,
-          (y * templateWidth + x) * 4
-        )
-      ) {
-        return false
-      }
-    }
-  }
-  return true
-}
-
-function loadImage(imageUrl: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.decoding = 'async'
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error('无法读取模板图片'))
-    image.src = imageUrl
-  })
-}
-
-function imagePixels(image: HTMLImageElement): Uint8ClampedArray {
-  const canvas = document.createElement('canvas')
-  canvas.width = image.naturalWidth
-  canvas.height = image.naturalHeight
-  const context = canvas.getContext('2d')
-  if (!context) throw new Error('无法创建模板匹配画布')
-  context.drawImage(image, 0, 0)
-  return context.getImageData(0, 0, canvas.width, canvas.height).data
-}
-
-function templateMatchSamplePoints(width: number, height: number): Array<[number, number]> {
-  const points: Array<[number, number]> = []
-  for (const yRatio of [0, 0.25, 0.5, 0.75, 1]) {
-    for (const xRatio of [0, 0.25, 0.5, 0.75, 1]) {
-      points.push([
-        Math.min(width - 1, Math.round((width - 1) * xRatio)),
-        Math.min(height - 1, Math.round((height - 1) * yRatio))
-      ])
-    }
-  }
-  return points
-}
-
-function pixelsEqual(
-  first: Uint8ClampedArray,
-  firstOffset: number,
-  second: Uint8ClampedArray,
-  secondOffset: number
-): boolean {
-  return (
-    first[firstOffset] === second[secondOffset] &&
-    first[firstOffset + 1] === second[secondOffset + 1] &&
-    first[firstOffset + 2] === second[secondOffset + 2] &&
-    first[firstOffset + 3] === second[secondOffset + 3]
-  )
-}
-
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value))
-}
-
-function sameRegion(left: NormalizedRect | null, right: NormalizedRect): boolean {
-  if (!left) return false
-  return (
-    Math.abs(left.x - right.x) < 0.000_001 &&
-    Math.abs(left.y - right.y) < 0.000_001 &&
-    Math.abs(left.width - right.width) < 0.000_001 &&
-    Math.abs(left.height - right.height) < 0.000_001
-  )
 }
 
 function toMessage(reason: unknown): string {

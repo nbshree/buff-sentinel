@@ -116,9 +116,7 @@ describe('BuffAssistantPage', () => {
         'jinzhoutian',
         '金周天',
         true,
-        expect.objectContaining({ cycleMs: 30_000 }),
-        undefined,
-        { x: 0, y: 0, width: 1, height: 1 }
+        expect.objectContaining({ cycleMs: 30_000 })
       )
     )
   })
