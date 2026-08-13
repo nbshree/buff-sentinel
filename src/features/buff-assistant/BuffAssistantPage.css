@@ -635,10 +635,7 @@
 .buff-mask-editor {
   width: fit-content;
   max-width: 100%;
-  overflow: hidden;
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  background: #090b0e;
+  overflow: visible;
 }
 
 .buff-mask-editor[data-expanded='true'] {
@@ -654,14 +651,23 @@
 }
 
 .buff-mask-editor__viewport {
+  display: inline-block;
+  width: fit-content;
   max-width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: #090b0e;
   overflow: auto;
   scrollbar-color: var(--border-strong) #090b0e;
 }
 
 .buff-mask-editor[data-expanded='true'] .buff-mask-editor__viewport {
+  display: block;
+  width: auto;
   max-width: none;
   max-height: none;
+  border: 0;
+  border-radius: 0;
   overflow: visible;
 }
 
@@ -685,7 +691,7 @@
   display: flex;
   justify-content: space-between;
   gap: 16px;
-  padding: 7px 9px;
+  padding: 10px 2px 0;
   color: var(--text-muted);
   font-size: 10px;
 }
@@ -698,13 +704,49 @@
 .buff-mask-editor__actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.buff-mask-editor__actions button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-default);
+  border-radius: 7px;
+  padding: 5px 9px;
+  background: var(--surface-panel);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+
+.buff-mask-editor__actions button:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  background: var(--surface-hover);
+  color: var(--color-primary);
+}
+
+.buff-mask-editor__actions button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.buff-mask-editor__actions .buff-mask-editor__expand {
+  border-color: color-mix(in srgb, var(--color-primary) 45%, var(--border-default));
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--surface-panel));
+  color: var(--color-primary);
 }
 
 .buff-mask-editor__actions button[aria-label] {
   display: grid;
   width: 24px;
-  height: 24px;
+  min-height: 30px;
+  height: 30px;
   padding: 0;
   place-items: center;
 }
@@ -856,8 +898,31 @@
   transition: width 160ms ease-out;
 }
 
-.buff-settings-grid--global {
-  grid-template-columns: minmax(180px, 260px);
+.buff-global-settings-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) max-content max-content;
+  align-items: end;
+  gap: 10px;
+}
+
+.buff-global-settings-row > label {
+  display: grid;
+  gap: 3px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.buff-global-settings-row .buff-check-row {
+  min-height: 32px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .buff-global-settings-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
 }
 
 .buff-listener-section > header,

@@ -21,6 +21,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '../../components/ui/select'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -450,29 +457,31 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                 <DialogDescription>调整浮窗与系统捕获参数，点击保存后生效。</DialogDescription>
                 </DialogHeader>
                 <div className="buff-settings-dialog">
-                  <div className="buff-settings-grid buff-settings-grid--global">
+                  <div className="buff-global-settings-row">
                     <label>
                       <span>浮窗配色</span>
-                      <select
+                      <Select
                         aria-label="浮窗配色"
                         value={settings.overlay.colorScheme}
-                        onChange={(event) =>
+                        onValueChange={(value) =>
                           setSettings((current) => ({
                             ...current,
                             overlay: {
                               ...current.overlay,
-                              colorScheme: event.target
-                                .value as BuffGlobalSettings['overlay']['colorScheme']
+                              colorScheme: value as BuffGlobalSettings['overlay']['colorScheme']
                             }
                           }))
                         }
                       >
-                        <option value="gold">金色（当前）</option>
-                        <option value="blackWhite">黑底白字</option>
-                      </select>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="gold">金色（当前）</SelectItem>
+                          <SelectItem value="blackWhite">黑底白字</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </label>
-                  </div>
-                  <div className="buff-sound-options">
                     <div className="buff-check-row">
                       <input
                         checked={settings.overlay.excludeFromCapture}
@@ -519,6 +528,8 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                         />
                       </div>
                     </div>
+                  </div>
+                  <div className="buff-sound-options">
                     {state.captureBorderNotice ? (
                       <p className="buff-setting-help buff-setting-help--warning">
                         {state.captureBorderNotice}

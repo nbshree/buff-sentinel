@@ -339,7 +339,7 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
             <RotateCcw aria-hidden="true" />
           </button>
           {onRequestExpand ? (
-            <button type="button" onClick={onRequestExpand}>
+            <button className="buff-mask-editor__expand" type="button" onClick={onRequestExpand}>
               <Maximize2 aria-hidden="true" />
               放大涂抹
             </button>
