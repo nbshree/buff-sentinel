@@ -1,4 +1,9 @@
 import {
+  Activity,
+  CheckCircle2,
+  ChevronDown,
+  Clock3,
+  Crosshair,
   ExternalLink,
   CircleHelp,
   Eye,
@@ -19,7 +24,9 @@ import {
 import { useEffect, useRef, useState } from 'react'
 
 import { Button } from '../../components/ui/button'
+import { Checkbox } from '../../components/ui/checkbox'
 import { Input } from '../../components/ui/input'
+import { Slider } from '../../components/ui/slider'
 import {
   Select,
   SelectContent,
@@ -130,14 +137,14 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const [editingListenerId, setEditingListenerId] = useState<string | null>(null)
   const [listenerName, setListenerName] = useState('')
   const [listenerEnabled, setListenerEnabled] = useState(true)
-  const [listenerSettings, setListenerSettings] = useState<BuffListenerSettings>(
-    defaultListenerSettings
-  )
+  const [listenerSettings, setListenerSettings] =
+    useState<BuffListenerSettings>(defaultListenerSettings)
   const [listenerError, setListenerError] = useState<string | null>(null)
   const [overlayEditing, setOverlayEditingState] = useState(false)
   const [soundTemplates, setSoundTemplates] = useState<BuffSoundTemplateSummary[]>([])
   const [soundError, setSoundError] = useState<string | null>(null)
   const [uploadingCue, setUploadingCue] = useState<BuffSoundCue | null>(null)
+  const [logsCollapsed, setLogsCollapsed] = useState(false)
   const maskRef = useRef<MaskEditorHandle>(null)
   const listenerTemplateRequestRef = useRef(0)
 
@@ -236,9 +243,19 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const configurationLocked = state.isMonitoring || state.activity === 'testing'
   const canStart = Boolean(
     state.config.target &&
-      state.config.searchRegion &&
-      state.config.listeners.some((listener) => listener.enabled && listener.template)
+    state.config.searchRegion &&
+    state.config.listeners.some((listener) => listener.enabled && listener.template)
   )
+  const enabledListenerCount = state.config.listeners.filter((listener) => listener.enabled).length
+  const monitoringStatus = state.isMonitoring
+    ? { label: '监控中', detail: `${enabledListenerCount} 个监听项运行中`, tone: 'active' }
+    : state.activity === 'testing'
+      ? { label: '测试中', detail: '正在校验监听图标', tone: 'testing' }
+      : overlayEditing
+        ? { label: '调整浮窗', detail: '拖动并保存悬浮窗位置', tone: 'editing' }
+        : canStart
+          ? { label: '待命', detail: `${enabledListenerCount} 个监听项已就绪`, tone: 'ready' }
+          : { label: '未就绪', detail: '完成捕获与监听配置后开始', tone: 'idle' }
   async function handlePreview(): Promise<void> {
     if (!selectedWindowId) return
     const result = await capturePreview(selectedWindowId)
@@ -305,9 +322,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
       const restoreSharedCrop = Boolean(templateSource && restoredCrop)
       setEditingFromSharedSource(restoreSharedCrop)
       setTemplateCrop(
-        restoreSharedCrop && restoredCrop
-          ? restoredCrop
-          : { x: 0, y: 0, width: 1, height: 1 }
+        restoreSharedCrop && restoredCrop ? restoredCrop : { x: 0, y: 0, width: 1, height: 1 }
       )
       setMaskHistory(createMaskHistory(template.maskDataUrl))
     } catch (reason) {
@@ -427,170 +442,54 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           </div>
         ) : null}
 
-        <section className="buff-card buff-monitor-toolbar">
-          <div className="buff-card__actions buff-monitor-actions">
-            {state.isMonitoring ? (
-              <Button disabled={busy} variant="destructive" onClick={() => void stopMonitor()}>
-                <Square aria-hidden="true" />
-                停止监控
-              </Button>
-            ) : (
-              <Button disabled={busy || !canStart} onClick={() => void startMonitor()}>
-                <Play aria-hidden="true" />
-                开始监控
-              </Button>
-            )}
-            <Button disabled={busy} variant="outline" onClick={() => void handleOverlayEdit()}>
-              <MonitorPlay aria-hidden="true" />
-              {overlayEditing ? '保存悬浮位置' : '调整悬浮位置'}
-            </Button>
-            <Dialog open={settingsDialogOpen} onOpenChange={handleSettingsDialogOpenChange}>
-              <DialogTrigger asChild>
-                <Button disabled={busy || configurationLocked} variant="outline">
-                  <Settings2 aria-hidden="true" />
-                  识别与提醒设置
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-h-[calc(100vh-48px)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[1000px]">
-                <DialogHeader className="border-b border-border px-5 py-4 pr-14">
-                  <DialogTitle>识别与提醒设置</DialogTitle>
-                <DialogDescription>调整浮窗与系统捕获参数，点击保存后生效。</DialogDescription>
-                </DialogHeader>
-                <div className="buff-settings-dialog">
-                  <div className="buff-global-settings-row">
-                    <label>
-                      <span>浮窗配色</span>
-                      <Select
-                        aria-label="浮窗配色"
-                        value={settings.overlay.colorScheme}
-                        onValueChange={(value) =>
-                          setSettings((current) => ({
-                            ...current,
-                            overlay: {
-                              ...current.overlay,
-                              colorScheme: value as BuffGlobalSettings['overlay']['colorScheme']
-                            }
-                          }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="gold">金色（当前）</SelectItem>
-                          <SelectItem value="blackWhite">黑底白字</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </label>
-                    <div className="buff-check-row">
-                      <input
-                        checked={settings.overlay.excludeFromCapture}
-                        disabled={busy}
-                        id="exclude-overlay-capture"
-                        type="checkbox"
-                        onChange={(event) =>
-                          setSettings((current) => ({
-                            ...current,
-                            overlay: {
-                              ...current.overlay,
-                              excludeFromCapture: event.target.checked
-                            }
-                          }))
-                        }
-                      />
-                      <div className="buff-check-label">
-                        <label htmlFor="exclude-overlay-capture">排除录屏捕获</label>
-                        <SettingTooltip
-                          label="查看排除录屏捕获说明"
-                          content="开启后，OBS 等使用系统捕获接口的工具通常不会录入 Buff 悬浮窗；游戏捕获、驱动级采集和采集卡可能不受支持。"
-                        />
-                      </div>
-                    </div>
-                    <div className="buff-check-row">
-                      <input
-                        checked={!settings.capture.showSystemBorder}
-                        disabled={busy || !state.captureBorderSupported}
-                        id="hide-system-capture-border"
-                        type="checkbox"
-                        onChange={(event) =>
-                          void handleHideSystemCaptureBorderChange(event.target.checked)
-                        }
-                      />
-                      <div className="buff-check-label">
-                        <label htmlFor="hide-system-capture-border">隐藏系统捕获黄色边框</label>
-                        <SettingTooltip
-                          label="查看隐藏系统捕获黄色边框说明"
-                          content={
-                            state.captureBorderSupported
-                              ? '隐藏时 Windows 可能请求授权；该边框由 Windows Graphics Capture 绘制，不会进入捕获画面。'
-                              : '当前 Windows 版本不支持隐藏系统捕获黄色边框。'
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="buff-sound-options">
-                    {state.captureBorderNotice ? (
-                      <p className="buff-setting-help buff-setting-help--warning">
-                        {state.captureBorderNotice}
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-                <DialogFooter className="border-t border-border px-5 py-4">
-                  <Button
-                    disabled={busy}
-                    variant="outline"
-                    onClick={() => setSettingsDialogOpen(false)}
-                  >
-                    取消
-                  </Button>
-                  <Button disabled={busy} onClick={() => void handleSaveSettings()}>
-                    <Save aria-hidden="true" />
-                    保存设置
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </div>
-        </section>
-
-        <section className="buff-card buff-template-wizard">
-          <header>
-            <div>
-              <ImagePlus aria-hidden="true" />
+        <aside className="buff-sidebar" aria-label="捕获配置">
+          <section className="buff-card buff-sidebar-section buff-template-wizard">
+            <header>
               <div>
-                <h3>共享捕获区域</h3>
-                <p>所有监听图标共用一个游戏窗口和 Buff 搜索区域。</p>
+                <Crosshair aria-hidden="true" />
+                <div>
+                  <span className="buff-section-kicker">CAPTURE SOURCE</span>
+                  <h3>共享捕获区域</h3>
+                  <p>所有监听图标共用同一个游戏窗口与搜索区域。</p>
+                </div>
               </div>
+              <Button
+                aria-label="刷新窗口"
+                disabled={busy || configurationLocked}
+                size="icon-sm"
+                title="刷新窗口"
+                variant="outline"
+                onClick={() => void refreshWindows()}
+              >
+                <RefreshCw aria-hidden="true" />
+              </Button>
+            </header>
+
+            <div className="buff-window-field">
+              <span id="buff-target-window-label">目标游戏窗口</span>
+              <Select
+                disabled={configurationLocked || windows.length === 0}
+                value={selectedWindowId}
+                onValueChange={setSelectedWindowId}
+              >
+                <SelectTrigger
+                  aria-labelledby="buff-target-window-label"
+                  className="buff-window-select"
+                >
+                  <SelectValue placeholder="没有可捕获窗口" />
+                </SelectTrigger>
+                <SelectContent>
+                  {windows.map((candidate) => (
+                    <SelectItem key={candidate.id} value={candidate.id}>
+                      {candidate.processName} · {candidate.windowTitle} · {candidate.width}×
+                      {candidate.height}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <Button
-              disabled={busy || configurationLocked}
-              size="sm"
-              variant="outline"
-              onClick={() => void refreshWindows()}
-            >
-              <RefreshCw aria-hidden="true" />
-              刷新窗口
-            </Button>
-          </header>
-
-          <div className="buff-window-row">
-            <select
-              disabled={configurationLocked}
-              aria-label="目标游戏窗口"
-              value={selectedWindowId}
-              onChange={(event) => setSelectedWindowId(event.target.value)}
-            >
-              {windows.length === 0 ? <option value="">没有可捕获窗口</option> : null}
-              {windows.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.processName} · {candidate.windowTitle} · {candidate.width}×
-                  {candidate.height}
-                </option>
-              ))}
-            </select>
-            <Button
+              className="buff-preview-button"
               disabled={busy || configurationLocked || !selectedWindowId}
               variant="outline"
               onClick={() => void handlePreview()}
@@ -598,133 +497,415 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               <Eye aria-hidden="true" />
               捕获预览
             </Button>
-          </div>
 
-          {preview ? (
-            <div className="buff-wizard-step">
-              <div className="buff-wizard-step__title">
-                <span>1</span>
+            {preview ? (
+              <div className="buff-wizard-step">
+                <div className="buff-wizard-step__title">
+                  <span>1</span>
+                  <div>
+                    <strong>框选 Buff 栏搜索区域</strong>
+                    <p>区域越小识别越快，请覆盖全部图标可能出现的位置。</p>
+                  </div>
+                </div>
+                <RegionSelector
+                  imageUrl={preview.dataUrl}
+                  label="Buff 搜索区域"
+                  value={searchRegion}
+                  onChange={handleSearchRegionChange}
+                  onRequestExpand={() => setSearchRegionEditorOpen(true)}
+                />
+              </div>
+            ) : (
+              <div className="buff-capture-empty">
+                <div className="buff-capture-empty__icon">
+                  <ImagePlus aria-hidden="true" />
+                </div>
+                <strong>等待捕获预览</strong>
+                <p>选择游戏窗口后生成画面，再框选 Buff 栏。</p>
+              </div>
+            )}
+          </section>
+        </aside>
+
+        <main className="buff-dashboard">
+          <section className="buff-card buff-monitor-toolbar">
+            <div className="buff-monitor-status">
+              <div
+                className="buff-monitor-status__indicator"
+                data-tone={monitoringStatus.tone}
+                aria-hidden="true"
+              >
+                <Activity />
+              </div>
+              <div>
+                <span className="buff-section-kicker">SENTINEL STATUS</span>
+                <div className="buff-monitor-status__heading">
+                  <h2>{monitoringStatus.label}</h2>
+                  <span className="buff-status-badge" data-tone={monitoringStatus.tone}>
+                    <span aria-hidden="true" />
+                    {monitoringStatus.label}
+                  </span>
+                </div>
+                <p>{monitoringStatus.detail}</p>
+              </div>
+            </div>
+            <div className="buff-card__actions buff-monitor-actions">
+              {state.isMonitoring ? (
+                <Button disabled={busy} variant="destructive" onClick={() => void stopMonitor()}>
+                  <Square aria-hidden="true" />
+                  停止监控
+                </Button>
+              ) : (
+                <Button disabled={busy || !canStart} onClick={() => void startMonitor()}>
+                  <Play aria-hidden="true" />
+                  开始监控
+                </Button>
+              )}
+              <Button disabled={busy} variant="outline" onClick={() => void handleOverlayEdit()}>
+                <MonitorPlay aria-hidden="true" />
+                {overlayEditing ? '保存悬浮位置' : '调整悬浮位置'}
+              </Button>
+              <Dialog open={settingsDialogOpen} onOpenChange={handleSettingsDialogOpenChange}>
+                <DialogTrigger asChild>
+                  <Button disabled={busy || configurationLocked} variant="outline">
+                    <Settings2 aria-hidden="true" />
+                    识别与提醒设置
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-h-[calc(100vh-48px)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[1000px]">
+                  <DialogHeader className="border-b border-border px-5 py-4 pr-14">
+                    <DialogTitle>识别与提醒设置</DialogTitle>
+                    <DialogDescription>调整浮窗与系统捕获参数，点击保存后生效。</DialogDescription>
+                  </DialogHeader>
+                  <div className="buff-settings-dialog">
+                    <div className="buff-global-settings-row">
+                      <label>
+                        <span>浮窗配色</span>
+                        <Select
+                          aria-label="浮窗配色"
+                          value={settings.overlay.colorScheme}
+                          onValueChange={(value) =>
+                            setSettings((current) => ({
+                              ...current,
+                              overlay: {
+                                ...current.overlay,
+                                colorScheme: value as BuffGlobalSettings['overlay']['colorScheme']
+                              }
+                            }))
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="gold">金色（当前）</SelectItem>
+                            <SelectItem value="blackWhite">黑底白字</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </label>
+                      <div className="buff-check-row">
+                        <Checkbox
+                          aria-labelledby="exclude-overlay-capture-label"
+                          checked={settings.overlay.excludeFromCapture}
+                          disabled={busy}
+                          id="exclude-overlay-capture"
+                          onCheckedChange={(checked) =>
+                            setSettings((current) => ({
+                              ...current,
+                              overlay: {
+                                ...current.overlay,
+                                excludeFromCapture: checked === true
+                              }
+                            }))
+                          }
+                        />
+                        <div className="buff-check-label">
+                          <label
+                            id="exclude-overlay-capture-label"
+                            htmlFor="exclude-overlay-capture"
+                          >
+                            排除录屏捕获
+                          </label>
+                          <SettingTooltip
+                            label="查看排除录屏捕获说明"
+                            content="开启后，OBS 等使用系统捕获接口的工具通常不会录入 Buff 悬浮窗；游戏捕获、驱动级采集和采集卡可能不受支持。"
+                          />
+                        </div>
+                      </div>
+                      <div className="buff-check-row">
+                        <Checkbox
+                          aria-labelledby="hide-system-capture-border-label"
+                          checked={!settings.capture.showSystemBorder}
+                          disabled={busy || !state.captureBorderSupported}
+                          id="hide-system-capture-border"
+                          onCheckedChange={(checked) =>
+                            void handleHideSystemCaptureBorderChange(checked === true)
+                          }
+                        />
+                        <div className="buff-check-label">
+                          <label
+                            id="hide-system-capture-border-label"
+                            htmlFor="hide-system-capture-border"
+                          >
+                            隐藏系统捕获黄色边框
+                          </label>
+                          <SettingTooltip
+                            label="查看隐藏系统捕获黄色边框说明"
+                            content={
+                              state.captureBorderSupported
+                                ? '隐藏时 Windows 可能请求授权；该边框由 Windows Graphics Capture 绘制，不会进入捕获画面。'
+                                : '当前 Windows 版本不支持隐藏系统捕获黄色边框。'
+                            }
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="buff-sound-options">
+                      {state.captureBorderNotice ? (
+                        <p className="buff-setting-help buff-setting-help--warning">
+                          {state.captureBorderNotice}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                  <DialogFooter className="border-t border-border px-5 py-4">
+                    <Button
+                      disabled={busy}
+                      variant="outline"
+                      onClick={() => setSettingsDialogOpen(false)}
+                    >
+                      取消
+                    </Button>
+                    <Button disabled={busy} onClick={() => void handleSaveSettings()}>
+                      <Save aria-hidden="true" />
+                      保存设置
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </section>
+
+          <section className="buff-card buff-listener-section">
+            <header>
+              <div>
+                <MonitorPlay aria-hidden="true" />
                 <div>
-                  <strong>框选 Buff 栏搜索区域</strong>
-                  <p>区域越小识别越快，但要覆盖所有监听图标可能出现的位置。</p>
+                  <span className="buff-section-kicker">ACTIVE LISTENERS</span>
+                  <h3>监听图标</h3>
+                  <p>已添加 {state.config.listeners.length}/8 个，启用项会同时监听。</p>
                 </div>
               </div>
-              <RegionSelector
-                imageUrl={preview.dataUrl}
-                label="Buff 搜索区域"
-                value={searchRegion}
-                onChange={handleSearchRegionChange}
-                onRequestExpand={() => setSearchRegionEditorOpen(true)}
-              />
-            </div>
-          ) : null}
-
-        </section>
-
-        <section className="buff-card buff-listener-section">
-          <header>
-            <div>
-              <MonitorPlay aria-hidden="true" />
-              <div>
-                <h3>监听图标</h3>
-                <p>已添加 {state.config.listeners.length}/8 个，启用项会同时监听。</p>
+              <Button
+                className="buff-add-listener-button"
+                disabled={
+                  busy ||
+                  configurationLocked ||
+                  !templateSource ||
+                  state.config.listeners.length >= 8
+                }
+                size="sm"
+                onClick={openAddListener}
+              >
+                <Plus aria-hidden="true" />
+                添加监听图标
+              </Button>
+            </header>
+            {state.config.listeners.length === 0 ? (
+              <div className="buff-listener-empty">
+                捕获预览并框选共享搜索区域后，即可添加第一个监听图标。
               </div>
-            </div>
-            <Button
-              disabled={
-                busy || configurationLocked || !templateSource || state.config.listeners.length >= 8
-              }
-              size="sm"
-              onClick={openAddListener}
-            >
-              <Plus aria-hidden="true" />
-              添加监听图标
-            </Button>
-          </header>
-          {state.config.listeners.length === 0 ? (
-            <div className="buff-listener-empty">
-              捕获预览并框选共享搜索区域后，即可添加第一个监听图标。
-            </div>
-          ) : (
-            <div className="buff-listener-list">
-              {state.config.listeners.map((listener) => {
-                const metric = metrics[listener.id]
-                const runtime = state.listeners.find((item) => item.id === listener.id)
-                return (
-                  <article className="buff-listener-item" key={listener.id}>
-                    <label className="buff-listener-toggle">
-                      <input
-                        checked={listener.enabled}
-                        disabled={busy || configurationLocked}
-                        type="checkbox"
-                        onChange={(event) =>
-                          void updateListener(
-                            listener.id,
-                            listener.name,
-                            event.target.checked,
-                            listener.settings
-                          )
-                        }
-                      />
-                      <span>{listener.name}</span>
-                    </label>
-                    <div className="buff-listener-status">
-                      <span>{listener.template ? '模板已配置' : '需要重新裁剪模板'}</span>
-                      <span>
-                        置信度 {Math.round((metric?.confidence ?? runtime?.lastConfidence ?? 0) * 100)}%
-                      </span>
-                      <span>{runtimeActivityLabel(runtime?.activity ?? 'stopped')}</span>
-                    </div>
-                    <div className="buff-card__actions">
-                      {state.activity === 'testing' && runtime?.activity === 'testing' ? (
-                        <Button disabled={busy} size="sm" variant="outline" onClick={() => void stopTest()}>
-                          停止测试
-                        </Button>
-                      ) : (
+            ) : (
+              <div className="buff-listener-list">
+                {state.config.listeners.map((listener) => {
+                  const metric = metrics[listener.id]
+                  const runtime = state.listeners.find((item) => item.id === listener.id)
+                  const confidence = Math.round(
+                    (metric?.confidence ?? runtime?.lastConfidence ?? 0) * 100
+                  )
+                  const activity = runtime?.activity ?? 'stopped'
+                  return (
+                    <article
+                      className="buff-listener-item"
+                      data-enabled={listener.enabled}
+                      key={listener.id}
+                    >
+                      <div className="buff-listener-item__topline">
+                        <div
+                          className="buff-listener-thumbnail"
+                          data-configured={Boolean(listener.template)}
+                          aria-hidden="true"
+                        >
+                          {listener.template ? (
+                            <>
+                              <CheckCircle2 />
+                              <small>
+                                {listener.template.width}×{listener.template.height}
+                              </small>
+                            </>
+                          ) : (
+                            <ImagePlus />
+                          )}
+                        </div>
+                        <div className="buff-listener-identity">
+                          <label className="buff-listener-toggle">
+                            <Checkbox
+                              aria-label={listener.name}
+                              checked={listener.enabled}
+                              disabled={busy || configurationLocked}
+                              onCheckedChange={(checked) =>
+                                void updateListener(
+                                  listener.id,
+                                  listener.name,
+                                  checked === true,
+                                  listener.settings
+                                )
+                              }
+                            />
+                            <span>{listener.name}</span>
+                          </label>
+                          <span>{listener.template ? '模板已配置' : '需要重新裁剪模板'}</span>
+                        </div>
+                        <span className="buff-runtime-badge" data-activity={activity}>
+                          {runtimeActivityLabel(activity)}
+                        </span>
+                      </div>
+                      <div className="buff-listener-metrics">
+                        <div>
+                          <span>实时置信度</span>
+                          <strong>{confidence}%</strong>
+                        </div>
+                        <div>
+                          <span>触发阈值</span>
+                          <strong>{Math.round(listener.settings.threshold * 100)}%</strong>
+                        </div>
+                        <div>
+                          <span>监听周期</span>
+                          <strong>{Math.round(listener.settings.cycleMs / 1000)}s</strong>
+                        </div>
+                      </div>
+                      <div className="buff-confidence-track" aria-hidden="true">
+                        <span style={{ width: `${confidence}%` }} />
+                      </div>
+                      <div className="buff-card__actions buff-listener-actions">
+                        {state.activity === 'testing' && runtime?.activity === 'testing' ? (
+                          <Button
+                            disabled={busy}
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void stopTest()}
+                          >
+                            停止测试
+                          </Button>
+                        ) : (
+                          <Button
+                            disabled={
+                              busy || configurationLocked || !listener.template || !selectedWindowId
+                            }
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void startTest(selectedWindowId, listener.id)}
+                          >
+                            测试
+                          </Button>
+                        )}
                         <Button
-                          disabled={busy || configurationLocked || !listener.template || !selectedWindowId}
+                          disabled={busy || configurationLocked}
                           size="sm"
                           variant="outline"
-                          onClick={() => void startTest(selectedWindowId, listener.id)}
+                          onClick={() => void openEditListener(listener)}
                         >
-                          测试
+                          <Pencil aria-hidden="true" />
+                          编辑
                         </Button>
-                      )}
-                      <Button
-                        disabled={busy || configurationLocked}
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void openEditListener(listener)}
-                      >
-                        <Pencil aria-hidden="true" />
-                        编辑
-                      </Button>
-                      <Button
-                        aria-label={`删除${listener.name}`}
-                        disabled={busy || configurationLocked}
-                        size="icon-compact"
-                        variant="destructive"
-                        onClick={() => {
-                          if (window.confirm(`确定删除监听项“${listener.name}”吗？`)) {
-                            void deleteListener(listener.id)
-                          }
-                        }}
-                      >
-                        <Trash2 aria-hidden="true" />
-                      </Button>
-                    </div>
-                  </article>
-                )
-              })}
+                        <Button
+                          aria-label={`删除${listener.name}`}
+                          disabled={busy || configurationLocked}
+                          size="icon-compact"
+                          variant="destructive"
+                          onClick={() => {
+                            if (window.confirm(`确定删除监听项“${listener.name}”吗？`)) {
+                              void deleteListener(listener.id)
+                            }
+                          }}
+                        >
+                          <Trash2 aria-hidden="true" />
+                        </Button>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+
+          <section
+            className="buff-execution-log"
+            data-collapsed={logsCollapsed}
+            aria-labelledby="buff-execution-log-title"
+          >
+            <header>
+              <div>
+                <ScrollText aria-hidden="true" />
+                <div>
+                  <span className="buff-section-kicker">ACTIVITY STREAM</span>
+                  <h3 id="buff-execution-log-title">执行日志</h3>
+                </div>
+                <span className="buff-log-count">{logs.length}</span>
+              </div>
+              <div className="buff-log-actions">
+                <Button
+                  aria-label="清空执行日志"
+                  disabled={logs.length === 0}
+                  size="icon-compact"
+                  title="清空日志"
+                  type="button"
+                  variant="outline"
+                  onClick={clearLogs}
+                >
+                  <Trash2 aria-hidden="true" />
+                </Button>
+                <Button
+                  aria-expanded={!logsCollapsed}
+                  aria-label={logsCollapsed ? '展开执行日志' : '收起执行日志'}
+                  className="buff-log-toggle"
+                  size="icon-compact"
+                  title={logsCollapsed ? '展开日志' : '收起日志'}
+                  type="button"
+                  variant="outline"
+                  onClick={() => setLogsCollapsed((collapsed) => !collapsed)}
+                >
+                  <ChevronDown aria-hidden="true" />
+                </Button>
+              </div>
+            </header>
+            <div className="buff-execution-log__body" aria-live="polite">
+              {logs.length === 0 ? (
+                <p className="buff-execution-log__empty">
+                  <Clock3 aria-hidden="true" />
+                  暂无日志，开始监控后将在这里显示活动。
+                </p>
+              ) : (
+                logs.map((item, index) => (
+                  <p
+                    className={`buff-log-line buff-log-line--${logTone(item)}`}
+                    key={`${index}-${item}`}
+                  >
+                    {item}
+                  </p>
+                ))
+              )}
             </div>
-          )}
-        </section>
+          </section>
+        </main>
 
         <Dialog open={listenerDialogOpen} onOpenChange={setListenerDialogOpen}>
           <DialogContent className="max-h-[calc(100vh-48px)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[1000px]">
             <DialogHeader className="border-b border-border px-5 py-4 pr-14">
               <DialogTitle>{editingListenerId ? '编辑监听图标' : '添加监听图标'}</DialogTitle>
-              <DialogDescription>名称、模板、识别参数、周期和提示音均仅作用于当前项。</DialogDescription>
+              <DialogDescription>
+                名称、模板、识别参数、周期和提示音均仅作用于当前项。
+              </DialogDescription>
             </DialogHeader>
             <div className="buff-listener-dialog">
               <div className="buff-listener-basics">
@@ -741,10 +922,10 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                   />
                 </label>
                 <label className="buff-listener-enabled">
-                  <input
+                  <Checkbox
+                    aria-label="启用监听"
                     checked={listenerEnabled}
-                    type="checkbox"
-                    onChange={(event) => setListenerEnabled(event.target.checked)}
+                    onCheckedChange={(checked) => setListenerEnabled(checked === true)}
                   />
                   启用监听
                 </label>
@@ -802,10 +983,16 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                 onPreviewSound={(cue, source) => void previewSound(cue, source)}
                 onUploadSound={(cue, field) => void importSound(cue, field)}
               />
-              {listenerError ? <p className="buff-sound-error" role="alert">{listenerError}</p> : null}
+              {listenerError ? (
+                <p className="buff-sound-error" role="alert">
+                  {listenerError}
+                </p>
+              ) : null}
             </div>
             <DialogFooter className="border-t border-border px-5 py-4">
-              <Button variant="outline" onClick={() => setListenerDialogOpen(false)}>取消</Button>
+              <Button variant="outline" onClick={() => setListenerDialogOpen(false)}>
+                取消
+              </Button>
               <Button
                 disabled={busy || loadingListenerTemplate}
                 onClick={() => void handleSaveListener()}
@@ -859,33 +1046,6 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
             onOpenChange={setMaskEditorOpen}
           />
         ) : null}
-
-        <section className="buff-execution-log" aria-labelledby="buff-execution-log-title">
-          <header>
-            <h3 id="buff-execution-log-title">
-              <ScrollText aria-hidden="true" />
-              执行日志
-            </h3>
-            <Button
-              aria-label="清空执行日志"
-              disabled={logs.length === 0}
-              size="icon-compact"
-              title="清空日志"
-              type="button"
-              variant="outline"
-              onClick={clearLogs}
-            >
-              <Trash2 aria-hidden="true" />
-            </Button>
-          </header>
-          <div className="buff-execution-log__body" aria-live="polite">
-            {logs.length === 0 ? (
-              <p className="buff-execution-log__empty">暂无日志。</p>
-            ) : (
-              logs.map((item, index) => <p key={`${index}-${item}`}>{item}</p>)
-            )}
-          </div>
-        </section>
       </div>
     </TooltipProvider>
   )
@@ -920,7 +1080,7 @@ function ListenerSettingsEditor({
       <div className="buff-settings-grid">
         <label>
           <span>周期（秒）</span>
-          <input
+          <Input
             max={120}
             min={5}
             step={0.01}
@@ -938,7 +1098,7 @@ function ListenerSettingsEditor({
               <SettingTooltip label="查看触发宽限期说明" content="单位：毫秒，建议值 1500" />
             </span>
           </label>
-          <input
+          <Input
             id="listener-deadline-grace-ms"
             max={2000}
             min={0}
@@ -952,7 +1112,7 @@ function ListenerSettingsEditor({
         </div>
         <label>
           <span>匹配阈值</span>
-          <input
+          <Input
             max={0.99}
             min={0.5}
             step={0.01}
@@ -963,7 +1123,7 @@ function ListenerSettingsEditor({
         </label>
         <label>
           <span>确认帧数</span>
-          <input
+          <Input
             max={12}
             min={1}
             type="number"
@@ -975,7 +1135,7 @@ function ListenerSettingsEditor({
         </label>
         <label>
           <span>消失帧数</span>
-          <input
+          <Input
             max={30}
             min={1}
             type="number"
@@ -1038,22 +1198,22 @@ function ListenerSettingsEditor({
         <label className="buff-volume-row">
           <Volume2 aria-hidden="true" />
           <span>提示音量</span>
-          <input
+          <Slider
+            aria-label="提示音量"
             max={1}
             min={0}
             step={0.05}
-            type="range"
-            value={settings.sound.volume}
-            onChange={(event) => setSound({ volume: Number(event.target.value) })}
+            value={[settings.sound.volume]}
+            onValueChange={([volume]) => setSound({ volume })}
           />
           <strong>{Math.round(settings.sound.volume * 100)}%</strong>
         </label>
         <div className="buff-sound-tip">
           <p>可使用 TTS Online 生成不同监听项的语音提示。</p>
-          <button type="button" onClick={onOpenTts}>
+          <Button size="compact" type="button" variant="ghost" onClick={onOpenTts}>
             <ExternalLink aria-hidden="true" />
             前往 TTS Online
-          </button>
+          </Button>
         </div>
         {soundError ? <p className="buff-sound-error">{soundError}</p> : null}
       </div>
@@ -1075,6 +1235,14 @@ function runtimeActivityLabel(activity: string): string {
   return labels[activity] ?? activity
 }
 
+function logTone(message: string): 'default' | 'warning' | 'error' | 'success' {
+  const normalized = message.toLowerCase()
+  if (/失败|错误|异常|error|failed/.test(normalized)) return 'error'
+  if (/警告|等待|重试|warning|retry/.test(normalized)) return 'warning'
+  if (/成功|已启动|已保存|完成|success|started|saved/.test(normalized)) return 'success'
+  return 'default'
+}
+
 type SettingTooltipProps = {
   label: string
   content: string
@@ -1084,9 +1252,15 @@ function SettingTooltip({ label, content }: SettingTooltipProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button aria-label={label} className="buff-setting-tooltip-trigger" type="button">
+        <Button
+          aria-label={label}
+          className="buff-setting-tooltip-trigger"
+          size="icon-xs"
+          type="button"
+          variant="ghost"
+        >
           <CircleHelp aria-hidden="true" />
-        </button>
+        </Button>
       </TooltipTrigger>
       <TooltipContent>{content}</TooltipContent>
     </Tooltip>
@@ -1131,18 +1305,16 @@ function SoundRow({
   return (
     <div className="buff-sound-row" data-cue={cue}>
       <label>
-        <input
+        <Checkbox
+          aria-label={label}
           checked={checked}
-          type="checkbox"
-          onChange={(event) => onChange(event.target.checked)}
+          onCheckedChange={(nextChecked) => onChange(nextChecked === true)}
         />
         {label}
       </label>
-      <select
-        aria-label={`${label}来源`}
+      <Select
         value={value}
-        onChange={(event) => {
-          const next = event.target.value
+        onValueChange={(next) => {
           if (next === 'sine') {
             onSourceChange({ type: 'sine' })
           } else if (next.startsWith('template:')) {
@@ -1150,29 +1322,42 @@ function SoundRow({
           }
         }}
       >
-        <option value="sine">正弦波</option>
-        {templates.map((template) => (
-          <option key={template.id} value={`template:${template.id}`}>
-            {template.name}
-          </option>
-        ))}
-        {source.type === 'custom' ? (
-          <option value={`custom:${source.assetId}`}>自定义：{source.fileName}</option>
-        ) : null}
-      </select>
-      <button
+        <SelectTrigger aria-label={`${label}来源`} className="buff-sound-row__select">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="sine">正弦波</SelectItem>
+          {templates.map((template) => (
+            <SelectItem key={template.id} value={`template:${template.id}`}>
+              {template.name}
+            </SelectItem>
+          ))}
+          {source.type === 'custom' ? (
+            <SelectItem value={`custom:${source.assetId}`}>自定义：{source.fileName}</SelectItem>
+          ) : null}
+        </SelectContent>
+      </Select>
+      <Button
         aria-label={`上传${label} WAV`}
         className="buff-sound-row__upload"
         disabled={uploading}
+        size="compact"
         type="button"
+        variant="ghost"
         onClick={onUpload}
       >
         <Upload aria-hidden="true" />
         {uploading ? '选择中' : '上传'}
-      </button>
-      <button aria-label={`试听${label}`} type="button" onClick={onTest}>
+      </Button>
+      <Button
+        aria-label={`试听${label}`}
+        size="compact"
+        type="button"
+        variant="ghost"
+        onClick={onTest}
+      >
         试听
-      </button>
+      </Button>
     </div>
   )
 }

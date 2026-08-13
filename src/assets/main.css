@@ -23,29 +23,33 @@
 }
 
 :root {
-  color-scheme: light;
-  --app-background: #eef2f5;
-  --surface-panel: #f8fafc;
-  --surface-panel-strong: #ffffff;
-  --surface-muted: #edf2f6;
-  --surface-hover: #e2e8ee;
-  --surface-input: #ffffff;
-  --text-primary: #18212f;
-  --text-secondary: #526173;
-  --text-muted: #778496;
-  --text-on-primary: #ffffff;
-  --border-default: #ccd5df;
-  --border-strong: #9eabb9;
-  --color-primary: #b27b13;
-  --color-primary-hover: #95640c;
-  --color-danger: #b42333;
-  --color-danger-hover: #941d2a;
-  --color-warning: #b87308;
+  color-scheme: dark;
+  --app-background: #0a0d12;
+  --surface-panel: #121720;
+  --surface-panel-strong: #171d27;
+  --surface-muted: #1a212c;
+  --surface-hover: #252e3d;
+  --surface-input: #0f141c;
+  --text-primary: #f4f6f8;
+  --text-secondary: #b1bac8;
+  --text-muted: #818c9e;
+  --text-on-primary: #171006;
+  --border-default: #293241;
+  --border-strong: #46536a;
+  --color-primary: #d4a359;
+  --color-primary-hover: #e7b96f;
+  --color-danger: #ef5350;
+  --color-danger-hover: #ff6b68;
+  --color-warning: #f0ad4e;
+  --color-success: #5fcf9b;
+  --sidebar-width: clamp(292px, 27vw, 360px);
   --motion-fast: 140ms;
-  --motion-normal: 180ms;
+  --motion-normal: 220ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
-  --scrim: rgb(15 23 42 / 52%);
-  --shadow-dialog: 0 24px 70px rgb(15 23 42 / 24%);
+  --scrim: rgb(2 5 10 / 72%);
+  --shadow-dialog: 0 28px 90px rgb(0 0 0 / 55%);
+  --shadow-panel: 0 18px 46px rgb(0 0 0 / 24%);
+  --shadow-gold: 0 0 28px rgb(212 163 89 / 8%);
   --shadcn-background: var(--app-background);
   --shadcn-foreground: var(--text-primary);
   --shadcn-card: var(--surface-panel);
@@ -82,7 +86,9 @@ body {
   margin: 0;
   overflow: hidden;
   background:
-    radial-gradient(circle at 85% 5%, rgb(213 167 65 / 16%), transparent 30%), var(--app-background);
+    radial-gradient(circle at 0% 0%, rgb(212 163 89 / 10%), transparent 34%),
+    radial-gradient(circle at 100% 100%, rgb(48 71 104 / 24%), transparent 52%),
+    linear-gradient(145deg, #0a0d12 0%, #0d1118 52%, #090c11 100%);
   color: var(--text-primary);
   font-family: 'Microsoft YaHei UI', 'Segoe UI', sans-serif;
   text-rendering: optimizeLegibility;
@@ -92,6 +98,39 @@ button,
 input,
 select {
   font: inherit;
+}
+
+button,
+select,
+input[type='checkbox'],
+input[type='range'] {
+  accent-color: var(--color-primary);
+}
+
+button {
+  touch-action: manipulation;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--border-strong);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-primary) 55%, var(--border-strong));
+  background-clip: padding-box;
 }
 
 .app-shell {
@@ -106,5 +145,16 @@ select {
   display: flex;
   flex: 1;
   min-height: 0;
-  padding: 0 12px 12px;
+  padding: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

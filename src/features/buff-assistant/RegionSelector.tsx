@@ -1,7 +1,7 @@
-import { Maximize2 } from 'lucide-react'
 import { useRef, useState, type PointerEvent } from 'react'
 
 import type { NormalizedRect } from '../../lib/buff-sentinel-api'
+import { EditorExpandButton } from './EditorExpandButton'
 import { ZoomableEditorViewport } from './ZoomableEditorViewport'
 
 type Point = { x: number; y: number }
@@ -147,10 +147,7 @@ export function RegionSelector({
         onLoad={(event) => {
           if (!upscaleSmallImage || expanded) return
           const image = event.currentTarget
-          const scale = Math.max(
-            1,
-            Math.min(420 / image.naturalWidth, 260 / image.naturalHeight)
-          )
+          const scale = Math.max(1, Math.min(420 / image.naturalWidth, 260 / image.naturalHeight))
           setPreviewSize({
             imageUrl,
             width: Math.round(image.naturalWidth * scale),
@@ -194,12 +191,7 @@ export function RegionSelector({
       )}
       <div className="buff-region-selector__footer">
         <p>拖动空白处重选；拖动框内移动，拖动边角精调。</p>
-        {onRequestExpand ? (
-          <button type="button" onClick={onRequestExpand}>
-            <Maximize2 aria-hidden="true" />
-            放大精调
-          </button>
-        ) : null}
+        {onRequestExpand ? <EditorExpandButton label="放大精调" onClick={onRequestExpand} /> : null}
       </div>
     </div>
   )

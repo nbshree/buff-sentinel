@@ -8,6 +8,8 @@ import {
   type ReactNode
 } from 'react'
 
+import { Button } from '../../components/ui/button'
+
 type ZoomableEditorViewportProps = {
   children: ReactNode
   label: string
@@ -217,9 +219,15 @@ export function ZoomableEditorViewport({ children, label, resetKey }: ZoomableEd
       </div>
       <div className="buff-editor-zoom__toolbar">
         <span>滚轮缩放 · Ctrl+左键拖动 · {Math.round(zoom * 100)}%</span>
-        <button disabled={zoom === minimumZoom} type="button" onClick={resetZoom}>
+        <Button
+          disabled={zoom === minimumZoom}
+          size="compact"
+          type="button"
+          variant="outline"
+          onClick={resetZoom}
+        >
           重置为 100%
-        </button>
+        </Button>
       </div>
     </div>
   )

@@ -1,4 +1,4 @@
-import { Maximize2, Palette, RotateCcw } from 'lucide-react'
+import { Palette, RotateCcw } from 'lucide-react'
 import {
   forwardRef,
   useEffect,
@@ -9,7 +9,9 @@ import {
   type PointerEvent
 } from 'react'
 
+import { Button } from '../../components/ui/button'
 import type { NormalizedRect } from '../../lib/buff-sentinel-api'
+import { EditorExpandButton } from './EditorExpandButton'
 import { ZoomableEditorViewport } from './ZoomableEditorViewport'
 
 export type MaskPoint = { x: number; y: number }
@@ -320,37 +322,40 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
             (ready ? '红色区域不会参与识别' : '正在准备模板预览…')}
         </span>
         <div className="buff-mask-editor__actions">
-          <button
+          <Button
             disabled={!ready}
+            size="compact"
             title="按边缘背景色分离图标主体，适合纯色或近似纯色背景"
             type="button"
+            variant="outline"
             onClick={generateColorMask}
           >
             <Palette aria-hidden="true" />
             颜色分割
-          </button>
-          <button
+          </Button>
+          <Button
             aria-label="撤销上一笔遮罩"
             disabled={value.past.length === 0}
+            size="icon-compact"
             title="撤销上一笔（Ctrl+Z）"
             type="button"
+            variant="outline"
             onClick={undo}
           >
             <RotateCcw aria-hidden="true" />
-          </button>
+          </Button>
           {onRequestExpand ? (
-            <button className="buff-mask-editor__expand" type="button" onClick={onRequestExpand}>
-              <Maximize2 aria-hidden="true" />
-              放大涂抹
-            </button>
+            <EditorExpandButton label="放大涂抹" onClick={onRequestExpand} />
           ) : null}
-          <button
+          <Button
             disabled={value.present.length === 0 && !value.baseMaskDataUrl}
+            size="compact"
             type="button"
+            variant="outline"
             onClick={clear}
           >
             清除遮罩
-          </button>
+          </Button>
         </div>
       </div>
     </div>
