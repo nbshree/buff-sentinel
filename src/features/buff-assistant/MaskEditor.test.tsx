@@ -6,6 +6,8 @@ import {
   clearMaskHistory,
   createMaskHistory,
   MaskEditor,
+  replaceMaskHistory,
+  segmentForegroundByBorderColor,
   undoMaskHistory,
   type MaskStroke
 } from './MaskEditor'
@@ -43,6 +45,45 @@ describe('mask history', () => {
 
     expect(cleared.baseMaskDataUrl).toBeNull()
     expect(undoMaskHistory(cleared).baseMaskDataUrl).toBe(persisted.baseMaskDataUrl)
+  })
+
+  it('allows an AI mask to replace the current mask and be undone', () => {
+    const painted = appendMaskStroke(createMaskHistory('old-mask'), firstStroke)
+    const generated = replaceMaskHistory(painted, 'ai-mask')
+
+    expect(generated.baseMaskDataUrl).toBe('ai-mask')
+    expect(generated.present).toEqual([])
+    expect(undoMaskHistory(generated).baseMaskDataUrl).toBe('old-mask')
+    expect(undoMaskHistory(generated).present).toEqual([firstStroke])
+  })
+})
+
+describe('color boundary segmentation', () => {
+  it('keeps the largest contrasting subject and ignores the border background', () => {
+    const width = 8
+    const height = 8
+    const pixels = new Uint8ClampedArray(width * height * 4)
+    for (let pixel = 0; pixel < width * height; pixel += 1) {
+      const offset = pixel * 4
+      pixels[offset] = 18
+      pixels[offset + 1] = 43
+      pixels[offset + 2] = 64
+      pixels[offset + 3] = 255
+    }
+    for (let y = 2; y <= 5; y += 1) {
+      for (let x = 2; x <= 5; x += 1) {
+        const offset = (y * width + x) * 4
+        pixels[offset] = 255
+        pixels[offset + 1] = 174
+        pixels[offset + 2] = 57
+      }
+    }
+
+    const result = segmentForegroundByBorderColor(pixels, width, height)
+
+    expect(result.maskPixels[0]).toBe(0)
+    expect(result.maskPixels[3 * width + 3]).toBe(255)
+    expect(result.ignoredPercent).toBe(75)
   })
 })
 

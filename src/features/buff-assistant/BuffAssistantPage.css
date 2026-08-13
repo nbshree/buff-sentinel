@@ -690,6 +690,11 @@
   font-size: 10px;
 }
 
+.buff-mask-editor__footer > span {
+  max-width: 360px;
+  color: var(--text-muted);
+}
+
 .buff-mask-editor__actions {
   display: flex;
   align-items: center;

@@ -1,4 +1,4 @@
-import { Maximize2, RotateCcw } from 'lucide-react'
+import { Maximize2, Palette, RotateCcw } from 'lucide-react'
 import {
   forwardRef,
   useEffect,
@@ -35,6 +35,11 @@ type MaskEditorProps = {
 }
 
 const brushRadius = 0.08
+
+type ColorSegmentationResult = {
+  maskPixels: Uint8ClampedArray
+  ignoredPercent: number
+}
 
 export function createMaskHistory(baseMaskDataUrl: string | null = null): MaskHistory {
   return { past: [], pastBaseMasks: [], present: [], baseMaskDataUrl }
@@ -79,6 +84,15 @@ export function clearMaskHistory(history: MaskHistory): MaskHistory {
   }
 }
 
+export function replaceMaskHistory(history: MaskHistory, maskDataUrl: string): MaskHistory {
+  return {
+    past: [...history.past, history.present],
+    pastBaseMasks: [...history.pastBaseMasks, history.baseMaskDataUrl],
+    present: [],
+    baseMaskDataUrl: maskDataUrl
+  }
+}
+
 export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function MaskEditor(
   { imageUrl, crop, value, onChange, onRequestExpand, expanded = false },
   ref
@@ -91,8 +105,11 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
   const clickTimerRef = useRef<number | null>(null)
   const [sourceReady, setSourceReady] = useState(false)
   const [baseMaskReady, setBaseMaskReady] = useState(!value.baseMaskDataUrl)
+  const [baseMaskRevision, setBaseMaskRevision] = useState(0)
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
   const [draftStroke, setDraftStroke] = useState<MaskStroke | null>(null)
+  const [segmentationError, setSegmentationError] = useState('')
+  const [segmentationMessage, setSegmentationMessage] = useState('')
 
   useEffect(() => {
     setSourceReady(false)
@@ -125,10 +142,17 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
     mask.onload = () => {
       baseMaskRef.current = mask
       setBaseMaskReady(true)
+      setBaseMaskRevision((revision) => revision + 1)
+    }
+    mask.onerror = () => {
+      baseMaskRef.current = null
+      setBaseMaskReady(true)
+      setSegmentationError('遮罩加载失败，请重试。')
     }
     mask.src = value.baseMaskDataUrl
     return () => {
       mask.onload = null
+      mask.onerror = null
       baseMaskRef.current = null
     }
   }, [value.baseMaskDataUrl])
@@ -141,15 +165,8 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
     if (!canvas || !source || !ready) return
     canvas.width = dimensions.width
     canvas.height = dimensions.height
-    renderVisibleCanvas(
-      canvas,
-      source,
-      baseMaskRef.current,
-      crop,
-      value.present,
-      draftStroke
-    )
-  }, [crop, dimensions, draftStroke, ready, value.baseMaskDataUrl, value.present])
+    renderVisibleCanvas(canvas, source, baseMaskRef.current, crop, value.present, draftStroke)
+  }, [baseMaskRevision, crop, dimensions, draftStroke, ready, value.baseMaskDataUrl, value.present])
 
   useImperativeHandle(
     ref,
@@ -229,6 +246,20 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
     onChange(clearMaskHistory(value))
   }
 
+  function generateColorMask(): void {
+    const source = sourceRef.current
+    if (!source || !ready) return
+    setSegmentationError('')
+    setSegmentationMessage('')
+    try {
+      const result = renderColorBoundaryMask(source, crop, dimensions.width, dimensions.height)
+      onChange(replaceMaskHistory(value, result.maskDataUrl))
+      setSegmentationMessage(`颜色分割已应用，忽略 ${result.ignoredPercent}% 区域`)
+    } catch (reason) {
+      setSegmentationError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z') return
     event.preventDefault()
@@ -283,8 +314,21 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
         canvas
       )}
       <div className="buff-mask-editor__footer">
-        <span>{ready ? '红色区域不会参与识别' : '正在准备模板预览…'}</span>
+        <span>
+          {segmentationError ||
+            segmentationMessage ||
+            (ready ? '红色区域不会参与识别' : '正在准备模板预览…')}
+        </span>
         <div className="buff-mask-editor__actions">
+          <button
+            disabled={!ready}
+            title="按边缘背景色分离图标主体，适合纯色或近似纯色背景"
+            type="button"
+            onClick={generateColorMask}
+          >
+            <Palette aria-hidden="true" />
+            颜色分割
+          </button>
           <button
             aria-label="撤销上一笔遮罩"
             disabled={value.past.length === 0}
@@ -312,6 +356,179 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
     </div>
   )
 })
+
+function renderColorBoundaryMask(
+  source: HTMLImageElement,
+  crop: NormalizedRect,
+  width: number,
+  height: number
+): { maskDataUrl: string; ignoredPercent: number } {
+  const sourceCanvas = document.createElement('canvas')
+  sourceCanvas.width = width
+  sourceCanvas.height = height
+  const sourceContext = sourceCanvas.getContext('2d', { willReadFrequently: true })
+  if (!sourceContext) throw new Error('无法读取图标颜色')
+  sourceContext.drawImage(
+    source,
+    Math.round(source.naturalWidth * crop.x),
+    Math.round(source.naturalHeight * crop.y),
+    width,
+    height,
+    0,
+    0,
+    width,
+    height
+  )
+  const imageData = sourceContext.getImageData(0, 0, width, height)
+  const result = segmentForegroundByBorderColor(imageData.data, width, height)
+  const maskCanvas = document.createElement('canvas')
+  maskCanvas.width = width
+  maskCanvas.height = height
+  const maskContext = maskCanvas.getContext('2d')
+  if (!maskContext) throw new Error('无法创建颜色分割遮罩')
+  const mask = maskContext.createImageData(width, height)
+  for (let pixel = 0; pixel < result.maskPixels.length; pixel += 1) {
+    const offset = pixel * 4
+    const value = result.maskPixels[pixel]
+    mask.data[offset] = value
+    mask.data[offset + 1] = value
+    mask.data[offset + 2] = value
+    mask.data[offset + 3] = 255
+  }
+  maskContext.putImageData(mask, 0, 0)
+  return { maskDataUrl: maskCanvas.toDataURL('image/png'), ignoredPercent: result.ignoredPercent }
+}
+
+export function segmentForegroundByBorderColor(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number
+): ColorSegmentationResult {
+  if (width < 2 || height < 2 || pixels.length !== width * height * 4) {
+    throw new Error('图标像素数据无效')
+  }
+  const borderIndexes: number[] = []
+  for (let x = 0; x < width; x += 1) {
+    borderIndexes.push(x, (height - 1) * width + x)
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    borderIndexes.push(y * width, y * width + width - 1)
+  }
+  const buckets = new Map<number, number[]>()
+  for (const pixel of borderIndexes) {
+    const offset = pixel * 4
+    const key =
+      (Math.round(pixels[offset] / 16) << 8) |
+      (Math.round(pixels[offset + 1] / 16) << 4) |
+      Math.round(pixels[offset + 2] / 16)
+    const bucket = buckets.get(key)
+    if (bucket) bucket.push(pixel)
+    else buckets.set(key, [pixel])
+  }
+  const dominant = [...buckets.values()].sort((left, right) => right.length - left.length)[0]
+  const background = dominant.reduce(
+    (sum, pixel) => {
+      const offset = pixel * 4
+      sum[0] += pixels[offset]
+      sum[1] += pixels[offset + 1]
+      sum[2] += pixels[offset + 2]
+      return sum
+    },
+    [0, 0, 0]
+  )
+  background[0] /= dominant.length
+  background[1] /= dominant.length
+  background[2] /= dominant.length
+  const borderDistances = borderIndexes
+    .map((pixel) => colorDistance(pixels, pixel, background))
+    .sort((left, right) => left - right)
+  const typicalBorderDistance = borderDistances[Math.floor(borderDistances.length * 0.8)] ?? 0
+  const threshold = Math.min(72, Math.max(28, typicalBorderDistance + 20))
+  const ignored = new Uint8Array(width * height)
+  const queue = [...new Set(borderIndexes)].filter(
+    (pixel) => pixels[pixel * 4 + 3] < 32 || colorDistance(pixels, pixel, background) <= threshold
+  )
+  for (const pixel of queue) ignored[pixel] = 1
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    const pixel = queue[cursor]
+    const x = pixel % width
+    const y = Math.floor(pixel / width)
+    const neighbors = [
+      x > 0 ? pixel - 1 : -1,
+      x + 1 < width ? pixel + 1 : -1,
+      y > 0 ? pixel - width : -1,
+      y + 1 < height ? pixel + width : -1
+    ]
+    for (const neighbor of neighbors) {
+      if (
+        neighbor >= 0 &&
+        !ignored[neighbor] &&
+        (pixels[neighbor * 4 + 3] < 32 || colorDistance(pixels, neighbor, background) <= threshold)
+      ) {
+        ignored[neighbor] = 1
+        queue.push(neighbor)
+      }
+    }
+  }
+  const foreground = largestForegroundComponent(ignored, width, height)
+  const maskPixels = new Uint8ClampedArray(width * height)
+  let ignoredCount = 0
+  for (let pixel = 0; pixel < maskPixels.length; pixel += 1) {
+    maskPixels[pixel] = foreground[pixel] ? 255 : 0
+    if (!foreground[pixel]) ignoredCount += 1
+  }
+  if (ignoredCount === 0 || ignoredCount === maskPixels.length) {
+    throw new Error('颜色分割未找到可靠主体，请改用手工涂抹。')
+  }
+  return {
+    maskPixels,
+    ignoredPercent: Math.round((ignoredCount * 100) / maskPixels.length)
+  }
+}
+
+function largestForegroundComponent(
+  ignored: Uint8Array,
+  width: number,
+  height: number
+): Uint8Array {
+  const visited = new Uint8Array(ignored.length)
+  let largest: number[] = []
+  for (let start = 0; start < ignored.length; start += 1) {
+    if (ignored[start] || visited[start]) continue
+    const component = [start]
+    visited[start] = 1
+    for (let cursor = 0; cursor < component.length; cursor += 1) {
+      const pixel = component[cursor]
+      const x = pixel % width
+      const y = Math.floor(pixel / width)
+      const neighbors = [
+        x > 0 ? pixel - 1 : -1,
+        x + 1 < width ? pixel + 1 : -1,
+        y > 0 ? pixel - width : -1,
+        y + 1 < height ? pixel + width : -1
+      ]
+      for (const neighbor of neighbors) {
+        if (neighbor >= 0 && !ignored[neighbor] && !visited[neighbor]) {
+          visited[neighbor] = 1
+          component.push(neighbor)
+        }
+      }
+    }
+    if (component.length > largest.length) largest = component
+  }
+  const foreground = new Uint8Array(ignored.length)
+  for (const pixel of largest) foreground[pixel] = 1
+  return foreground
+}
+
+function colorDistance(pixels: Uint8ClampedArray, pixel: number, color: number[]): number {
+  const offset = pixel * 4
+  return Math.hypot(
+    pixels[offset] - color[0],
+    pixels[offset + 1] - color[1],
+    pixels[offset + 2] - color[2]
+  )
+}
 
 function renderVisibleCanvas(
   canvas: HTMLCanvasElement,
@@ -361,10 +578,7 @@ function renderMaskDataUrl(
   return canvas.toDataURL('image/png')
 }
 
-function drawBaseMask(
-  context: CanvasRenderingContext2D,
-  mask: HTMLImageElement
-): void {
+function drawBaseMask(context: CanvasRenderingContext2D, mask: HTMLImageElement): void {
   const canvas = document.createElement('canvas')
   canvas.width = context.canvas.width
   canvas.height = context.canvas.height
