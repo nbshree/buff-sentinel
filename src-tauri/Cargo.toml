@@ -1,6 +1,6 @@
 [package]
 name = "buff-sentinel"
-version = "0.1.1"
+version = "0.1.2"
 description = "A Windows Buff detection and reminder assistant"
 authors = ["shree"]
 edition = "2024"
