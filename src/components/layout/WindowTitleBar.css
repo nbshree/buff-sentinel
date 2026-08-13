@@ -115,6 +115,17 @@
   stroke-width: 1.35;
 }
 
+.window-title-bar__spinner,
+.update-dialog__spinner {
+  animation: update-spinner 0.8s linear infinite;
+}
+
+@keyframes update-spinner {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .window-resize-handle {
   position: fixed;
   z-index: 1100;

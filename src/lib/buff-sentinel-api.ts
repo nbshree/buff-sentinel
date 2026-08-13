@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { Channel, invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
@@ -193,6 +193,23 @@ export type WindowSize = {
   height: number
 }
 
+export type AppUpdateInfo = {
+  version: string
+  notes: string
+  publishedAt: string | null
+}
+
+export type AppUpdateCheckResult = {
+  currentVersion: string
+  update: AppUpdateInfo | null
+}
+
+export type AppUpdateDownloadEvent = {
+  event: 'started' | 'progress' | 'finished'
+  downloaded: number
+  total: number | null
+}
+
 export type WindowControlsAPI = {
   minimize: () => Promise<void>
   toggleMaximize: () => Promise<void>
@@ -205,6 +222,8 @@ export type WindowControlsAPI = {
 
 export type BuffSentinelAPI = {
   getAppVersion: () => Promise<string>
+  checkForUpdate: () => Promise<AppUpdateCheckResult>
+  installUpdate: (onEvent: (event: AppUpdateDownloadEvent) => void) => Promise<void>
   getBuffAssistantState: () => Promise<BuffAssistantState>
   listBuffCaptureWindows: () => Promise<CaptureWindowCandidate[]>
   listBuffSoundTemplates: () => Promise<BuffSoundTemplateSummary[]>
@@ -313,6 +332,12 @@ const windowControls: WindowControlsAPI = {
 
 export const buffSentinelApi: BuffSentinelAPI = {
   getAppVersion: () => callTauri(() => invoke<string>('get_app_version')),
+  checkForUpdate: () => callTauri(() => invoke<AppUpdateCheckResult>('check_for_update')),
+  installUpdate: (onEvent) => {
+    const eventChannel = new Channel<AppUpdateDownloadEvent>()
+    eventChannel.onmessage = onEvent
+    return callTauri(() => invoke<void>('install_update', { onEvent: eventChannel }))
+  },
   getBuffAssistantState: () =>
     callTauri(() => invoke<BuffAssistantState>('get_buff_assistant_state')),
   listBuffCaptureWindows: () =>
@@ -322,22 +347,10 @@ export const buffSentinelApi: BuffSentinelAPI = {
   captureBuffPreview: (windowId) =>
     callTauri(() => invoke<BuffCapturePreview>('capture_buff_preview', { windowId })),
   updateBuffSearchRegion: (searchRegion) =>
-    callTauri(() =>
-      invoke<BuffAssistantState>('update_buff_search_region', { searchRegion })
-    ),
+    callTauri(() => invoke<BuffAssistantState>('update_buff_search_region', { searchRegion })),
   getBuffListenerTemplate: (listenerId) =>
-    callTauri(() =>
-      invoke<BuffTemplatePreview>('get_buff_listener_template', { listenerId })
-    ),
-  saveBuffListener: (
-    listenerId,
-    name,
-    enabled,
-    settings,
-    searchRegion,
-    crop,
-    maskDataUrl
-  ) =>
+    callTauri(() => invoke<BuffTemplatePreview>('get_buff_listener_template', { listenerId })),
+  saveBuffListener: (listenerId, name, enabled, settings, searchRegion, crop, maskDataUrl) =>
     callTauri(() =>
       invoke<BuffAssistantState>('save_buff_listener', {
         request: {

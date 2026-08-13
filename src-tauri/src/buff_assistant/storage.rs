@@ -359,10 +359,12 @@ pub fn save_template(
     })
 }
 
+type TemplateEditorAssets = (Vec<u8>, Vec<u8>, Option<Vec<u8>>);
+
 pub fn load_template_editor_assets(
     directory: &Path,
     summary: &BuffTemplateSummary,
-) -> Result<(Vec<u8>, Vec<u8>, Option<Vec<u8>>), String> {
+) -> Result<TemplateEditorAssets, String> {
     let (image, mask) = load_template_assets(directory, summary)?;
     let source_path = template_directory(directory, &summary.id).join("source.png");
     let source = if source_path.exists() {

@@ -158,3 +158,74 @@ button {
     animation-iteration-count: 1 !important;
   }
 }
+/* Online updater */
+.update-dialog {
+  max-width: 520px;
+}
+.update-dialog__state,
+.update-dialog__download {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+.update-dialog__state > svg,
+.update-dialog__download > svg {
+  width: 28px;
+  height: 28px;
+  color: var(--color-primary);
+}
+.update-dialog__state--success > svg {
+  color: var(--color-success);
+}
+.update-dialog__state--error > svg,
+.update-dialog__warning svg {
+  color: var(--color-danger);
+}
+.update-dialog__notes {
+  max-height: 220px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+.update-dialog__notes h3,
+.update-dialog__notes p,
+.update-dialog__download p {
+  margin: 0;
+}
+.update-dialog__notes p {
+  margin-top: 8px;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+.update-dialog__warning {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+  color: var(--color-danger);
+}
+.update-dialog__warning svg {
+  width: 18px;
+  flex: none;
+}
+.update-dialog__progress {
+  grid-column: 1 / -1;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-muted);
+}
+.update-dialog__progress span {
+  display: block;
+  height: 100%;
+  background: var(--color-primary);
+  transition: width 160ms ease;
+}
+.update-dialog__download p {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  font-size: 12px;
+}

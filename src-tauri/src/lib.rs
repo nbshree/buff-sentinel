@@ -1,6 +1,7 @@
 mod buff_assistant;
 mod desktop;
 mod platform;
+mod updater;
 
 use tauri::{Manager, RunEvent, WindowEvent};
 
@@ -18,10 +19,13 @@ pub fn run() {
             desktop::show_main_window(app);
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let (buff_state, _notices) = buff_assistant::BuffAssistant::load(app.handle())?;
             app.manage(buff_state);
             app.manage(desktop::DesktopState::default());
+            app.manage(updater::PendingUpdate::default());
+            updater::schedule_installer_cleanup(app.package_info().name.clone());
             desktop::create_tray(app.handle())?;
             buff_assistant::create_overlay(app.handle())?;
             Ok(())
@@ -40,6 +44,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_app_version,
+            updater::check_for_update,
+            updater::install_update,
             buff_assistant::get_buff_assistant_state,
             buff_assistant::list_buff_capture_windows,
             buff_assistant::list_buff_sound_templates,

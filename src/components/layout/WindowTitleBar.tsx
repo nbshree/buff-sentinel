@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type MouseEvent } from 'react'
-import { MousePointerClick } from 'lucide-react'
+import { LoaderCircle, MousePointerClick, RefreshCw } from 'lucide-react'
 
 import type { WindowResizeDirection } from '../../lib/buff-sentinel-api'
 import './WindowTitleBar.css'
@@ -19,6 +19,8 @@ type WindowTitleBarProps = {
   title?: string
   version?: string
   className?: string
+  onCheckForUpdate?: () => void
+  updateBusy?: boolean
 }
 
 function reportWindowError(action: string, error: unknown) {
@@ -28,7 +30,9 @@ function reportWindowError(action: string, error: unknown) {
 export function WindowTitleBar({
   title = 'Buff 哨兵',
   version,
-  className = ''
+  className = '',
+  onCheckForUpdate,
+  updateBusy = false
 }: WindowTitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false)
 
@@ -107,6 +111,18 @@ export function WindowTitleBar({
       </div>
 
       <div className="window-title-bar__controls" aria-label="窗口控制" role="group">
+        {onCheckForUpdate ? (
+          <button
+            aria-label="检查更新"
+            className="window-title-bar__control"
+            disabled={updateBusy}
+            onClick={onCheckForUpdate}
+            title="检查更新"
+            type="button"
+          >
+            {updateBusy ? <LoaderCircle className="window-title-bar__spinner" /> : <RefreshCw />}
+          </button>
+        ) : null}
         <button
           aria-label="最小化窗口"
           className="window-title-bar__control"

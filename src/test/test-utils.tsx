@@ -36,6 +36,8 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
 
   return {
     getAppVersion: vi.fn(async () => '0.1.0'),
+    checkForUpdate: vi.fn(async () => ({ currentVersion: '0.1.0', update: null })),
+    installUpdate: vi.fn(async () => undefined),
     getBuffAssistantState: vi.fn(async () => buffState),
     listBuffCaptureWindows: vi.fn(async () => []),
     listBuffSoundTemplates: vi.fn(async () => [{ id: 'template-1', name: '模板一' }]),

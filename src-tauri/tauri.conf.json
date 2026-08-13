@@ -28,6 +28,15 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRBMDA3NDcyREIwMzBCMzgKUldRNEN3UGJjblFBU2lxMHFEak9QNGZvL1JPQXV2NHY2UU85RExKbTNLMTh4d01GOWI3eTBMQlkK",
+      "endpoints": ["https://gitee.com/nbshree/buff-sentinel/raw/updater-feed/latest.json"],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],
