@@ -1,5 +1,6 @@
 param(
   [string]$Version,
+  [string]$Notes,
   [switch]$SkipBuild,
   [switch]$RepairExisting
 )
@@ -58,6 +59,8 @@ $assetName = "buff-sentinel_${Version}_x64-setup.exe"
 $signatureName = "$assetName.sig"
 
 if ((git tag --list $tag) -ne $tag) { throw "本地不存在标签 $tag。" }
+$tagType = (git cat-file -t $tag).Trim()
+if ($tagType -ne 'tag') { throw "$tag 必须是包含更新内容的注解标签。" }
 $localCommit = (git rev-list -n 1 $tag).Trim()
 $remoteTag = git ls-remote https://gitee.com/$repository.git "refs/tags/$tag^{}"
 if (-not $remoteTag -or ($remoteTag -split '\s+')[0] -ne $localCommit) {
@@ -78,10 +81,15 @@ if (-not (Test-Path -LiteralPath $builtInstaller) -or -not (Test-Path -LiteralPa
 }
 $signature = (Get-Content -LiteralPath $builtSignature -Raw).Trim()
 $hash = (Get-FileHash -LiteralPath $builtInstaller -Algorithm SHA256).Hash
-$previousTag = git tag --sort=-version:refname | Where-Object { $_ -ne $tag } | Select-Object -First 1
-$changes = if ($previousTag) { @(git log --pretty=format:'- %s' "$previousTag..$tag") } else { @('- 首个公开发行版') }
-if (-not $changes) { $changes = @('- 稳定性改进和问题修复') }
-$notes = $changes -join "`n"
+$notes = if ([string]::IsNullOrWhiteSpace($Notes)) {
+  (@(git for-each-ref '--format=%(contents)' "refs/tags/$tag") -join "`n").Trim()
+} else {
+  $Notes.Trim()
+}
+if ($notes -eq '随便') { $notes = '解决了一些小问题' }
+if ([string]::IsNullOrWhiteSpace($notes)) {
+  throw "$tag 缺少更新内容。请在创建注解标签时写入更新说明。"
+}
 $releaseBody = "## 更新内容`n`n$notes`n`n## 下载与安装`n`n- Windows 10/11 64 位`n- SHA-256：``$hash``"
 
 $token = $env:GITEE_TOKEN

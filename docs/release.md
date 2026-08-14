@@ -22,13 +22,22 @@
 - `src-tauri/tauri.conf.json`
 - `src-tauri/Cargo.toml`
 
-提交并推送后创建注解标签，再把分支与标签同时推到两个远端：
+提交并推送后，先让发布人确认本次更新内容，再把更新说明写入注解标签。发布脚本只使用
+标签中的说明，不再根据提交标题自动生成更新日志。
+
+如果发布人回复“随便”，统一使用：`解决了一些小问题`。
+
+确认更新内容后，把分支与标签同时推到两个远端：
 
 ```powershell
-git tag -a v0.2.0 -m "Buff 哨兵 v0.2.0"
+$releaseNotes = "修复 Buff 识别与悬浮窗显示问题"
+if ($releaseNotes -eq "随便") { $releaseNotes = "解决了一些小问题" }
+git tag -a v0.2.0 -m $releaseNotes
 git push origin main v0.2.0
 git push github main v0.2.0
 ```
+
+标签必须是包含非空更新说明的注解标签；缺少说明时自动发布会失败，避免发布空白或错误日志。
 
 GitHub 收到 `v*` 标签后自动执行测试、构建签名安装包、发布 Gitee Release 和更新在线更新源。
 已有版本需要修复附件时，在 GitHub Actions 手工运行工作流并填写标签。
@@ -38,7 +47,7 @@ GitHub 收到 `v*` 标签后自动执行测试、构建签名安装包、发布 
 本地已配置签名环境变量和 `GITEE_TOKEN` 时可运行：
 
 ```powershell
-./scripts/publish-gitee.ps1 -Version 0.2.0
+./scripts/publish-gitee.ps1 -Version 0.2.0 -Notes "修复 Buff 识别与悬浮窗显示问题"
 ```
 
 首个包含 updater 的版本仍需用户手动安装一次；之后应用启动时会静默检查，也可点击标题栏的更新按钮。
