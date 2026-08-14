@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   calculateFitScale,
   calculateWheelZoom,
+  getViewportDimensions,
   ZoomableEditorViewport
 } from './ZoomableEditorViewport'
 
@@ -32,6 +33,20 @@ describe('calculateWheelZoom', () => {
     expect(calculateWheelZoom(1, 100)).toBe(1)
     expect(calculateWheelZoom(7.9, -10_000)).toBe(8)
     expect(calculateWheelZoom(1.1, 10_000)).toBe(1)
+  })
+})
+
+describe('getViewportDimensions', () => {
+  it('uses the stable border box when scrollbars reduce the observed content box', () => {
+    const viewport = document.createElement('div')
+    viewport.style.border = '1px solid transparent'
+    vi.spyOn(viewport, 'getBoundingClientRect').mockReturnValue(rect(0, 0, 1000, 600))
+    const entry = {
+      borderBoxSize: [{ inlineSize: 1000, blockSize: 600 }],
+      contentRect: rect(0, 0, 983, 583)
+    } as unknown as ResizeObserverEntry
+
+    expect(getViewportDimensions(viewport, entry)).toEqual({ width: 998, height: 598 })
   })
 })
 
