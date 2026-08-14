@@ -366,16 +366,16 @@ mod tests {
     #[test]
     fn only_matches_owned_tauri_updater_directories() {
         assert!(is_installer_directory_name(
-            OsStr::new("Buff 哨兵-0.2.0-updater-a1B2c3"),
-            "Buff 哨兵"
+            OsStr::new("BuffFlow-0.2.0-updater-a1B2c3"),
+            "BuffFlow"
         ));
         assert!(!is_installer_directory_name(
             OsStr::new("其他应用-0.2.0-updater-a1B2c3"),
-            "Buff 哨兵"
+            "BuffFlow"
         ));
         assert!(!is_installer_directory_name(
-            OsStr::new("Buff 哨兵-0.2.0-updater-../../bad"),
-            "Buff 哨兵"
+            OsStr::new("BuffFlow-0.2.0-updater-../../bad"),
+            "BuffFlow"
         ));
     }
 }

@@ -37,7 +37,7 @@ function App(): React.JSX.Element {
   return (
     <main className="app-shell">
       <WindowTitleBar
-        title="Buff 哨兵"
+        title="BuffFlow"
         version={appVersion ? `v${appVersion}` : undefined}
         onCheckForUpdate={() => void updater.checkForUpdate()}
         updateBusy={updater.isBusy}

@@ -34,7 +34,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
 
     let mut tray = TrayIconBuilder::new()
         .menu(&menu)
-        .tooltip("Buff 哨兵")
+        .tooltip("BuffFlow")
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().0.as_str() {
             MENU_SHOW => show_main_window(app),

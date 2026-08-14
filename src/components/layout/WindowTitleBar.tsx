@@ -28,7 +28,7 @@ function reportWindowError(action: string, error: unknown) {
 }
 
 export function WindowTitleBar({
-  title = 'Buff 哨兵',
+  title = 'BuffFlow',
   version,
   className = '',
   onCheckForUpdate,

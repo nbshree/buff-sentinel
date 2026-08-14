@@ -52,7 +52,7 @@ if ($Version -ne $package.version -or $Version -ne $tauri.version -or $Version -
 $tag = "v$Version"
 $repository = 'nbshree/buff-sentinel'
 $apiBase = "https://gitee.com/api/v5/repos/$repository"
-$installerName = "Buff 哨兵_${Version}_x64-setup.exe"
+$installerName = "BuffFlow_${Version}_x64-setup.exe"
 $builtInstaller = "src-tauri/target/release/bundle/nsis/$installerName"
 $builtSignature = "$builtInstaller.sig"
 $assetName = "buff-sentinel_${Version}_x64-setup.exe"
@@ -110,7 +110,7 @@ try {
 
   $release = Get-ReleaseByTag $tag
   if ($release -and -not $RepairExisting) { throw "$tag 的 Gitee Release 已存在。" }
-  $payload = @{ tag_name = $tag; name = "Buff 哨兵 $tag"; body = $releaseBody; prerelease = $false; target_commitish = 'main' } | ConvertTo-Json
+  $payload = @{ tag_name = $tag; name = "BuffFlow $tag"; body = $releaseBody; prerelease = $false; target_commitish = 'main' } | ConvertTo-Json
   if ($release) {
     $release = Invoke-GiteeJson "$apiBase/releases/$($release.id)" Patch ([Text.Encoding]::UTF8.GetBytes($payload)) 'application/json; charset=utf-8'
   } else {

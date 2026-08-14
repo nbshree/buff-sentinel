@@ -1,6 +1,6 @@
-# Buff 哨兵
+# BuffFlow
 
-Buff Sentinel 是基于 Tauri 2、React、TypeScript 和 Rust 开发的 Windows Buff 检测与提醒工具。
+BuffFlow 是基于 Tauri 2、React、TypeScript 和 Rust 开发的 Windows Buff 检测与提醒工具。
 
 项目从原 `shree-macro-flow-tauri` 中的金周天 Buff 助手独立而来，后续将在这里演进为可配置、
 可扩展的通用 Buff / Debuff 状态识别软件。

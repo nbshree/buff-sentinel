@@ -68,7 +68,7 @@ pub fn run() {
             buff_assistant::set_buff_overlay_preview_mode,
         ])
         .build(tauri::generate_context!())
-        .expect("error while building Buff Sentinel");
+        .expect("error while building BuffFlow");
 
     app.run(|app, event| match event {
         #[cfg(target_os = "macos")]

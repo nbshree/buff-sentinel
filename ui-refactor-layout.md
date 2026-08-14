@@ -1,6 +1,6 @@
 # UI Refactoring Plan: Sidebar + Dashboard Layout with Premium Gamer Dark/Gold Theme
 
-This document outlines the proposed layout structure, style variables, and code adjustments to refactor the UI of the Buff Sentinel desktop application main page (`BuffAssistantPage.tsx` and `BuffAssistantPage.css`).
+This document outlines the proposed layout structure, style variables, and code adjustments to refactor the UI of the BuffFlow desktop application main page (`BuffAssistantPage.tsx` and `BuffAssistantPage.css`).
 
 ## 1. Objective
 Refactor the main interface of the application to improve usability, visual appeal, and information hierarchy.

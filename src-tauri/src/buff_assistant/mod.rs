@@ -166,7 +166,7 @@ pub fn create_overlay(app: &AppHandle) -> tauri::Result<()> {
         OVERLAY_LABEL,
         WebviewUrl::App("index.html?window=buff-overlay".into()),
     )
-    .title("Buff 哨兵提醒")
+    .title("BuffFlow 提醒")
     .inner_size(
         f64::from(config.settings.overlay.width),
         f64::from(config.settings.overlay.height),
