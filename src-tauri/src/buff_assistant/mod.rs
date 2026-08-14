@@ -1706,9 +1706,7 @@ fn show_waiting_overlay(app: &AppHandle) {
     let state = app.state::<BuffAssistant>();
     let show = {
         let inner = state.lock();
-        inner.monitor_requested
-            && !inner.overlay_editing
-            && inner.config.settings.overlay.show_waiting_dot
+        inner.monitor_requested && !inner.overlay_editing
     };
     if !show {
         hide_overlay(app);
