@@ -108,21 +108,28 @@ export function WindowTitleBar({
         <MousePointerClick aria-hidden="true" className="window-title-bar__app-icon" size={18} />
         <span className="window-title-bar__title">{title}</span>
         {version ? <span className="window-title-bar__version">{version}</span> : null}
-      </div>
-
-      <div className="window-title-bar__controls" aria-label="窗口控制" role="group">
         {onCheckForUpdate ? (
           <button
             aria-label="检查更新"
-            className="window-title-bar__control"
+            className="window-title-bar__update-button"
             disabled={updateBusy}
             onClick={onCheckForUpdate}
+            onDoubleClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
             title="检查更新"
             type="button"
           >
-            {updateBusy ? <LoaderCircle className="window-title-bar__spinner" /> : <RefreshCw />}
+            {updateBusy ? (
+              <LoaderCircle className="window-title-bar__spinner" />
+            ) : (
+              <RefreshCw />
+            )}
+            <span>{updateBusy ? '检查中' : '检查更新'}</span>
           </button>
         ) : null}
+      </div>
+
+      <div className="window-title-bar__controls" aria-label="窗口控制" role="group">
         <button
           aria-label="最小化窗口"
           className="window-title-bar__control"

@@ -7,6 +7,7 @@ import type {
   BuffGlobalSettings,
   BuffListenerSettings,
   BuffMetric,
+  BuffOverlayPreviewMode,
   CaptureWindowCandidate,
   NormalizedRect
 } from '../lib/buff-sentinel-api'
@@ -25,7 +26,7 @@ const defaultState: BuffAssistantState = {
         excludeFromCapture: false,
         width: 330,
         height: 92,
-        colorScheme: 'gold'
+        colorScheme: 'blackWhite'
       },
       capture: {
         showSystemBorder: true
@@ -283,6 +284,11 @@ export function useBuffAssistantController() {
     [run]
   )
 
+  const setOverlayPreview = useCallback(
+    (mode: BuffOverlayPreviewMode) => run(() => window.api.setBuffOverlayPreviewMode(mode)),
+    [run]
+  )
+
   return {
     state,
     windows,
@@ -306,7 +312,8 @@ export function useBuffAssistantController() {
     startTest,
     stopTest,
     clearLogs,
-    setOverlayEditing
+    setOverlayEditing,
+    setOverlayPreview
   }
 }
 

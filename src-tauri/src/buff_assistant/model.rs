@@ -106,10 +106,11 @@ pub struct BuffCustomSoundAsset {
     pub file_name: String,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+const DEFAULT_SOUND_TEMPLATE_ID: &str = "template-1";
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum BuffSoundSource {
-    #[default]
     Sine,
     Template {
         #[serde(rename = "templateId")]
@@ -121,6 +122,14 @@ pub enum BuffSoundSource {
         #[serde(rename = "fileName")]
         file_name: String,
     },
+}
+
+impl Default for BuffSoundSource {
+    fn default() -> Self {
+        Self::Template {
+            template_id: DEFAULT_SOUND_TEMPLATE_ID.into(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -149,10 +158,10 @@ impl Default for BuffSoundSettings {
             prewarn_three_enabled: true,
             prewarn_two_enabled: true,
             prewarn_one_enabled: true,
-            trigger_source: BuffSoundSource::Sine,
-            prewarn_three_source: BuffSoundSource::Sine,
-            prewarn_two_source: BuffSoundSource::Sine,
-            prewarn_one_source: BuffSoundSource::Sine,
+            trigger_source: BuffSoundSource::default(),
+            prewarn_three_source: BuffSoundSource::default(),
+            prewarn_two_source: BuffSoundSource::default(),
+            prewarn_one_source: BuffSoundSource::default(),
             volume: 0.45,
         }
     }
@@ -207,7 +216,7 @@ impl Default for BuffOverlaySettings {
             exclude_from_capture: false,
             width: DEFAULT_OVERLAY_WIDTH,
             height: DEFAULT_OVERLAY_HEIGHT,
-            color_scheme: BuffOverlayColorScheme::Gold,
+            color_scheme: BuffOverlayColorScheme::BlackWhite,
         }
     }
 }
@@ -230,8 +239,8 @@ impl Default for BuffCaptureSettings {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BuffOverlayColorScheme {
-    #[default]
     Gold,
+    #[default]
     BlackWhite,
 }
 
@@ -719,10 +728,13 @@ mod tests {
         )
         .unwrap();
         assert!(settings.prewarn_two_enabled);
-        assert_eq!(settings.trigger_source, BuffSoundSource::Sine);
-        assert_eq!(settings.prewarn_three_source, BuffSoundSource::Sine);
-        assert_eq!(settings.prewarn_two_source, BuffSoundSource::Sine);
-        assert_eq!(settings.prewarn_one_source, BuffSoundSource::Sine);
+        let template_one = BuffSoundSource::Template {
+            template_id: DEFAULT_SOUND_TEMPLATE_ID.into(),
+        };
+        assert_eq!(settings.trigger_source, template_one);
+        assert_eq!(settings.prewarn_three_source, template_one);
+        assert_eq!(settings.prewarn_two_source, template_one);
+        assert_eq!(settings.prewarn_one_source, template_one);
     }
 
     #[test]
@@ -775,7 +787,10 @@ mod tests {
         assert_eq!(settings.overlay.height, DEFAULT_OVERLAY_HEIGHT);
         assert!(!settings.overlay.exclude_from_capture);
         assert!(settings.capture.show_system_border);
-        assert_eq!(settings.overlay.color_scheme, BuffOverlayColorScheme::Gold);
+        assert_eq!(
+            settings.overlay.color_scheme,
+            BuffOverlayColorScheme::BlackWhite
+        );
     }
 
     #[test]

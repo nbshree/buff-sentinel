@@ -298,6 +298,28 @@
   margin-top: 0;
 }
 
+.buff-overlay-preview-control {
+  position: relative;
+  display: block;
+  height: 35px;
+  min-width: 150px;
+}
+
+.buff-overlay-preview-control > span {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.buff-overlay-preview-control__trigger {
+  height: 35px;
+  width: 150px;
+}
+
 .buff-monitor-status {
   display: flex;
   min-width: 0;

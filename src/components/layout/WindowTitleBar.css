@@ -60,6 +60,54 @@
   white-space: nowrap;
 }
 
+.window-title-bar__update-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  margin-left: 6px;
+  padding: 0 9px;
+  gap: 5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font-size: 11px;
+  line-height: 1;
+  transition:
+    color var(--motion-fast) var(--ease-standard),
+    background-color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard);
+}
+
+.window-title-bar__update-button:hover:not(:disabled) {
+  color: var(--color-primary-hover);
+  background: rgb(212 163 89 / 9%);
+  border-color: rgb(212 163 89 / 18%);
+}
+
+.window-title-bar__update-button:active:not(:disabled) {
+  background: var(--window-title-bar-active);
+}
+
+.window-title-bar__update-button:focus-visible {
+  outline: 2px solid var(--window-title-bar-focus);
+  outline-offset: 1px;
+}
+
+.window-title-bar__update-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.window-title-bar__update-button svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.8;
+}
+
 .window-title-bar__controls {
   display: flex;
   flex: none;
@@ -196,6 +244,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .window-title-bar__update-button,
   .window-title-bar__control {
     transition: none;
   }

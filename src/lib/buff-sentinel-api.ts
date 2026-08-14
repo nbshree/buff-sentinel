@@ -161,6 +161,12 @@ export type BuffOverlayMode =
   | 'targetUnavailable'
   | 'editing'
 
+export type BuffOverlayPreviewMode =
+  | 'waiting'
+  | 'countdown'
+  | 'confirming'
+  | 'targetUnavailable'
+
 export type BuffOverlayState = {
   mode: BuffOverlayMode
   message: string
@@ -262,6 +268,7 @@ export type BuffSentinelAPI = {
   ) => Promise<void>
   openTtsOnline: () => Promise<void>
   setBuffOverlayEditMode: (enabled: boolean) => Promise<BuffAssistantState>
+  setBuffOverlayPreviewMode: (mode: BuffOverlayPreviewMode) => Promise<void>
   onBuffAssistantState: (callback: (state: BuffAssistantState) => void) => () => void
   onBuffMetric: (callback: (metric: BuffMetricBatch) => void) => () => void
   onBuffExecutionLog: (callback: (message: string) => void) => () => void
@@ -400,6 +407,8 @@ export const buffSentinelApi: BuffSentinelAPI = {
   openTtsOnline: () => callTauri(() => invoke<void>('open_tts_online')),
   setBuffOverlayEditMode: (enabled) =>
     callTauri(() => invoke<BuffAssistantState>('set_buff_overlay_edit_mode', { enabled })),
+  setBuffOverlayPreviewMode: (mode) =>
+    callTauri(() => invoke<void>('set_buff_overlay_preview_mode', { mode })),
   onBuffAssistantState: (callback) => createEventListener('buff-assistant-state', callback),
   onBuffMetric: (callback) => createEventListener('buff-assistant-metric', callback),
   onBuffExecutionLog: (callback) => createEventListener('buff-assistant-execution-log', callback),

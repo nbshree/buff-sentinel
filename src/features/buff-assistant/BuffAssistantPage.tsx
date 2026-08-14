@@ -54,6 +54,7 @@ import type {
   BuffGlobalSettings,
   BuffListenerConfig,
   BuffListenerSettings,
+  BuffOverlayPreviewMode,
   BuffSoundCue,
   BuffSoundSource,
   BuffSoundTemplateSummary,
@@ -76,6 +77,12 @@ type BuffAssistantPageProps = {
 }
 
 const defaultRegion: NormalizedRect = { x: 0.55, y: 0.02, width: 0.4, height: 0.16 }
+const overlayPreviewOptions: Array<{ value: BuffOverlayPreviewMode; label: string }> = [
+  { value: 'waiting', label: '等待监听' },
+  { value: 'countdown', label: '倒计时' },
+  { value: 'confirming', label: '等待确认' },
+  { value: 'targetUnavailable', label: '等待游戏窗口' }
+]
 const defaultListenerSettings: BuffListenerSettings = {
   cycleMs: 20_000,
   deadlineGraceMs: 1500,
@@ -87,10 +94,10 @@ const defaultListenerSettings: BuffListenerSettings = {
     prewarnThreeEnabled: true,
     prewarnTwoEnabled: true,
     prewarnOneEnabled: true,
-    triggerSource: { type: 'sine' },
-    prewarnThreeSource: { type: 'sine' },
-    prewarnTwoSource: { type: 'sine' },
-    prewarnOneSource: { type: 'sine' },
+    triggerSource: { type: 'template', templateId: 'template-1' },
+    prewarnThreeSource: { type: 'template', templateId: 'template-1' },
+    prewarnTwoSource: { type: 'template', templateId: 'template-1' },
+    prewarnOneSource: { type: 'template', templateId: 'template-1' },
     volume: 0.45
   }
 }
@@ -118,7 +125,8 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     startTest,
     stopTest,
     clearLogs,
-    setOverlayEditing
+    setOverlayEditing,
+    setOverlayPreview
   } = controller
   const [selectedWindowId, setSelectedWindowId] = useState('')
   const [searchRegion, setSearchRegion] = useState<NormalizedRect | null>(null)
@@ -142,6 +150,8 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     useState<BuffListenerSettings>(defaultListenerSettings)
   const [listenerError, setListenerError] = useState<string | null>(null)
   const [overlayEditing, setOverlayEditingState] = useState(false)
+  const [overlayPreviewMode, setOverlayPreviewMode] =
+    useState<BuffOverlayPreviewMode>('countdown')
   const [soundTemplates, setSoundTemplates] = useState<BuffSoundTemplateSummary[]>([])
   const [soundError, setSoundError] = useState<string | null>(null)
   const [uploadingCue, setUploadingCue] = useState<BuffSoundCue | null>(null)
@@ -386,6 +396,17 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     const next = !overlayEditing
     await setOverlayEditing(next)
     setOverlayEditingState(next)
+    if (next) setOverlayPreviewMode('countdown')
+  }
+
+  async function handleOverlayPreviewChange(mode: BuffOverlayPreviewMode): Promise<void> {
+    const previous = overlayPreviewMode
+    setOverlayPreviewMode(mode)
+    try {
+      await setOverlayPreview(mode)
+    } catch {
+      setOverlayPreviewMode(previous)
+    }
   }
 
   async function handleHideSystemCaptureBorderChange(hidden: boolean): Promise<void> {
@@ -540,7 +561,11 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                   停止监控
                 </Button>
               ) : (
-                <Button disabled={busy || !canStart} onClick={() => void startMonitor()}>
+                <Button
+                  disabled={busy || !canStart || overlayEditing}
+                  title={overlayEditing ? '请先保存悬浮位置' : undefined}
+                  onClick={() => void startMonitor()}
+                >
                   <Play aria-hidden="true" />
                   开始监控
                 </Button>
@@ -549,6 +574,33 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                 <MonitorPlay aria-hidden="true" />
                 {overlayEditing ? '保存悬浮位置' : '调整悬浮位置'}
               </Button>
+              {overlayEditing ? (
+                <label className="buff-overlay-preview-control" htmlFor="buff-overlay-preview-mode">
+                  <span>预览状态</span>
+                  <Select
+                    disabled={busy}
+                    value={overlayPreviewMode}
+                    onValueChange={(value) =>
+                      void handleOverlayPreviewChange(value as BuffOverlayPreviewMode)
+                    }
+                  >
+                    <SelectTrigger
+                      id="buff-overlay-preview-mode"
+                      aria-label="悬浮窗预览状态"
+                      className="buff-overlay-preview-control__trigger"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {overlayPreviewOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </label>
+              ) : null}
               <Dialog open={settingsDialogOpen} onOpenChange={handleSettingsDialogOpenChange}>
                 <DialogTrigger asChild>
                   <Button disabled={busy || configurationLocked} variant="outline">
@@ -582,8 +634,8 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="gold">金色（当前）</SelectItem>
-                            <SelectItem value="blackWhite">黑底白字</SelectItem>
+                            <SelectItem value="blackWhite">黑底白字（默认）</SelectItem>
+                            <SelectItem value="gold">金色</SelectItem>
                           </SelectContent>
                         </Select>
                       </label>

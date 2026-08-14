@@ -186,6 +186,43 @@ describe('BuffAssistantPage', () => {
     expect(within(dialog).queryByRole('button', { name: '调整悬浮位置' })).toBeNull()
   })
 
+  it('switches the live overlay preview while adjusting its position', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    await user.click(await screen.findByRole('button', { name: '调整悬浮位置' }))
+    expect(api.setBuffOverlayEditMode).toHaveBeenCalledWith(true)
+
+    const previewSelect = await screen.findByRole('combobox', { name: '悬浮窗预览状态' })
+    expect(previewSelect).toHaveTextContent('倒计时')
+    await user.click(previewSelect)
+    await user.click(await screen.findByRole('option', { name: '等待确认' }))
+
+    await waitFor(() =>
+      expect(api.setBuffOverlayPreviewMode).toHaveBeenCalledWith('confirming')
+    )
+  })
+
+  it('requires saving the overlay position before monitoring can start', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    const editButton = await screen.findByRole('button', { name: '调整悬浮位置' })
+    const startButton = screen.getByRole('button', { name: '开始监控' })
+    expect(startButton).toBeEnabled()
+
+    await user.click(editButton)
+    expect(startButton).toBeDisabled()
+    expect(startButton).toHaveAttribute('title', '请先保存悬浮位置')
+
+    await user.click(screen.getByRole('button', { name: '保存悬浮位置' }))
+    expect(startButton).toBeEnabled()
+  })
+
   it('offers TTS Online from the per-listener sound editor', async () => {
     const user = userEvent.setup()
     const api = await createListenerApi()

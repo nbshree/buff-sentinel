@@ -10,14 +10,23 @@ const hiddenState: BuffOverlayState = {
   items: [],
   emittedAtUnixMs: 0,
   editable: false,
-  colorScheme: 'gold'
+  colorScheme: 'blackWhite'
 }
 
-const defaultOverlayWidth = 330
 const defaultOverlayHeight = 92
+const cornerResizeHandles: Array<{
+  direction: WindowResizeDirection
+  label: string
+  position: string
+}> = [
+  { direction: 'NorthWest', label: '从左上角调整浮窗大小', position: 'north-west' },
+  { direction: 'NorthEast', label: '从右上角调整浮窗大小', position: 'north-east' },
+  { direction: 'SouthWest', label: '从左下角调整浮窗大小', position: 'south-west' },
+  { direction: 'SouthEast', label: '从右下角调整浮窗大小', position: 'south-east' }
+]
 
-export function calculateOverlayScale(width: number, height: number): number {
-  return Math.min(width / defaultOverlayWidth, height / defaultOverlayHeight)
+export function calculateOverlayScale(height: number): number {
+  return height / defaultOverlayHeight
 }
 
 export function BuffOverlayApp() {
@@ -37,7 +46,7 @@ export function BuffOverlayApp() {
 
   useEffect(() => {
     const updateScale = () => {
-      const scale = calculateOverlayScale(window.innerWidth, window.innerHeight)
+      const scale = calculateOverlayScale(window.innerHeight)
       document.documentElement.style.setProperty('--buff-overlay-scale', String(scale))
     }
     updateScale()
@@ -55,9 +64,10 @@ export function BuffOverlayApp() {
     }
     const update = () => setNow(Date.now())
     update()
+    if (state.editable) return
     const timer = window.setInterval(update, 50)
     return () => window.clearInterval(timer)
-  }, [state.items, state.mode])
+  }, [state.editable, state.items, state.mode])
 
   if (state.mode === 'hidden') return null
 
@@ -92,13 +102,7 @@ export function BuffOverlayApp() {
       data-warning={warning}
       onPointerDown={handlePointerDown}
     >
-      <span className="buff-overlay__glow" />
-      {state.mode === 'waiting' ? (
-        <div className="buff-overlay__waiting">
-          <span />
-          {state.message}
-        </div>
-      ) : state.items.length > 0 ? (
+      {state.items.length > 0 ? (
         <div className="buff-overlay__items">
           {state.items.map((item) => {
             const remainingMs =
@@ -112,11 +116,18 @@ export function BuffOverlayApp() {
                     <span>秒</span>
                   </div>
                 ) : (
-                  <div className="buff-overlay__confirming">等待确认</div>
+                  <div className="buff-overlay__status">
+                    {item.mode === 'waiting' ? '等待监听' : '等待确认'}
+                  </div>
                 )}
               </div>
             )
           })}
+        </div>
+      ) : state.mode === 'waiting' ? (
+        <div className="buff-overlay__waiting">
+          <span />
+          {state.message}
         </div>
       ) : (
         <>
@@ -132,6 +143,15 @@ export function BuffOverlayApp() {
             type="button"
             onPointerDown={(event) => handleResizePointerDown('East', event)}
           />
+          {cornerResizeHandles.map((handle) => (
+            <button
+              aria-label={handle.label}
+              className={`buff-overlay__resize-handle buff-overlay__resize-handle--${handle.position}`}
+              key={handle.direction}
+              type="button"
+              onPointerDown={(event) => handleResizePointerDown(handle.direction, event)}
+            />
+          ))}
         </>
       ) : null}
     </div>

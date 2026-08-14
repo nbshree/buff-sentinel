@@ -85,6 +85,30 @@ describe('BuffOverlayApp', () => {
     expect(screen.getByText('19.5')).toBeInTheDocument()
   })
 
+  it('keeps the countdown text stable while previewing the editable overlay', () => {
+    renderOverlay()
+
+    emit({
+      mode: 'countdown',
+      message: '',
+      items: [
+        {
+          listenerId: 'jinzhoutian',
+          name: '金周天',
+          mode: 'countdown',
+          expectedAtUnixMs: Date.now() + 20_000
+        }
+      ],
+      emittedAtUnixMs: Date.now(),
+      editable: true,
+      colorScheme: 'gold'
+    })
+
+    expect(screen.getByText('20.0')).toBeInTheDocument()
+    act(() => vi.advanceTimersByTime(500))
+    expect(screen.getByText('20.0')).toBeInTheDocument()
+  })
+
   it('shows the simplified waiting message', () => {
     renderOverlay()
 
@@ -101,6 +125,36 @@ describe('BuffOverlayApp', () => {
     expect(screen.queryByText(/脱战/)).not.toBeInTheDocument()
   })
 
+  it('shows an independent waiting row for every listener', () => {
+    renderOverlay()
+
+    emit({
+      mode: 'waiting',
+      message: '',
+      items: [
+        {
+          listenerId: 'jinzhoutian',
+          name: '金周天',
+          mode: 'waiting',
+          expectedAtUnixMs: null
+        },
+        {
+          listenerId: 'listener-2',
+          name: '监听图标 2',
+          mode: 'waiting',
+          expectedAtUnixMs: null
+        }
+      ],
+      emittedAtUnixMs: Date.now(),
+      editable: true,
+      colorScheme: 'gold'
+    })
+
+    expect(screen.getByText('金周天')).toBeInTheDocument()
+    expect(screen.getByText('监听图标 2')).toBeInTheDocument()
+    expect(screen.getAllByText('等待监听')).toHaveLength(2)
+  })
+
   it('only exposes resize handles while editing and keeps resize separate from dragging', () => {
     const api = renderOverlay()
 
@@ -115,6 +169,26 @@ describe('BuffOverlayApp', () => {
 
     fireEvent.pointerDown(screen.getByRole('button', { name: '调整浮窗宽度' }), { button: 0 })
     expect(api.window.startResizeDragging).toHaveBeenNthCalledWith(1, 'East')
+    fireEvent.pointerDown(
+      screen.getByRole('button', { name: '从左上角调整浮窗大小' }),
+      { button: 0 }
+    )
+    fireEvent.pointerDown(
+      screen.getByRole('button', { name: '从右上角调整浮窗大小' }),
+      { button: 0 }
+    )
+    fireEvent.pointerDown(
+      screen.getByRole('button', { name: '从左下角调整浮窗大小' }),
+      { button: 0 }
+    )
+    fireEvent.pointerDown(
+      screen.getByRole('button', { name: '从右下角调整浮窗大小' }),
+      { button: 0 }
+    )
+    expect(api.window.startResizeDragging).toHaveBeenNthCalledWith(2, 'NorthWest')
+    expect(api.window.startResizeDragging).toHaveBeenNthCalledWith(3, 'NorthEast')
+    expect(api.window.startResizeDragging).toHaveBeenNthCalledWith(4, 'SouthWest')
+    expect(api.window.startResizeDragging).toHaveBeenNthCalledWith(5, 'SouthEast')
     expect(api.window.startDragging).not.toHaveBeenCalled()
     expect(document.querySelector('.buff-overlay')).not.toHaveAttribute('data-show-border')
     expect(document.querySelector('.buff-overlay')).toHaveAttribute(
@@ -136,10 +210,9 @@ describe('BuffOverlayApp', () => {
     expect(api.window.startDragging).not.toHaveBeenCalled()
   })
 
-  it('scales content by the smaller dimension ratio', () => {
-    expect(calculateOverlayScale(75, 30)).toBeCloseTo(75 / 330)
-    expect(calculateOverlayScale(330, 92)).toBe(1)
-    expect(calculateOverlayScale(800, 300)).toBeCloseTo(800 / 330)
-    expect(calculateOverlayScale(660, 92)).toBe(1)
+  it('scales content by height without changing the font size when width changes', () => {
+    expect(calculateOverlayScale(30)).toBeCloseTo(30 / 92)
+    expect(calculateOverlayScale(92)).toBe(1)
+    expect(calculateOverlayScale(184)).toBe(2)
   })
 })

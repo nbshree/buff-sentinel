@@ -31,9 +31,6 @@
   border: 1px solid rgb(255 215 111 / 66%);
   border-radius: calc(16px * var(--buff-overlay-scale, 1));
   background: linear-gradient(135deg, rgb(75 48 7 / 94%), rgb(20 15 7 / 94%)), rgb(20 15 7 / 94%);
-  box-shadow:
-    0 0 22px rgb(244 184 52 / 40%),
-    inset 0 1px 0 rgb(255 241 190 / 28%);
   color: #fff1bd;
   font-family: 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
   user-select: none;
@@ -41,9 +38,6 @@
 
 .buff-overlay[data-color-scheme='blackWhite'] {
   background: rgb(8 8 8 / 95%);
-  box-shadow:
-    0 0 20px rgb(0 0 0 / 58%),
-    inset 0 1px 0 rgb(255 255 255 / 18%);
   color: #fff;
   border-color: rgb(255 255 255 / 68%);
 }
@@ -70,7 +64,6 @@
 .buff-overlay[data-mode='targetUnavailable'] {
   border-color: rgb(214 205 184 / 55%);
   background: rgb(24 23 20 / 92%);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
   color: #ddd6c6;
 }
 
@@ -100,15 +93,7 @@
 .buff-overlay[data-color-scheme='blackWhite'][data-mode='reset'],
 .buff-overlay[data-color-scheme='blackWhite'][data-mode='targetUnavailable'] {
   background: rgb(8 8 8 / 95%);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
   color: #fff;
-}
-
-.buff-overlay__glow {
-  position: absolute;
-  inset: calc(-30px * var(--buff-overlay-scale, 1));
-  background: radial-gradient(circle, rgb(255 210 82 / 24%), transparent 62%);
-  pointer-events: none;
 }
 
 .buff-overlay__label,
@@ -151,13 +136,18 @@
   font-size: calc(25px * var(--buff-overlay-scale, 1));
 }
 
-.buff-overlay__confirming {
+.buff-overlay__status {
   color: #ffe17d;
   font-size: calc(13px * var(--buff-overlay-scale, 1));
   font-weight: 700;
+  white-space: nowrap;
 }
 
-.buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__confirming {
+.buff-overlay__item[data-mode='waiting'] .buff-overlay__status {
+  color: #ead89a;
+}
+
+.buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__status {
   color: #fff;
 }
 
@@ -207,13 +197,8 @@
   color: #fff;
 }
 
-.buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__glow {
-  background: radial-gradient(circle, rgb(255 255 255 / 12%), transparent 62%);
-}
-
 .buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__waiting span {
   background: #fff;
-  box-shadow: 0 0 9px rgb(255 255 255 / 65%);
 }
 
 .buff-overlay__waiting span {
@@ -221,7 +206,6 @@
   height: calc(8px * var(--buff-overlay-scale, 1));
   border-radius: 999px;
   background: #deb04a;
-  box-shadow: 0 0 9px rgb(222 176 74 / 70%);
   animation: buff-overlay-dot 1s ease-in-out infinite alternate;
 }
 
@@ -251,16 +235,50 @@
   cursor: ns-resize;
 }
 
+.buff-overlay__resize-handle--north-west,
+.buff-overlay__resize-handle--north-east,
+.buff-overlay__resize-handle--south-west,
+.buff-overlay__resize-handle--south-east {
+  z-index: 4;
+  width: clamp(10px, calc(16px * var(--buff-overlay-scale, 1)), 20px);
+  height: clamp(10px, calc(16px * var(--buff-overlay-scale, 1)), 20px);
+}
+
+.buff-overlay__resize-handle--north-west {
+  top: 0;
+  left: 0;
+  border-top: 2px solid rgb(255 226 138 / 92%);
+  border-left: 2px solid rgb(255 226 138 / 92%);
+  cursor: nwse-resize;
+}
+
+.buff-overlay__resize-handle--north-east {
+  top: 0;
+  right: 0;
+  border-top: 2px solid rgb(255 226 138 / 92%);
+  border-right: 2px solid rgb(255 226 138 / 92%);
+  cursor: nesw-resize;
+}
+
+.buff-overlay__resize-handle--south-west {
+  bottom: 0;
+  left: 0;
+  border-bottom: 2px solid rgb(255 226 138 / 92%);
+  border-left: 2px solid rgb(255 226 138 / 92%);
+  cursor: nesw-resize;
+}
+
 .buff-overlay__resize-handle--south-east {
   right: 0;
   bottom: 0;
-  width: clamp(10px, calc(16px * var(--buff-overlay-scale, 1)), 20px);
-  height: clamp(10px, calc(16px * var(--buff-overlay-scale, 1)), 20px);
   border-right: 2px solid rgb(255 226 138 / 92%);
   border-bottom: 2px solid rgb(255 226 138 / 92%);
   cursor: nwse-resize;
 }
 
+.buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__resize-handle--north-west,
+.buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__resize-handle--north-east,
+.buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__resize-handle--south-west,
 .buff-overlay[data-color-scheme='blackWhite'] .buff-overlay__resize-handle--south-east {
   border-color: rgb(255 255 255 / 92%);
 }
@@ -274,36 +292,24 @@
 
 @keyframes buff-overlay-warning {
   to {
-    box-shadow:
-      0 0 34px rgb(255 192 48 / 70%),
-      inset 0 1px 0 rgb(255 241 190 / 42%);
     filter: brightness(1.16);
   }
 }
 
 @keyframes buff-overlay-confirming {
   to {
-    box-shadow:
-      0 0 30px rgb(255 192 48 / 58%),
-      inset 0 1px 0 rgb(255 241 190 / 38%);
     filter: brightness(1.1);
   }
 }
 
 @keyframes buff-overlay-warning-monochrome {
   to {
-    box-shadow:
-      0 0 34px rgb(255 255 255 / 36%),
-      inset 0 1px 0 rgb(255 255 255 / 32%);
     filter: brightness(1.14);
   }
 }
 
 @keyframes buff-overlay-confirming-monochrome {
   to {
-    box-shadow:
-      0 0 30px rgb(255 255 255 / 28%),
-      inset 0 1px 0 rgb(255 255 255 / 28%);
     filter: brightness(1.08);
   }
 }

@@ -65,6 +65,7 @@ pub fn run() {
             buff_assistant::import_buff_assistant_sound,
             buff_assistant::open_tts_online,
             buff_assistant::set_buff_overlay_edit_mode,
+            buff_assistant::set_buff_overlay_preview_mode,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Buff Sentinel");

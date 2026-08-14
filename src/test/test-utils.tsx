@@ -19,7 +19,7 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
           excludeFromCapture: false,
           width: 330,
           height: 92,
-          colorScheme: 'gold'
+          colorScheme: 'blackWhite'
         },
         capture: {
           showSystemBorder: true
@@ -65,6 +65,7 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
     playBuffAssistantSound: vi.fn(async () => undefined),
     openTtsOnline: vi.fn(async () => undefined),
     setBuffOverlayEditMode: vi.fn(async () => buffState),
+    setBuffOverlayPreviewMode: vi.fn(async () => undefined),
     onBuffAssistantState: vi.fn(() => () => undefined),
     onBuffMetric: vi.fn(() => () => undefined),
     onBuffExecutionLog: vi.fn(() => () => undefined),
