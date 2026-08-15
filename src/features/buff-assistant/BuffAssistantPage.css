@@ -980,6 +980,35 @@
   color: var(--text-muted);
 }
 
+.buff-mask-editor__brush-control {
+  display: grid;
+  width: min(100%, 360px);
+  align-items: center;
+  grid-template-columns: auto minmax(100px, 1fr) auto;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.buff-mask-editor__brush-control input {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.buff-mask-editor__brush-control input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.buff-mask-editor__brush-range {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
 .buff-mask-editor__actions {
   display: flex;
   align-items: center;

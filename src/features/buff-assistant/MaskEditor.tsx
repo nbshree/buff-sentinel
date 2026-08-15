@@ -36,7 +36,8 @@ type MaskEditorProps = {
   expanded?: boolean
 }
 
-const brushRadius = 0.08
+const defaultBrushDiameter = 3
+const maximumBrushDiameter = 48
 
 type ColorSegmentationResult = {
   maskPixels: Uint8ClampedArray
@@ -110,6 +111,7 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
   const [baseMaskRevision, setBaseMaskRevision] = useState(0)
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
   const [draftStroke, setDraftStroke] = useState<MaskStroke | null>(null)
+  const [brushDiameter, setBrushDiameter] = useState(defaultBrushDiameter)
   const [segmentationError, setSegmentationError] = useState('')
   const [segmentationMessage, setSegmentationMessage] = useState('')
 
@@ -160,6 +162,15 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
   }, [value.baseMaskDataUrl])
 
   const ready = sourceReady && baseMaskReady
+  const shortestSide = Math.min(dimensions.width, dimensions.height)
+  const brushDiameterLimit = shortestSide
+    ? Math.max(1, Math.min(maximumBrushDiameter, Math.floor(shortestSide / 2)))
+    : maximumBrushDiameter
+  const effectiveBrushDiameter = Math.min(brushDiameter, brushDiameterLimit)
+
+  useEffect(() => {
+    setBrushDiameter((current) => Math.min(current, brushDiameterLimit))
+  }, [brushDiameterLimit])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -188,9 +199,15 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
 
   function pointFromEvent(event: PointerEvent<HTMLCanvasElement>): MaskPoint {
     const bounds = event.currentTarget.getBoundingClientRect()
+    const pixelX = Math.floor(
+      clamp((event.clientX - bounds.left) / Math.max(1, bounds.width)) * dimensions.width
+    )
+    const pixelY = Math.floor(
+      clamp((event.clientY - bounds.top) / Math.max(1, bounds.height)) * dimensions.height
+    )
     return {
-      x: clamp((event.clientX - bounds.left) / bounds.width),
-      y: clamp((event.clientY - bounds.top) / bounds.height)
+      x: (Math.min(dimensions.width - 1, pixelX) + 0.5) / dimensions.width,
+      y: (Math.min(dimensions.height - 1, pixelY) + 0.5) / dimensions.height
     }
   }
 
@@ -199,10 +216,13 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
   }
 
   function handlePointerDown(event: PointerEvent<HTMLCanvasElement>): void {
-    if (event.button !== 0 || event.detail > 1) return
+    if (!ready || event.button !== 0 || event.detail > 1) return
     event.currentTarget.setPointerCapture(event.pointerId)
     const point = pointFromEvent(event)
-    activeStrokeRef.current = { points: [point], radius: brushRadius }
+    activeStrokeRef.current = {
+      points: [point],
+      radius: brushRadiusFromDiameter(effectiveBrushDiameter, dimensions.width, dimensions.height)
+    }
     pointerStartRef.current = { x: event.clientX, y: event.clientY }
     setDraftStroke(activeStrokeRef.current)
   }
@@ -321,6 +341,20 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
             segmentationMessage ||
             (ready ? '红色区域不会参与识别' : '正在准备模板预览…')}
         </span>
+        <label className="buff-mask-editor__brush-control">
+          <span>笔刷 {effectiveBrushDiameter} px</span>
+          <input
+            aria-label="遮罩笔刷大小"
+            disabled={!ready}
+            max={brushDiameterLimit}
+            min="1"
+            step="1"
+            type="range"
+            value={effectiveBrushDiameter}
+            onChange={(event) => setBrushDiameter(Number(event.currentTarget.value))}
+          />
+          <span className="buff-mask-editor__brush-range">1–{brushDiameterLimit} px</span>
+        </label>
         <div className="buff-mask-editor__actions">
           <Button
             disabled={!ready}
@@ -604,9 +638,13 @@ function drawBaseMask(context: CanvasRenderingContext2D, mask: HTMLImageElement)
 
 function drawStroke(context: CanvasRenderingContext2D, stroke: MaskStroke): void {
   const scale = Math.min(context.canvas.width, context.canvas.height)
-  const radius = Math.max(3, scale * stroke.radius)
+  const radius = Math.max(0.5, scale * stroke.radius)
   const [first, ...rest] = stroke.points
   if (!first) return
+  if (radius <= 0.5) {
+    drawOnePixelStroke(context, stroke.points)
+    return
+  }
   if (rest.length === 0) {
     context.beginPath()
     context.arc(
@@ -628,6 +666,56 @@ function drawStroke(context: CanvasRenderingContext2D, stroke: MaskStroke): void
     context.lineTo(point.x * context.canvas.width, point.y * context.canvas.height)
   }
   context.stroke()
+}
+
+function drawOnePixelStroke(context: CanvasRenderingContext2D, points: MaskPoint[]): void {
+  const [first, ...rest] = points
+  if (!first) return
+  let previous = pixelFromPoint(context.canvas, first)
+  context.fillRect(previous.x, previous.y, 1, 1)
+  for (const point of rest) {
+    const next = pixelFromPoint(context.canvas, point)
+    drawPixelLine(context, previous, next)
+    previous = next
+  }
+}
+
+function pixelFromPoint(canvas: HTMLCanvasElement, point: MaskPoint): { x: number; y: number } {
+  return {
+    x: Math.min(canvas.width - 1, Math.floor(point.x * canvas.width)),
+    y: Math.min(canvas.height - 1, Math.floor(point.y * canvas.height))
+  }
+}
+
+function drawPixelLine(
+  context: CanvasRenderingContext2D,
+  start: { x: number; y: number },
+  end: { x: number; y: number }
+): void {
+  let x = start.x
+  let y = start.y
+  const deltaX = Math.abs(end.x - start.x)
+  const deltaY = Math.abs(end.y - start.y)
+  const stepX = start.x < end.x ? 1 : -1
+  const stepY = start.y < end.y ? 1 : -1
+  let error = deltaX - deltaY
+  while (true) {
+    context.fillRect(x, y, 1, 1)
+    if (x === end.x && y === end.y) return
+    const doubledError = error * 2
+    if (doubledError > -deltaY) {
+      error -= deltaY
+      x += stepX
+    }
+    if (doubledError < deltaX) {
+      error += deltaX
+      y += stepY
+    }
+  }
+}
+
+export function brushRadiusFromDiameter(diameter: number, width: number, height: number): number {
+  return Math.max(1, diameter) / (2 * Math.max(1, Math.min(width, height)))
 }
 
 function cloneStroke(stroke: MaskStroke): MaskStroke {

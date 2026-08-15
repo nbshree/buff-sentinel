@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   appendMaskStroke,
+  brushRadiusFromDiameter,
   clearMaskHistory,
   createMaskHistory,
   MaskEditor,
@@ -58,6 +59,13 @@ describe('mask history', () => {
   })
 })
 
+describe('mask brush sizing', () => {
+  it('keeps brush diameter tied to original image pixels', () => {
+    expect(brushRadiusFromDiameter(1, 1144, 342)).toBeCloseTo(1 / 684)
+    expect(brushRadiusFromDiameter(3, 1144, 342)).toBeCloseTo(3 / 684)
+  })
+})
+
 describe('color boundary segmentation', () => {
   it('keeps the largest contrasting subject and ignores the border background', () => {
     const width = 8
@@ -88,6 +96,23 @@ describe('color boundary segmentation', () => {
 })
 
 describe('MaskEditor', () => {
+  it('offers a one-pixel brush for precise mask editing', () => {
+    render(
+      <MaskEditor
+        crop={crop}
+        imageUrl="template.png"
+        value={createMaskHistory()}
+        onChange={vi.fn()}
+      />
+    )
+
+    const brush = screen.getByRole('slider', { name: '遮罩笔刷大小' })
+    expect(brush).toHaveAttribute('min', '1')
+    expect(brush).toHaveValue('3')
+    fireEvent.change(brush, { target: { value: '1' } })
+    expect(brush).toHaveValue('1')
+  })
+
   it('uses the undo button and scoped Ctrl+Z to restore the previous stroke state', () => {
     const empty = createMaskHistory()
     const oneStroke = appendMaskStroke(empty, firstStroke)
