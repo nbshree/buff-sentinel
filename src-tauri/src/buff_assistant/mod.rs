@@ -155,10 +155,7 @@ impl BuffAssistant {
         if !capture_border_supported {
             config.settings.capture.show_system_border = true;
         }
-        let (audio, audio_warning) = AudioEngine::start();
-        if let Some(warning) = audio_warning {
-            notices.push(warning);
-        }
+        let audio = AudioEngine::start(app.clone());
         Ok((
             Self {
                 inner: Mutex::new(RuntimeData {
