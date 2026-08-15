@@ -71,6 +71,46 @@ struct RuntimeData {
     reconnect_generation: u64,
     overlay_generation: u64,
     overlay_editing: bool,
+    overlay_window: OverlayWindowCache,
+}
+
+#[derive(Default)]
+struct OverlayWindowCache {
+    visible: bool,
+    size: Option<(u32, u32)>,
+    rows: Option<usize>,
+}
+
+impl OverlayWindowCache {
+    fn mark_visible(&mut self) -> bool {
+        if self.visible {
+            false
+        } else {
+            self.visible = true;
+            true
+        }
+    }
+
+    fn mark_hidden(&mut self) -> bool {
+        let was_visible = self.visible;
+        self.visible = false;
+        was_visible
+    }
+
+    fn update_size(&mut self, size: (u32, u32), rows: Option<usize>) -> bool {
+        if self.size == Some(size) && self.rows == rows {
+            false
+        } else {
+            self.size = Some(size);
+            self.rows = rows;
+            true
+        }
+    }
+
+    fn invalidate_size(&mut self) {
+        self.size = None;
+        self.rows = None;
+    }
 }
 
 struct ListenerRuntime {
@@ -138,6 +178,7 @@ impl BuffAssistant {
                     reconnect_generation: 0,
                     overlay_generation: 0,
                     overlay_editing: false,
+                    overlay_window: OverlayWindowCache::default(),
                 }),
                 audio,
             },
@@ -640,6 +681,7 @@ pub fn start_buff_monitor_internal(app: &AppHandle) -> Result<(), String> {
             inner.reconnect_generation,
         )
     };
+    preload_monitor_sounds(&state);
     match windows::find_target(&target) {
         Ok(Some(window)) => {
             if let Err(error) = attach_monitor_capture(app, window, generation) {
@@ -820,6 +862,7 @@ fn set_buff_overlay_edit_mode_internal(
             let mut inner = state.lock();
             inner.overlay_editing = true;
             inner.overlay_generation = inner.overlay_generation.wrapping_add(1);
+            inner.overlay_window.invalidate_size();
         }
         overlay
             .set_resizable(true)
@@ -831,6 +874,7 @@ fn set_buff_overlay_edit_mode_internal(
             .set_ignore_cursor_events(false)
             .map_err(|error| error.to_string())?;
         overlay.show().map_err(|error| error.to_string())?;
+        state.lock().overlay_window.visible = true;
         show_overlay_preview(app, BuffOverlayMode::Countdown)?;
     } else {
         let position = overlay
@@ -848,6 +892,8 @@ fn set_buff_overlay_edit_mode_internal(
             inner.config.settings.overlay.height =
                 (f64::from(size.height) / scale_factor).round() as u32;
             inner.config.settings.sanitize();
+            inner.overlay_window.visible = true;
+            inner.overlay_window.invalidate_size();
             storage::save_config(&inner.storage_directory, &inner.config)?;
         }
         overlay
@@ -947,9 +993,7 @@ fn show_overlay_preview(app: &AppHandle, mode: BuffOverlayMode) -> Result<(), St
         _ => return Err("不支持的悬浮窗预览状态".into()),
     };
     resize_overlay_for_rows(app, rows);
-    if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
-        overlay.show().map_err(|error| error.to_string())?;
-    }
+    ensure_overlay_visible(app);
     emit_overlay(
         app,
         BuffOverlayState {
@@ -1033,12 +1077,11 @@ pub(crate) fn handle_detection_batch(
         let now = Instant::now();
         let mut actions = Vec::new();
         for detection in &detections {
-            let Some(listener) = inner
+            let Some(listener_index) = inner
                 .config
                 .listeners
                 .iter()
-                .find(|listener| listener.id == detection.listener_id && listener.enabled)
-                .cloned()
+                .position(|listener| listener.id == detection.listener_id && listener.enabled)
             else {
                 continue;
             };
@@ -1056,12 +1099,18 @@ pub(crate) fn handle_detection_batch(
             runtime.expected_at_unix_ms = runtime.timeline.expected_at().map(|expected| {
                 now_millis() + expected.saturating_duration_since(now).as_millis() as i64
             });
-            for action in next_actions {
-                actions.push((listener.clone(), action));
+            if !next_actions.is_empty() {
+                let listener = &inner.config.listeners[listener_index];
+                let name = listener.name.clone();
+                let sound = listener.settings.sound.clone();
+                for action in next_actions {
+                    actions.push((name.clone(), sound.clone(), action));
+                }
             }
         }
         inner.activity = aggregate_activity(&inner);
-        (actions, snapshot_from_runtime(&inner))
+        let snapshot = (!actions.is_empty()).then(|| snapshot_from_runtime(&inner));
+        (actions, snapshot)
     };
     if emit_metric {
         let _ = app.emit(
@@ -1072,48 +1121,44 @@ pub(crate) fn handle_detection_batch(
     if actions.is_empty() {
         return;
     }
-    emit_state(app, &snapshot);
-    for (listener, action) in actions {
-        let sound = &listener.settings.sound;
+    emit_state(app, snapshot.as_ref().unwrap());
+    for (listener_name, sound, action) in actions {
         match action {
             TimelineAction::Triggered => {
                 if sound.trigger_enabled {
-                    play_configured_sound(&state, BuffSoundCue::Triggered, sound);
+                    play_configured_sound(&state, BuffSoundCue::Triggered, &sound);
                 }
                 emit_execution_log(
                     app,
-                    &format!("{}：真实触发已确认，已校准倒计时", listener.name),
+                    &format!("{listener_name}：真实触发已确认，已校准倒计时"),
                 );
             }
             TimelineAction::PrewarnThree => {
                 if sound.prewarn_three_enabled {
-                    play_configured_sound(&state, BuffSoundCue::PrewarnThree, sound);
+                    play_configured_sound(&state, BuffSoundCue::PrewarnThree, &sound);
                 }
-                emit_execution_log(app, &format!("{}：倒计时剩余 3 秒", listener.name));
+                emit_execution_log(app, &format!("{listener_name}：倒计时剩余 3 秒"));
             }
             TimelineAction::PrewarnTwo => {
                 if sound.prewarn_two_enabled {
-                    play_configured_sound(&state, BuffSoundCue::PrewarnTwo, sound);
+                    play_configured_sound(&state, BuffSoundCue::PrewarnTwo, &sound);
                 }
-                emit_execution_log(app, &format!("{}：倒计时剩余 2 秒", listener.name));
+                emit_execution_log(app, &format!("{listener_name}：倒计时剩余 2 秒"));
             }
             TimelineAction::PrewarnOne => {
                 if sound.prewarn_one_enabled {
-                    play_configured_sound(&state, BuffSoundCue::PrewarnOne, sound);
+                    play_configured_sound(&state, BuffSoundCue::PrewarnOne, &sound);
                 }
-                emit_execution_log(app, &format!("{}：倒计时剩余 1 秒", listener.name));
+                emit_execution_log(app, &format!("{listener_name}：倒计时剩余 1 秒"));
             }
             TimelineAction::ConfirmationPending => {
                 emit_execution_log(
                     app,
-                    &format!("{}：倒计时结束，正在宽限期内等待确认", listener.name),
+                    &format!("{listener_name}：倒计时结束，正在宽限期内等待确认"),
                 );
             }
             TimelineAction::Reset => {
-                emit_execution_log(
-                    app,
-                    &format!("{}：截止点未确认，时间轴已重置", listener.name),
-                );
+                emit_execution_log(app, &format!("{listener_name}：截止点未确认，时间轴已重置"));
             }
         }
     }
@@ -1400,6 +1445,38 @@ fn play_configured_sound(
         resolve_sound_source(&inner, cue, sound.source(cue)).unwrap_or(ResolvedSoundSource::Sine)
     };
     state.audio.play(cue, resolved, sound.volume);
+}
+
+fn preload_monitor_sounds(state: &BuffAssistant) {
+    let paths = {
+        let inner = state.lock();
+        inner
+            .config
+            .listeners
+            .iter()
+            .filter(|listener| listener.enabled && listener.template.is_some())
+            .flat_map(|listener| {
+                let sound = &listener.settings.sound;
+                [
+                    (sound.trigger_enabled, BuffSoundCue::Triggered),
+                    (sound.prewarn_three_enabled, BuffSoundCue::PrewarnThree),
+                    (sound.prewarn_two_enabled, BuffSoundCue::PrewarnTwo),
+                    (sound.prewarn_one_enabled, BuffSoundCue::PrewarnOne),
+                ]
+                .into_iter()
+                .filter_map(|(enabled, cue)| {
+                    enabled
+                        .then(|| resolve_sound_source(&inner, cue, sound.source(cue)).ok())
+                        .flatten()
+                })
+                .filter_map(|source| match source {
+                    ResolvedSoundSource::Wav(path) => Some(path),
+                    ResolvedSoundSource::Sine => None,
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    state.audio.preload(paths);
 }
 
 fn resolve_sound_source(
@@ -1726,11 +1803,7 @@ fn refresh_active_overlay(app: &AppHandle) {
         BuffOverlayMode::Waiting
     };
     resize_overlay_for_rows(app, items.len());
-    if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
-        let _ = overlay.set_ignore_cursor_events(true);
-        let _ = overlay.set_focusable(false);
-        let _ = overlay.show();
-    }
+    ensure_overlay_visible(app);
     emit_overlay(
         app,
         BuffOverlayState {
@@ -1763,8 +1836,8 @@ fn show_transient_overlay(
     if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = overlay.set_ignore_cursor_events(true);
         let _ = overlay.set_focusable(false);
-        let _ = overlay.show();
     }
+    ensure_overlay_visible(app);
     emit_overlay(
         app,
         BuffOverlayState {
@@ -1835,9 +1908,7 @@ fn show_waiting_overlay(app: &AppHandle) {
     };
     let rows = items.len().max(1);
     resize_overlay_for_rows(app, rows);
-    if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
-        let _ = overlay.show();
-    }
+    ensure_overlay_visible(app);
     emit_overlay(
         app,
         BuffOverlayState {
@@ -1868,8 +1939,8 @@ fn show_target_unavailable_overlay(app: &AppHandle) {
     if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = overlay.set_ignore_cursor_events(true);
         let _ = overlay.set_focusable(false);
-        let _ = overlay.show();
     }
+    ensure_overlay_visible(app);
     emit_overlay(
         app,
         BuffOverlayState {
@@ -1895,14 +1966,38 @@ fn hide_overlay(app: &AppHandle) {
             color_scheme: overlay_color_scheme(app),
         },
     );
-    if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
+    let should_hide = {
+        let state = app.state::<BuffAssistant>();
+        let mut inner = state.lock();
+        inner.overlay_window.mark_hidden()
+    };
+    if should_hide && let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = overlay.hide();
+    }
+}
+
+fn ensure_overlay_visible(app: &AppHandle) {
+    let should_show = {
+        let state = app.state::<BuffAssistant>();
+        let mut inner = state.lock();
+        inner.overlay_window.mark_visible()
+    };
+    if should_show && let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
+        let _ = overlay.show();
     }
 }
 
 fn apply_overlay_geometry(app: &AppHandle) {
     let state = app.state::<BuffAssistant>();
-    let settings = state.lock().config.settings.overlay.clone();
+    let settings = {
+        let mut inner = state.lock();
+        let size = (
+            inner.config.settings.overlay.width,
+            inner.config.settings.overlay.height,
+        );
+        inner.overlay_window.update_size(size, None);
+        inner.config.settings.overlay.clone()
+    };
     if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = overlay.set_position(PhysicalPosition::new(settings.x, settings.y));
         let _ = overlay.set_size(LogicalSize::new(
@@ -1914,32 +2009,25 @@ fn apply_overlay_geometry(app: &AppHandle) {
 
 fn resize_overlay_for_rows(app: &AppHandle, rows: usize) {
     let state = app.state::<BuffAssistant>();
-    let (settings, editing) = {
-        let inner = state.lock();
-        (inner.config.settings.overlay.clone(), inner.overlay_editing)
+    let desired = {
+        let mut inner = state.lock();
+        if inner.overlay_editing {
+            return;
+        }
+        let width = inner.config.settings.overlay.width;
+        let height = configured_overlay_height(inner.config.settings.overlay.height, rows) as u32;
+        if !inner
+            .overlay_window
+            .update_size((width, height), Some(rows))
+        {
+            return;
+        }
+        inner.overlay_window.size = Some((width, height));
+        inner.overlay_window.rows = Some(rows);
+        (width, height)
     };
     if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
-        let current_size = editing
-            .then(|| {
-                overlay
-                    .inner_size()
-                    .ok()
-                    .zip(overlay.scale_factor().ok())
-                    .map(|(size, scale_factor)| {
-                        (
-                            f64::from(size.width) / scale_factor,
-                            f64::from(size.height) / scale_factor,
-                        )
-                    })
-            })
-            .flatten();
-        let width = current_size
-            .map(|(width, _)| width)
-            .unwrap_or_else(|| f64::from(settings.width));
-        let height = current_size
-            .map(|(_, height)| height)
-            .unwrap_or_else(|| configured_overlay_height(settings.height, rows));
-        let _ = overlay.set_size(LogicalSize::new(width, height));
+        let _ = overlay.set_size(LogicalSize::new(f64::from(desired.0), f64::from(desired.1)));
     }
 }
 
@@ -2098,9 +2186,25 @@ mod tests {
     use image::DynamicImage;
 
     use super::{
-        DEFAULT_OVERLAY_HEIGHT, NormalizedRect, configured_overlay_height, crop_saved_template,
-        crop_template_from_preview, overlay_height_for_rows,
+        DEFAULT_OVERLAY_HEIGHT, NormalizedRect, OverlayWindowCache, configured_overlay_height,
+        crop_saved_template, crop_template_from_preview, overlay_height_for_rows,
     };
+
+    #[test]
+    fn overlay_window_cache_only_requests_native_changes_when_state_changes() {
+        let mut cache = OverlayWindowCache::default();
+
+        assert!(cache.mark_visible());
+        assert!(!cache.mark_visible());
+        assert!(cache.update_size((330, 92), Some(1)));
+        assert!(!cache.update_size((330, 92), Some(1)));
+        assert!(cache.update_size((330, 132), Some(2)));
+        assert!(cache.mark_hidden());
+        assert!(!cache.mark_hidden());
+
+        cache.invalidate_size();
+        assert!(cache.update_size((330, 132), Some(2)));
+    }
 
     #[test]
     fn overlay_row_height_does_not_depend_on_width() {

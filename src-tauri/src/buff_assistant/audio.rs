@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::File,
     path::{Path, PathBuf},
     sync::mpsc::{self, Sender},
@@ -25,14 +25,19 @@ struct AudioRequest {
     volume: f32,
 }
 
+enum AudioCommand {
+    Preload(Vec<PathBuf>),
+    Play(AudioRequest),
+}
+
 #[derive(Clone)]
 pub struct AudioEngine {
-    sender: Sender<AudioRequest>,
+    sender: Sender<AudioCommand>,
 }
 
 impl AudioEngine {
     pub fn start() -> (Self, Option<String>) {
-        let (sender, receiver) = mpsc::channel::<AudioRequest>();
+        let (sender, receiver) = mpsc::channel::<AudioCommand>();
         let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
         thread::spawn(move || {
             let stream = match DeviceSinkBuilder::open_default_sink() {
@@ -48,18 +53,23 @@ impl AudioEngine {
             };
             let mut players = Vec::<Player>::new();
             let mut cache = HashMap::<PathBuf, SamplesBuffer>::new();
-            while let Ok(request) = receiver.recv() {
-                players.retain(|player| !player.empty());
-                let next = Player::connect_new(stream.mixer());
-                next.set_volume(request.volume.clamp(0.0, 1.0));
-                match request.source {
-                    ResolvedSoundSource::Sine => next.append(sine_wave(request.cue)),
-                    ResolvedSoundSource::Wav(path) => match cached_wav(&path, &mut cache) {
-                        Ok(sound) => next.append(sound),
-                        Err(_) => next.append(sine_wave(request.cue)),
-                    },
+            while let Ok(command) = receiver.recv() {
+                match command {
+                    AudioCommand::Preload(paths) => preload_wavs(paths, &mut cache),
+                    AudioCommand::Play(request) => {
+                        players.retain(|player| !player.empty());
+                        let next = Player::connect_new(stream.mixer());
+                        next.set_volume(request.volume.clamp(0.0, 1.0));
+                        match request.source {
+                            ResolvedSoundSource::Sine => next.append(sine_wave(request.cue)),
+                            ResolvedSoundSource::Wav(path) => match cached_wav(&path, &mut cache) {
+                                Ok(sound) => next.append(sound),
+                                Err(_) => next.append(sine_wave(request.cue)),
+                            },
+                        }
+                        players.push(next);
+                    }
                 }
-                players.push(next);
             }
         });
 
@@ -71,11 +81,21 @@ impl AudioEngine {
     }
 
     pub fn play(&self, cue: BuffSoundCue, source: ResolvedSoundSource, volume: f32) {
-        let _ = self.sender.send(AudioRequest {
+        let _ = self.sender.send(AudioCommand::Play(AudioRequest {
             cue,
             source,
             volume,
-        });
+        }));
+    }
+
+    pub fn preload(&self, paths: Vec<PathBuf>) {
+        let _ = self.sender.send(AudioCommand::Preload(paths));
+    }
+}
+
+fn preload_wavs(paths: Vec<PathBuf>, cache: &mut HashMap<PathBuf, SamplesBuffer>) {
+    for path in paths.into_iter().collect::<HashSet<_>>() {
+        let _ = cached_wav(&path, cache);
     }
 }
 
@@ -124,4 +144,31 @@ fn sine_wave(cue: BuffSoundCue) -> impl Source + Send + 'static {
         }
     };
     SineWave::new(frequency).take_duration(Duration::from_millis(duration))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preload_and_playback_lookup_share_the_same_cache() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources/buff-sounds/template-1/triggered.wav");
+        let mut cache = HashMap::new();
+
+        preload_wavs(vec![path.clone(), path.clone()], &mut cache);
+
+        assert_eq!(cache.len(), 1);
+        assert!(cached_wav(&path, &mut cache).is_ok());
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn preload_ignores_invalid_paths_without_poisoning_the_cache() {
+        let mut cache = HashMap::new();
+
+        preload_wavs(vec![PathBuf::from("missing-sound.wav")], &mut cache);
+
+        assert!(cache.is_empty());
+    }
 }

@@ -65,7 +65,7 @@ export function BuffOverlayApp() {
     const update = () => setNow(Date.now())
     update()
     if (state.editable) return
-    const timer = window.setInterval(update, 50)
+    const timer = window.setInterval(update, 100)
     return () => window.clearInterval(timer)
   }, [state.editable, state.items, state.mode])
 
