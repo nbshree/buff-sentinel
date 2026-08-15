@@ -133,12 +133,11 @@ describe('BuffAssistantPage', () => {
     const threshold = within(dialog).getByRole('spinbutton', { name: '匹配阈值' })
     expect(mode).toHaveTextContent('像素图标')
     expect(threshold).toHaveValue(0.95)
-    expect(within(dialog).getByText('比较固定图标的灰度像素。')).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: '查看识别模式说明' })).toBeVisible()
 
     await user.click(mode)
     await user.click(await screen.findByRole('option', { name: '亮色文字' }))
     expect(threshold).toHaveValue(0.84)
-    expect(within(dialog).getByText('忽略半透明背景变化，比较亮色文字轮廓。')).toBeVisible()
 
     await user.click(mode)
     await user.click(await screen.findByRole('option', { name: '像素图标' }))

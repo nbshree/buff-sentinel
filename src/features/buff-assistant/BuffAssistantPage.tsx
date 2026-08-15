@@ -1156,7 +1156,15 @@ function ListenerSettingsEditor({
           />
         </div>
         <div className="buff-settings-field">
-          <label htmlFor="listener-match-mode">识别模式</label>
+          <label htmlFor="listener-match-mode">
+            <span className="buff-setting-label">
+              识别模式
+              <SettingTooltip
+                label="查看识别模式说明"
+                content="像素图标比较固定灰度像素；亮色文字补偿半透明背景变化并比较文字轮廓。"
+              />
+            </span>
+          </label>
           <Select value={settings.matchMode} onValueChange={setMatchMode}>
             <SelectTrigger id="listener-match-mode" aria-label="识别模式">
               <SelectValue />
@@ -1166,11 +1174,6 @@ function ListenerSettingsEditor({
               <SelectItem value="brightText">亮色文字</SelectItem>
             </SelectContent>
           </Select>
-          <p className="buff-settings-hint">
-            {settings.matchMode === 'brightText'
-              ? '忽略半透明背景变化，比较亮色文字轮廓。'
-              : '比较固定图标的灰度像素。'}
-          </p>
         </div>
         <label>
           <span>匹配阈值</span>
