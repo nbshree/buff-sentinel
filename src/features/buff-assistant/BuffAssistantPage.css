@@ -428,6 +428,7 @@
 .buff-settings-field,
 .buff-volume-row {
   display: grid;
+  align-content: start;
   gap: 5px;
   color: var(--text-muted);
   font-size: 13px;
