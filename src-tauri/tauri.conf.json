@@ -5,7 +5,7 @@
   "identifier": "com.nbshree.buffsentinel",
   "build": {
     "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:5174",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
