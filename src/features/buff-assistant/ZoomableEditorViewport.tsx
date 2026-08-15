@@ -8,8 +8,6 @@ import {
   type ReactNode
 } from 'react'
 
-import { Button } from '../../components/ui/button'
-
 type ZoomableEditorViewportProps = {
   children: ReactNode
   label: string
@@ -60,17 +58,14 @@ export function ZoomableEditorViewport({ children, label, resetKey }: ZoomableEd
 
     const contentBounds = content.getBoundingClientRect()
     updateContentDimensions(contentBounds.width, contentBounds.height)
-    const viewportBounds = getViewportDimensions(viewport)
+    const viewportBounds = viewport.getBoundingClientRect()
     updateViewportDimensions(viewportBounds.width, viewportBounds.height)
 
     const contentObserver = new ResizeObserver(([entry]) => {
       if (entry) updateContentDimensions(entry.contentRect.width, entry.contentRect.height)
     })
     const viewportObserver = new ResizeObserver(([entry]) => {
-      if (entry) {
-        const viewportBounds = getViewportDimensions(viewport, entry)
-        updateViewportDimensions(viewportBounds.width, viewportBounds.height)
-      }
+      if (entry) updateViewportDimensions(entry.contentRect.width, entry.contentRect.height)
     })
     contentObserver.observe(content)
     viewportObserver.observe(viewport)
@@ -222,15 +217,9 @@ export function ZoomableEditorViewport({ children, label, resetKey }: ZoomableEd
       </div>
       <div className="buff-editor-zoom__toolbar">
         <span>滚轮缩放 · Ctrl+左键拖动 · {Math.round(zoom * 100)}%</span>
-        <Button
-          disabled={zoom === minimumZoom}
-          size="compact"
-          type="button"
-          variant="outline"
-          onClick={resetZoom}
-        >
+        <button disabled={zoom === minimumZoom} type="button" onClick={resetZoom}>
           重置为 100%
-        </Button>
+        </button>
       </div>
     </div>
   )
@@ -248,34 +237,10 @@ export function calculateFitScale(content: Dimensions, viewport: Dimensions): nu
   return Math.min(viewport.width / content.width, viewport.height / content.height)
 }
 
-export function getViewportDimensions(
-  viewport: HTMLElement,
-  entry?: ResizeObserverEntry
-): Dimensions {
-  const borderBox = entry?.borderBoxSize
-  const box = Array.isArray(borderBox) ? borderBox[0] : borderBox
-  const bounds = viewport.getBoundingClientRect()
-  const styles = getComputedStyle(viewport)
-  const horizontalBorder =
-    parsePixelValue(styles.borderLeftWidth) + parsePixelValue(styles.borderRightWidth)
-  const verticalBorder =
-    parsePixelValue(styles.borderTopWidth) + parsePixelValue(styles.borderBottomWidth)
-
-  return {
-    width: Math.max(0, (box?.inlineSize ?? bounds.width) - horizontalBorder),
-    height: Math.max(0, (box?.blockSize ?? bounds.height) - verticalBorder)
-  }
-}
-
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value))
 }
 
 function round(value: number): number {
   return Math.round(value * 10_000) / 10_000
-}
-
-function parsePixelValue(value: string): number {
-  const parsed = Number.parseFloat(value)
-  return Number.isFinite(parsed) ? parsed : 0
 }

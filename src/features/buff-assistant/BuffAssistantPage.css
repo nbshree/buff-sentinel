@@ -1080,6 +1080,7 @@ button.buff-editor-expand-action[data-slot='button']:hover {
   position: relative;
   min-width: 100%;
   min-height: 100%;
+  transition: none !important;
 }
 
 .buff-editor-zoom__content {
@@ -1089,6 +1090,7 @@ button.buff-editor-expand-action[data-slot='button']:hover {
   width: fit-content;
   height: fit-content;
   transform-origin: top left;
+  transition: none !important;
 }
 
 .buff-editor-zoom__toolbar {
@@ -1103,9 +1105,19 @@ button.buff-editor-expand-action[data-slot='button']:hover {
   font-weight: 600;
 }
 
-.buff-editor-zoom__toolbar [data-slot='button'] {
+.buff-editor-zoom__toolbar button {
+  border: 0;
+  background: transparent;
   color: #93c5fd;
+  cursor: pointer;
   font-size: 12px;
+  font-weight: 700;
+}
+
+.buff-editor-zoom__toolbar button:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+  opacity: 1;
 }
 
 .buff-image-editor-dialog__warning {
