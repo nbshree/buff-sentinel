@@ -1040,7 +1040,7 @@ pub(crate) fn handle_capture_frame(app: &AppHandle, purpose: CapturePurpose) {
 pub(crate) fn handle_detection_batch(
     app: &AppHandle,
     purpose: CapturePurpose,
-    detections: Vec<RuntimeDetection>,
+    detections: &[RuntimeDetection],
     emit_metric: bool,
 ) {
     let state = app.state::<BuffAssistant>();
@@ -1050,7 +1050,7 @@ pub(crate) fn handle_detection_batch(
             if inner.capture_purpose != Some(CapturePurpose::Test) {
                 return;
             }
-            for detection in &detections {
+            for detection in detections {
                 if let Some(runtime) = inner.listeners.get_mut(&detection.listener_id) {
                     runtime.last_confidence = detection.confidence;
                     runtime.activity = BuffAssistantActivity::Testing;
@@ -1060,7 +1060,7 @@ pub(crate) fn handle_detection_batch(
         if emit_metric {
             let _ = app.emit(
                 "buff-assistant-metric",
-                BuffMetricBatch::from_detections(&detections),
+                BuffMetricBatch::from_detections(detections),
             );
         }
         return;
@@ -1076,7 +1076,7 @@ pub(crate) fn handle_detection_batch(
         }
         let now = Instant::now();
         let mut actions = Vec::new();
-        for detection in &detections {
+        for detection in detections {
             let Some(listener_index) = inner
                 .config
                 .listeners
@@ -1115,7 +1115,7 @@ pub(crate) fn handle_detection_batch(
     if emit_metric {
         let _ = app.emit(
             "buff-assistant-metric",
-            BuffMetricBatch::from_detections(&detections),
+            BuffMetricBatch::from_detections(detections),
         );
     }
     if actions.is_empty() {
