@@ -16,6 +16,14 @@ pub const MIN_OVERLAY_HEIGHT: u32 = 30;
 pub const MAX_OVERLAY_WIDTH: u32 = 800;
 pub const MAX_OVERLAY_HEIGHT: u32 = 520;
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BuffMatchMode {
+    #[default]
+    Pixel,
+    BrightText,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NormalizedRect {
@@ -273,6 +281,8 @@ pub struct BuffListenerSettings {
     pub cycle_ms: u64,
     #[serde(default = "default_deadline_grace_ms")]
     pub deadline_grace_ms: u64,
+    #[serde(default)]
+    pub match_mode: BuffMatchMode,
     pub threshold: f32,
     pub confirm_frames: u32,
     pub missing_frames: u32,
@@ -285,6 +295,7 @@ impl Default for BuffListenerSettings {
         Self {
             cycle_ms: settings.cycle_ms,
             deadline_grace_ms: settings.deadline_grace_ms,
+            match_mode: BuffMatchMode::Pixel,
             threshold: settings.threshold,
             confirm_frames: settings.confirm_frames,
             missing_frames: settings.missing_frames,
@@ -320,6 +331,7 @@ impl From<&BuffAssistantSettings> for BuffListenerSettings {
         Self {
             cycle_ms: settings.cycle_ms,
             deadline_grace_ms: settings.deadline_grace_ms,
+            match_mode: BuffMatchMode::Pixel,
             threshold: settings.threshold,
             confirm_frames: settings.confirm_frames,
             missing_frames: settings.missing_frames,
@@ -625,6 +637,28 @@ mod tests {
     #[test]
     fn default_deadline_grace_is_1500_ms() {
         assert_eq!(BuffAssistantSettings::default().deadline_grace_ms, 1_500);
+    }
+
+    #[test]
+    fn listener_match_mode_defaults_to_pixel_when_missing() {
+        let mut value = serde_json::to_value(BuffListenerSettings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("matchMode");
+
+        let settings: BuffListenerSettings = serde_json::from_value(value).unwrap();
+
+        assert_eq!(settings.match_mode, BuffMatchMode::Pixel);
+    }
+
+    #[test]
+    fn bright_text_match_mode_serializes_as_camel_case() {
+        let mut settings = BuffListenerSettings::default();
+        settings.match_mode = BuffMatchMode::BrightText;
+
+        let value = serde_json::to_value(&settings).unwrap();
+        let restored: BuffListenerSettings = serde_json::from_value(value.clone()).unwrap();
+
+        assert_eq!(value["matchMode"], "brightText");
+        assert_eq!(restored.match_mode, BuffMatchMode::BrightText);
     }
 
     #[test]

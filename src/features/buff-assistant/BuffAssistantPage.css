@@ -451,6 +451,13 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
 }
 
+.buff-settings-hint {
+  margin: 0;
+  color: var(--text-subtle);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .buff-sound-options {
   display: grid;
   gap: 7px;

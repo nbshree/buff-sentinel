@@ -60,6 +60,31 @@ impl TemplateData {
         )
         .expect("scaled templates preserve valid dimensions and masks")
     }
+
+    pub fn bright_text_scaled(&self, scale: f32) -> Result<Self, String> {
+        let scaled = self.scaled(scale);
+        let feature = bright_text_feature(&scaled.image, bright_text_radius(scale));
+        let mut effective_mask = scaled.mask;
+        let minimum_feature = 38u8;
+        let mut active_pixels = 0usize;
+        for (mask, feature_pixel) in effective_mask.pixels_mut().zip(feature.pixels()) {
+            let strength = feature_pixel[0];
+            if mask[0] < 32 || strength < minimum_feature {
+                mask[0] = 0;
+                continue;
+            }
+            mask[0] = ((u16::from(mask[0]) * u16::from(strength)) / 255) as u8;
+            if mask[0] >= 32 {
+                active_pixels += 1;
+            }
+        }
+        let area = feature.width() as usize * feature.height() as usize;
+        let minimum_pixels = 16usize.max(area.div_ceil(200));
+        if active_pixels < minimum_pixels {
+            return Err("文字特征不足，请缩小模板区域或重新捕获".into());
+        }
+        Self::new(feature, effective_mask)
+    }
 }
 
 impl TemplateSamples {
@@ -150,6 +175,72 @@ pub fn rgba_to_gray_with_buffer(
     }
     GrayImage::from_raw(width, height, output)
         .ok_or_else(|| "无法创建 Buff 灰度识别画面".to_string())
+}
+
+pub fn bright_text_radius(scale: f32) -> u32 {
+    let scale = if scale.is_finite() { scale } else { 1.0 };
+    (4.0 * scale).round().clamp(2.0, 8.0) as u32
+}
+
+pub fn bright_text_feature(gray: &GrayImage, radius: u32) -> GrayImage {
+    let width = gray.width();
+    let height = gray.height();
+    if width == 0 || height == 0 {
+        return GrayImage::new(width, height);
+    }
+
+    let stride = width as usize + 1;
+    let mut integral = vec![0u64; stride * (height as usize + 1)];
+    for y in 0..height {
+        let mut row_sum = 0u64;
+        for x in 0..width {
+            row_sum += u64::from(gray.get_pixel(x, y)[0]);
+            let index = (y as usize + 1) * stride + x as usize + 1;
+            integral[index] = integral[y as usize * stride + x as usize + 1] + row_sum;
+        }
+    }
+
+    let mut coverage = GrayImage::new(width, height);
+    for y in 0..height {
+        let top = y.saturating_sub(radius);
+        let bottom = y.saturating_add(radius).min(height - 1);
+        for x in 0..width {
+            let left = x.saturating_sub(radius);
+            let right = x.saturating_add(radius).min(width - 1);
+            let sum = integral[(bottom as usize + 1) * stride + right as usize + 1]
+                + integral[top as usize * stride + left as usize]
+                - integral[top as usize * stride + right as usize + 1]
+                - integral[(bottom as usize + 1) * stride + left as usize];
+            let count = u64::from(right - left + 1) * u64::from(bottom - top + 1);
+            let mean = (sum / count) as i32;
+            let value = i32::from(gray.get_pixel(x, y)[0]);
+            let numerator = (value - mean).max(0) * 255;
+            let denominator = (255 - mean).max(16);
+            coverage.get_pixel_mut(x, y)[0] = (numerator / denominator).clamp(0, 255) as u8;
+        }
+    }
+
+    GrayImage::from_fn(width, height, |x, y| {
+        let sample = |sample_x: i32, sample_y: i32| -> i32 {
+            let sample_x = sample_x.clamp(0, width as i32 - 1) as u32;
+            let sample_y = sample_y.clamp(0, height as i32 - 1) as u32;
+            i32::from(coverage.get_pixel(sample_x, sample_y)[0])
+        };
+        let x = x as i32;
+        let y = y as i32;
+        let gx = -sample(x - 1, y - 1) + sample(x + 1, y - 1) - 2 * sample(x - 1, y)
+            + 2 * sample(x + 1, y)
+            - sample(x - 1, y + 1)
+            + sample(x + 1, y + 1);
+        let gy = -sample(x - 1, y - 1) - 2 * sample(x, y - 1) - sample(x + 1, y - 1)
+            + sample(x - 1, y + 1)
+            + 2 * sample(x, y + 1)
+            + sample(x + 1, y + 1);
+        let edge = ((gx.unsigned_abs() + gy.unsigned_abs()) / 8).min(255) as u8;
+        let combined =
+            (u16::from(coverage.get_pixel(x as u32, y as u32)[0]) * 7 + u16::from(edge) * 3) / 10;
+        image::Luma([combined as u8])
+    })
 }
 
 pub fn match_template(search: &GrayImage, template: &TemplateData) -> f32 {
@@ -284,6 +375,89 @@ mod tests {
     }
 
     #[test]
+    fn bright_text_matches_across_different_background_brightness() {
+        let template_image = text_like_image(36, 24, 35, false);
+        let search_image = text_like_image(36, 24, 125, false);
+        let template =
+            TemplateData::new(template_image, GrayImage::from_pixel(36, 24, Luma([255])))
+                .unwrap()
+                .bright_text_scaled(1.0)
+                .unwrap();
+        let search = bright_text_feature(&search_image, 4);
+
+        assert!(match_template(&search, &template) >= 0.84);
+    }
+
+    #[test]
+    fn bright_text_rejects_empty_background_and_different_shape() {
+        let template = TemplateData::new(
+            text_like_image(36, 24, 50, false),
+            GrayImage::from_pixel(36, 24, Luma([255])),
+        )
+        .unwrap()
+        .bright_text_scaled(1.0)
+        .unwrap();
+        let empty = bright_text_feature(&GrayImage::from_pixel(36, 24, Luma([130])), 4);
+        let different = bright_text_feature(&text_like_image(36, 24, 130, true), 4);
+
+        assert!(match_template(&empty, &template) < 0.5);
+        assert!(match_template(&different, &template) < 0.84);
+    }
+
+    #[test]
+    fn bright_text_respects_manual_mask() {
+        let image = text_like_image(36, 24, 45, false);
+        let mut changed = image.clone();
+        for y in 4..20 {
+            for x in 22..31 {
+                changed.put_pixel(x, y, Luma([45]));
+            }
+        }
+        let mut mask = GrayImage::from_pixel(36, 24, Luma([255]));
+        for y in 0..24 {
+            for x in 18..36 {
+                mask.put_pixel(x, y, Luma([0]));
+            }
+        }
+        let template = TemplateData::new(image, mask)
+            .unwrap()
+            .bright_text_scaled(1.0)
+            .unwrap();
+        let search = bright_text_feature(&changed, 4);
+
+        assert!(match_template(&search, &template) >= 0.84);
+    }
+
+    #[test]
+    fn bright_text_template_scales_with_search_feature() {
+        let template = TemplateData::new(
+            text_like_image(36, 24, 60, false),
+            GrayImage::from_pixel(36, 24, Luma([255])),
+        )
+        .unwrap();
+        let scaled_image =
+            imageops::resize(&template.image, 54, 36, imageops::FilterType::Triangle);
+        let prepared = template.bright_text_scaled(1.5).unwrap();
+        let search = bright_text_feature(&scaled_image, bright_text_radius(1.5));
+
+        assert!(match_template(&search, &prepared) > 0.99);
+    }
+
+    #[test]
+    fn bright_text_reports_insufficient_features() {
+        let template = TemplateData::new(
+            GrayImage::from_pixel(32, 20, Luma([80])),
+            GrayImage::from_pixel(32, 20, Luma([255])),
+        )
+        .unwrap();
+
+        assert_eq!(
+            template.bright_text_scaled(1.0).err().unwrap(),
+            "文字特征不足，请缩小模板区域或重新捕获"
+        );
+    }
+
+    #[test]
     fn grayscale_conversion_reuses_the_supplied_allocation() {
         let rgba = vec![120; 64 * 32 * 4];
         let buffer = Vec::with_capacity(64 * 32);
@@ -355,6 +529,33 @@ mod tests {
             }
         }
         TemplateData::new(image, mask).unwrap()
+    }
+
+    fn text_like_image(width: u32, height: u32, background: u8, alternate: bool) -> GrayImage {
+        GrayImage::from_fn(width, height, |x, y| {
+            let core = if alternate {
+                (6..=9).contains(&x) && (4..=19).contains(&y)
+                    || (9..=18).contains(&x) && (16..=19).contains(&y)
+                    || (24..=28).contains(&x) && (4..=19).contains(&y)
+            } else {
+                (6..=9).contains(&x) && (4..=19).contains(&y)
+                    || (9..=17).contains(&x) && (10..=13).contains(&y)
+                    || (15..=18).contains(&x) && (4..=19).contains(&y)
+                    || (23..=30).contains(&x) && (4..=7).contains(&y)
+                    || (26..=29).contains(&x) && (7..=19).contains(&y)
+            };
+            let near_core =
+                (4..=31).contains(&x) && (3..=20).contains(&y) && !core && ((x + y) % 5 == 0);
+            let alpha = if core {
+                220u16
+            } else if near_core {
+                70u16
+            } else {
+                0u16
+            };
+            let value = u16::from(background) + ((255 - u16::from(background)) * alpha + 127) / 255;
+            Luma([value as u8])
+        })
     }
 
     fn patterned_image(width: u32, height: u32, seed: u8) -> GrayImage {

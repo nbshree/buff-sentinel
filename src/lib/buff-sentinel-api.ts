@@ -84,9 +84,12 @@ export type BuffCaptureSettings = {
   showSystemBorder: boolean
 }
 
+export type BuffMatchMode = 'pixel' | 'brightText'
+
 export type BuffListenerSettings = {
   cycleMs: number
   deadlineGraceMs: number
+  matchMode: BuffMatchMode
   threshold: number
   confirmFrames: number
   missingFrames: number

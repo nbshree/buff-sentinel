@@ -86,6 +86,7 @@ const overlayPreviewOptions: Array<{ value: BuffOverlayPreviewMode; label: strin
 const defaultListenerSettings: BuffListenerSettings = {
   cycleMs: 20_000,
   deadlineGraceMs: 1500,
+  matchMode: 'pixel',
   threshold: 0.95,
   confirmFrames: 3,
   missingFrames: 5,
@@ -1109,6 +1110,15 @@ function ListenerSettingsEditor({
 }: ListenerSettingsEditorProps) {
   const setSound = (patch: Partial<BuffListenerSettings['sound']>) =>
     onChange({ ...settings, sound: { ...settings.sound, ...patch } })
+  const setMatchMode = (matchMode: BuffListenerSettings['matchMode']) => {
+    const threshold =
+      matchMode === 'brightText' && settings.threshold === 0.95
+        ? 0.84
+        : matchMode === 'pixel' && settings.threshold === 0.84
+          ? 0.95
+          : settings.threshold
+    onChange({ ...settings, matchMode, threshold })
+  }
 
   return (
     <div className="buff-listener-settings">
@@ -1144,6 +1154,23 @@ function ListenerSettingsEditor({
               onChange({ ...settings, deadlineGraceMs: Number(event.target.value) })
             }
           />
+        </div>
+        <div className="buff-settings-field">
+          <label htmlFor="listener-match-mode">识别模式</label>
+          <Select value={settings.matchMode} onValueChange={setMatchMode}>
+            <SelectTrigger id="listener-match-mode" aria-label="识别模式">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="pixel">像素图标</SelectItem>
+              <SelectItem value="brightText">亮色文字</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="buff-settings-hint">
+            {settings.matchMode === 'brightText'
+              ? '忽略半透明背景变化，比较亮色文字轮廓。'
+              : '比较固定图标的灰度像素。'}
+          </p>
         </div>
         <label>
           <span>匹配阈值</span>

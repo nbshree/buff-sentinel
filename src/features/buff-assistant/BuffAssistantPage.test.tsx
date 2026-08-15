@@ -36,6 +36,7 @@ async function createListenerApi() {
           settings: {
             cycleMs: 20_000,
             deadlineGraceMs: 1500,
+            matchMode: 'pixel',
             threshold: 0.95,
             confirmFrames: 3,
             missingFrames: 5,
@@ -119,6 +120,46 @@ describe('BuffAssistantPage', () => {
         expect.objectContaining({ cycleMs: 30_000 })
       )
     )
+  })
+
+  it('switches recognition modes with smart default thresholds', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    const dialog = await openListenerEditor(user)
+    const mode = within(dialog).getByRole('combobox', { name: '识别模式' })
+    const threshold = within(dialog).getByRole('spinbutton', { name: '匹配阈值' })
+    expect(mode).toHaveTextContent('像素图标')
+    expect(threshold).toHaveValue(0.95)
+    expect(within(dialog).getByText('比较固定图标的灰度像素。')).toBeVisible()
+
+    await user.click(mode)
+    await user.click(await screen.findByRole('option', { name: '亮色文字' }))
+    expect(threshold).toHaveValue(0.84)
+    expect(within(dialog).getByText('忽略半透明背景变化，比较亮色文字轮廓。')).toBeVisible()
+
+    await user.click(mode)
+    await user.click(await screen.findByRole('option', { name: '像素图标' }))
+    expect(threshold).toHaveValue(0.95)
+  })
+
+  it('preserves a customized threshold when switching recognition modes', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    const dialog = await openListenerEditor(user)
+    const mode = within(dialog).getByRole('combobox', { name: '识别模式' })
+    const threshold = within(dialog).getByRole('spinbutton', { name: '匹配阈值' })
+    await user.clear(threshold)
+    await user.type(threshold, '0.9')
+    await user.click(mode)
+    await user.click(await screen.findByRole('option', { name: '亮色文字' }))
+
+    expect(threshold).toHaveValue(0.9)
   })
 
   it('reloads the saved icon and mask when editing a listener', async () => {

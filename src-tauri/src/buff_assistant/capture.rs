@@ -19,8 +19,11 @@ use windows_capture::{
 };
 
 use super::{
-    detector::{StablePresenceDetector, TemplateData, match_template, rgba_to_gray_with_buffer},
-    model::NormalizedRect,
+    detector::{
+        StablePresenceDetector, TemplateData, bright_text_feature, bright_text_radius,
+        match_template, rgba_to_gray_with_buffer,
+    },
+    model::{BuffMatchMode, NormalizedRect},
 };
 
 #[derive(Clone, Default)]
@@ -94,6 +97,7 @@ pub struct RuntimeCaptureFlags {
 pub struct RuntimeListenerFlags {
     pub id: String,
     pub template: TemplateData,
+    pub match_mode: BuffMatchMode,
     pub threshold: f32,
     pub confirm_frames: u32,
     pub missing_frames: u32,
@@ -281,10 +285,22 @@ impl RuntimeCaptureProcessor {
             &frame.image.rgba,
             gray_buffer,
         )?;
+        let bright_text = self
+            .listeners
+            .iter()
+            .any(|listener| listener.flags.match_mode == BuffMatchMode::BrightText)
+            .then(|| bright_text_feature(&gray, bright_text_radius(scale)));
         for (listener, detection) in self.listeners.iter_mut().zip(&mut self.detections) {
             let threshold = listener.flags.threshold;
-            let template = listener.template_for_scale(scale);
-            let confidence = match_template(&gray, template);
+            let match_mode = listener.flags.match_mode;
+            let template = listener.template_for_scale(scale)?;
+            let search = match match_mode {
+                BuffMatchMode::Pixel => &gray,
+                BuffMatchMode::BrightText => bright_text
+                    .as_ref()
+                    .expect("bright-text listeners create a shared feature image"),
+            };
+            let confidence = match_template(search, template);
             let matched = confidence >= threshold;
             if matched {
                 listener.match_started_at.get_or_insert(frame.captured_at);
@@ -313,15 +329,19 @@ impl RuntimeCaptureProcessor {
 }
 
 impl RuntimeListenerProcessor {
-    fn template_for_scale(&mut self, scale: f32) -> &TemplateData {
+    fn template_for_scale(&mut self, scale: f32) -> Result<&TemplateData, String> {
         let rebuild = self
             .prepared_template
             .as_ref()
             .is_none_or(|(current, _)| (current - scale).abs() > 0.01);
         if rebuild {
-            self.prepared_template = Some((scale, self.flags.template.scaled(scale)));
+            let template = match self.flags.match_mode {
+                BuffMatchMode::Pixel => self.flags.template.scaled(scale),
+                BuffMatchMode::BrightText => self.flags.template.bright_text_scaled(scale)?,
+            };
+            self.prepared_template = Some((scale, template));
         }
-        &self.prepared_template.as_ref().unwrap().1
+        Ok(&self.prepared_template.as_ref().unwrap().1)
     }
 }
 

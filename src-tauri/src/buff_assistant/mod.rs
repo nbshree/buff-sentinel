@@ -1303,6 +1303,7 @@ fn capture_flags(
             Ok(RuntimeListenerFlags {
                 id: listener.id.clone(),
                 template: storage::load_template(&inner.storage_directory, summary)?,
+                match_mode: listener.settings.match_mode,
                 threshold: listener.settings.threshold,
                 confirm_frames: listener.settings.confirm_frames,
                 missing_frames: listener.settings.missing_frames,
