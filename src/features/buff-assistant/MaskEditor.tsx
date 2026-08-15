@@ -288,7 +288,7 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
       )
       const percent = Math.round((result.matchedCount * 100) / currentMask.length)
       setSegmentationMessage(
-        `已按 ${formatRgbColor(result.color)} 涂抹 ${result.matchedCount} 个像素（${percent}%）`
+        `已按 ${formatRgbColor(result.color)} 涂抹 ${result.matchedCount} 个像素（${percent}%），可继续点击取色`
       )
     } catch (reason) {
       setSegmentationError(reason instanceof Error ? reason.message : String(reason))
@@ -300,7 +300,6 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
     if (expanded && colorPicking) {
       event.preventDefault()
       applyPickedColor(pointFromEvent(event))
-      setColorPicking(false)
       return
     }
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -417,8 +416,8 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
       <div className="buff-mask-editor__footer">
         <span aria-live="polite">
           {segmentationError ||
-            (colorPicking ? '点击图像中的一个像素，立即涂抹全图相似颜色' : '') ||
             segmentationMessage ||
+            (colorPicking ? '点击图像中的一个像素，立即涂抹全图相似颜色' : '') ||
             (ready ? '红色区域不会参与识别' : '正在准备模板预览…')}
         </span>
         <label className="buff-mask-editor__brush-control">
