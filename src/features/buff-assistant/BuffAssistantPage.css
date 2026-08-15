@@ -965,6 +965,10 @@
   image-rendering: pixelated;
 }
 
+.buff-mask-editor__canvas[data-color-picking='true'] {
+  cursor: copy;
+}
+
 .buff-mask-editor__footer {
   display: flex;
   align-items: flex-start;
@@ -980,7 +984,8 @@
   color: var(--text-muted);
 }
 
-.buff-mask-editor__brush-control {
+.buff-mask-editor__brush-control,
+.buff-mask-editor__color-control {
   display: grid;
   width: min(100%, 360px);
   align-items: center;
@@ -991,14 +996,16 @@
   font-weight: 600;
 }
 
-.buff-mask-editor__brush-control input {
+.buff-mask-editor__brush-control input,
+.buff-mask-editor__color-control input {
   width: 100%;
   min-width: 0;
   accent-color: var(--color-primary);
   cursor: pointer;
 }
 
-.buff-mask-editor__brush-control input:disabled {
+.buff-mask-editor__brush-control input:disabled,
+.buff-mask-editor__color-control input:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }

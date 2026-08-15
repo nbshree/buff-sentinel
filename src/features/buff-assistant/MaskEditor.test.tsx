@@ -6,6 +6,8 @@ import {
   brushRadiusFromDiameter,
   clearMaskHistory,
   createMaskHistory,
+  imagePixelFromClientPoint,
+  maskPixelsMatchingColor,
   MaskEditor,
   replaceMaskHistory,
   segmentForegroundByBorderColor,
@@ -66,6 +68,20 @@ describe('mask brush sizing', () => {
   })
 })
 
+describe('mask canvas coordinates', () => {
+  it('maps a client point to the same source pixel after zooming and panning', () => {
+    expect(
+      imagePixelFromClientPoint(
+        0,
+        0,
+        { left: -400, top: -200, width: 2000, height: 1000 },
+        1000,
+        500
+      )
+    ).toEqual({ x: 200, y: 100 })
+  })
+})
+
 describe('color boundary segmentation', () => {
   it('keeps the largest contrasting subject and ignores the border background', () => {
     const width = 8
@@ -95,7 +111,76 @@ describe('color boundary segmentation', () => {
   })
 })
 
+describe('picked color masking', () => {
+  const sourcePixels = new Uint8ClampedArray([
+    255, 255, 255, 255, 240, 245, 250, 255, 40, 40, 40, 255, 255, 255, 255, 0
+  ])
+
+  it('matches exact colors globally and preserves the existing mask', () => {
+    const currentMask = new Uint8ClampedArray([255, 0, 255, 255])
+
+    const result = maskPixelsMatchingColor(sourcePixels, currentMask, 4, 1, 0, 0, 0)
+
+    expect(result.color).toEqual([255, 255, 255])
+    expect(result.maskPixels).toEqual(new Uint8ClampedArray([0, 0, 255, 255]))
+    expect(result.matchedCount).toBe(1)
+  })
+
+  it('includes disconnected similar colors but skips transparent pixels', () => {
+    const result = maskPixelsMatchingColor(
+      sourcePixels,
+      new Uint8ClampedArray([255, 255, 255, 255]),
+      4,
+      1,
+      0,
+      0,
+      32
+    )
+
+    expect(result.maskPixels).toEqual(new Uint8ClampedArray([0, 0, 255, 255]))
+    expect(result.matchedCount).toBe(2)
+  })
+
+  it('rejects a transparent sample point', () => {
+    expect(() =>
+      maskPixelsMatchingColor(
+        sourcePixels,
+        new Uint8ClampedArray([255, 255, 255, 255]),
+        4,
+        1,
+        3,
+        0,
+        32
+      )
+    ).toThrow('该像素透明')
+  })
+})
+
 describe('MaskEditor', () => {
+  it('shows color picking controls only in expanded editing', () => {
+    const { rerender } = render(
+      <MaskEditor
+        crop={crop}
+        imageUrl="template.png"
+        value={createMaskHistory()}
+        onChange={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByRole('button', { name: '按颜色涂抹' })).not.toBeInTheDocument()
+    rerender(
+      <MaskEditor
+        expanded
+        crop={crop}
+        imageUrl="template.png"
+        value={createMaskHistory()}
+        onChange={vi.fn()}
+      />
+    )
+    expect(screen.getByRole('button', { name: '按颜色涂抹' })).toBeInTheDocument()
+    expect(screen.getByRole('slider', { name: '相似颜色容差' })).toHaveValue('32')
+  })
+
   it('offers a one-pixel brush for precise mask editing', () => {
     render(
       <MaskEditor

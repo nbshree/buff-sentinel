@@ -1,4 +1,4 @@
-import { Palette, RotateCcw } from 'lucide-react'
+import { Palette, Pipette, RotateCcw } from 'lucide-react'
 import {
   forwardRef,
   useEffect,
@@ -38,10 +38,18 @@ type MaskEditorProps = {
 
 const defaultBrushDiameter = 3
 const maximumBrushDiameter = 48
+const defaultColorTolerance = 32
+const maximumColorTolerance = 128
 
 type ColorSegmentationResult = {
   maskPixels: Uint8ClampedArray
   ignoredPercent: number
+}
+
+type PickedColorMaskResult = {
+  color: [number, number, number]
+  maskPixels: Uint8ClampedArray
+  matchedCount: number
 }
 
 export function createMaskHistory(baseMaskDataUrl: string | null = null): MaskHistory {
@@ -112,6 +120,8 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
   const [draftStroke, setDraftStroke] = useState<MaskStroke | null>(null)
   const [brushDiameter, setBrushDiameter] = useState(defaultBrushDiameter)
+  const [colorPicking, setColorPicking] = useState(false)
+  const [colorTolerance, setColorTolerance] = useState(defaultColorTolerance)
   const [segmentationError, setSegmentationError] = useState('')
   const [segmentationMessage, setSegmentationMessage] = useState('')
 
@@ -199,15 +209,16 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
 
   function pointFromEvent(event: PointerEvent<HTMLCanvasElement>): MaskPoint {
     const bounds = event.currentTarget.getBoundingClientRect()
-    const pixelX = Math.floor(
-      clamp((event.clientX - bounds.left) / Math.max(1, bounds.width)) * dimensions.width
-    )
-    const pixelY = Math.floor(
-      clamp((event.clientY - bounds.top) / Math.max(1, bounds.height)) * dimensions.height
+    const pixel = imagePixelFromClientPoint(
+      event.clientX,
+      event.clientY,
+      bounds,
+      dimensions.width,
+      dimensions.height
     )
     return {
-      x: (Math.min(dimensions.width - 1, pixelX) + 0.5) / dimensions.width,
-      y: (Math.min(dimensions.height - 1, pixelY) + 0.5) / dimensions.height
+      x: (pixel.x + 0.5) / dimensions.width,
+      y: (pixel.y + 0.5) / dimensions.height
     }
   }
 
@@ -215,8 +226,83 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
     onChange(appendMaskStroke(value, stroke))
   }
 
+  function resetActiveStroke(): void {
+    activeStrokeRef.current = null
+    pointerStartRef.current = null
+    setDraftStroke(null)
+  }
+
+  function toggleColorPicker(): void {
+    if (!expanded || !ready) return
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current)
+      clickTimerRef.current = null
+    }
+    resetActiveStroke()
+    setSegmentationError('')
+    setSegmentationMessage('')
+    setColorPicking((current) => !current)
+  }
+
+  function applyPickedColor(point: MaskPoint): void {
+    const source = sourceRef.current
+    if (!source || !ready) return
+    setSegmentationError('')
+    setSegmentationMessage('')
+    try {
+      const sourcePixels = readCroppedSourcePixels(
+        source,
+        crop,
+        dimensions.width,
+        dimensions.height
+      )
+      const maskCanvas = renderMaskCanvas(
+        dimensions.width,
+        dimensions.height,
+        baseMaskRef.current,
+        value.present
+      )
+      const maskContext = maskCanvas.getContext('2d', { willReadFrequently: true })
+      if (!maskContext) throw new Error('无法读取当前遮罩')
+      const maskRgba = maskContext.getImageData(0, 0, dimensions.width, dimensions.height).data
+      const currentMask = new Uint8ClampedArray(dimensions.width * dimensions.height)
+      for (let pixel = 0; pixel < currentMask.length; pixel += 1) {
+        currentMask[pixel] = maskRgba[pixel * 4]
+      }
+      const sampleX = Math.min(dimensions.width - 1, Math.floor(point.x * dimensions.width))
+      const sampleY = Math.min(dimensions.height - 1, Math.floor(point.y * dimensions.height))
+      const result = maskPixelsMatchingColor(
+        sourcePixels.data,
+        currentMask,
+        dimensions.width,
+        dimensions.height,
+        sampleX,
+        sampleY,
+        colorTolerance
+      )
+      onChange(
+        replaceMaskHistory(
+          value,
+          renderMaskPixelsDataUrl(result.maskPixels, dimensions.width, dimensions.height)
+        )
+      )
+      const percent = Math.round((result.matchedCount * 100) / currentMask.length)
+      setSegmentationMessage(
+        `已按 ${formatRgbColor(result.color)} 涂抹 ${result.matchedCount} 个像素（${percent}%）`
+      )
+    } catch (reason) {
+      setSegmentationError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
   function handlePointerDown(event: PointerEvent<HTMLCanvasElement>): void {
     if (!ready || event.button !== 0 || event.detail > 1) return
+    if (expanded && colorPicking) {
+      event.preventDefault()
+      applyPickedColor(pointFromEvent(event))
+      setColorPicking(false)
+      return
+    }
     event.currentTarget.setPointerCapture(event.pointerId)
     const point = pointFromEvent(event)
     activeStrokeRef.current = {
@@ -244,9 +330,7 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
   function handlePointerUp(event: PointerEvent<HTMLCanvasElement>): void {
     const stroke = activeStrokeRef.current
     const start = pointerStartRef.current
-    activeStrokeRef.current = null
-    pointerStartRef.current = null
-    setDraftStroke(null)
+    resetActiveStroke()
     if (!stroke || !start || event.detail > 1) return
     const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y) >= 2
     if (moved) {
@@ -291,8 +375,9 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
   const canvas = (
     <div className="buff-mask-editor__viewport">
       <canvas
-        aria-label="模板忽略区域画笔"
+        aria-label={colorPicking ? '选择要快速涂抹的颜色' : '模板忽略区域画笔'}
         className="buff-mask-editor__canvas"
+        data-color-picking={colorPicking}
         ref={canvasRef}
         onDoubleClick={(event) => {
           if (!onRequestExpand) return
@@ -301,16 +386,10 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
             window.clearTimeout(clickTimerRef.current)
             clickTimerRef.current = null
           }
-          activeStrokeRef.current = null
-          pointerStartRef.current = null
-          setDraftStroke(null)
+          resetActiveStroke()
           onRequestExpand()
         }}
-        onPointerCancel={() => {
-          activeStrokeRef.current = null
-          pointerStartRef.current = null
-          setDraftStroke(null)
-        }}
+        onPointerCancel={resetActiveStroke}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -336,8 +415,9 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
         canvas
       )}
       <div className="buff-mask-editor__footer">
-        <span>
+        <span aria-live="polite">
           {segmentationError ||
+            (colorPicking ? '点击图像中的一个像素，立即涂抹全图相似颜色' : '') ||
             segmentationMessage ||
             (ready ? '红色区域不会参与识别' : '正在准备模板预览…')}
         </span>
@@ -355,7 +435,37 @@ export const MaskEditor = forwardRef<MaskEditorHandle, MaskEditorProps>(function
           />
           <span className="buff-mask-editor__brush-range">1–{brushDiameterLimit} px</span>
         </label>
+        {expanded ? (
+          <label className="buff-mask-editor__color-control">
+            <span>颜色容差 {colorTolerance}</span>
+            <input
+              aria-label="相似颜色容差"
+              disabled={!ready}
+              max={maximumColorTolerance}
+              min="0"
+              step="1"
+              type="range"
+              value={colorTolerance}
+              onChange={(event) => setColorTolerance(Number(event.currentTarget.value))}
+            />
+            <span className="buff-mask-editor__brush-range">0–{maximumColorTolerance}</span>
+          </label>
+        ) : null}
         <div className="buff-mask-editor__actions">
+          {expanded ? (
+            <Button
+              aria-pressed={colorPicking}
+              disabled={!ready}
+              size="compact"
+              title="点击后在图像中取色，并涂抹整个区域内的相似颜色"
+              type="button"
+              variant={colorPicking ? 'default' : 'outline'}
+              onClick={toggleColorPicker}
+            >
+              <Pipette aria-hidden="true" />
+              {colorPicking ? '取消取色' : '按颜色涂抹'}
+            </Button>
+          ) : null}
           <Button
             disabled={!ready}
             size="compact"
@@ -402,6 +512,20 @@ function renderColorBoundaryMask(
   width: number,
   height: number
 ): { maskDataUrl: string; ignoredPercent: number } {
+  const imageData = readCroppedSourcePixels(source, crop, width, height)
+  const result = segmentForegroundByBorderColor(imageData.data, width, height)
+  return {
+    maskDataUrl: renderMaskPixelsDataUrl(result.maskPixels, width, height),
+    ignoredPercent: result.ignoredPercent
+  }
+}
+
+function readCroppedSourcePixels(
+  source: HTMLImageElement,
+  crop: NormalizedRect,
+  width: number,
+  height: number
+): ImageData {
   const sourceCanvas = document.createElement('canvas')
   sourceCanvas.width = width
   sourceCanvas.height = height
@@ -418,24 +542,72 @@ function renderColorBoundaryMask(
     width,
     height
   )
-  const imageData = sourceContext.getImageData(0, 0, width, height)
-  const result = segmentForegroundByBorderColor(imageData.data, width, height)
+  return sourceContext.getImageData(0, 0, width, height)
+}
+
+function renderMaskPixelsDataUrl(
+  maskPixels: Uint8ClampedArray,
+  width: number,
+  height: number
+): string {
   const maskCanvas = document.createElement('canvas')
   maskCanvas.width = width
   maskCanvas.height = height
   const maskContext = maskCanvas.getContext('2d')
   if (!maskContext) throw new Error('无法创建颜色分割遮罩')
   const mask = maskContext.createImageData(width, height)
-  for (let pixel = 0; pixel < result.maskPixels.length; pixel += 1) {
+  for (let pixel = 0; pixel < maskPixels.length; pixel += 1) {
     const offset = pixel * 4
-    const value = result.maskPixels[pixel]
+    const value = maskPixels[pixel]
     mask.data[offset] = value
     mask.data[offset + 1] = value
     mask.data[offset + 2] = value
     mask.data[offset + 3] = 255
   }
   maskContext.putImageData(mask, 0, 0)
-  return { maskDataUrl: maskCanvas.toDataURL('image/png'), ignoredPercent: result.ignoredPercent }
+  return maskCanvas.toDataURL('image/png')
+}
+
+export function maskPixelsMatchingColor(
+  sourcePixels: Uint8ClampedArray,
+  currentMask: Uint8ClampedArray,
+  width: number,
+  height: number,
+  sampleX: number,
+  sampleY: number,
+  tolerance: number
+): PickedColorMaskResult {
+  const pixelCount = width * height
+  if (
+    width < 1 ||
+    height < 1 ||
+    sourcePixels.length !== pixelCount * 4 ||
+    currentMask.length !== pixelCount
+  ) {
+    throw new Error('图标像素数据无效')
+  }
+  const x = Math.min(width - 1, Math.max(0, Math.floor(sampleX)))
+  const y = Math.min(height - 1, Math.max(0, Math.floor(sampleY)))
+  const sampleOffset = (y * width + x) * 4
+  if (sourcePixels[sampleOffset + 3] < 32) {
+    throw new Error('该像素透明，请选择可见颜色')
+  }
+  const color: [number, number, number] = [
+    sourcePixels[sampleOffset],
+    sourcePixels[sampleOffset + 1],
+    sourcePixels[sampleOffset + 2]
+  ]
+  const threshold = Math.min(maximumColorTolerance, Math.max(0, tolerance))
+  const maskPixels = new Uint8ClampedArray(currentMask)
+  let matchedCount = 0
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const offset = pixel * 4
+    if (sourcePixels[offset + 3] >= 32 && colorDistance(sourcePixels, pixel, color) <= threshold) {
+      maskPixels[pixel] = 0
+      matchedCount += 1
+    }
+  }
+  return { color, maskPixels, matchedCount }
 }
 
 export function segmentForegroundByBorderColor(
@@ -603,18 +775,27 @@ function renderMaskDataUrl(
   baseMask: HTMLImageElement | null,
   strokes: MaskStroke[]
 ): string {
+  return renderMaskCanvas(width, height, baseMask, strokes).toDataURL('image/png')
+}
+
+function renderMaskCanvas(
+  width: number,
+  height: number,
+  baseMask: HTMLImageElement | null,
+  strokes: MaskStroke[]
+): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
   const context = canvas.getContext('2d')
-  if (!context) return ''
+  if (!context) return canvas
   context.fillStyle = '#fff'
   context.fillRect(0, 0, width, height)
   if (baseMask) context.drawImage(baseMask, 0, 0, width, height)
   context.strokeStyle = '#000'
   context.fillStyle = '#000'
   for (const stroke of strokes) drawStroke(context, stroke)
-  return canvas.toDataURL('image/png')
+  return canvas
 }
 
 function drawBaseMask(context: CanvasRenderingContext2D, mask: HTMLImageElement): void {
@@ -716,6 +897,32 @@ function drawPixelLine(
 
 export function brushRadiusFromDiameter(diameter: number, width: number, height: number): number {
   return Math.max(1, diameter) / (2 * Math.max(1, Math.min(width, height)))
+}
+
+export function imagePixelFromClientPoint(
+  clientX: number,
+  clientY: number,
+  bounds: { left: number; top: number; width: number; height: number },
+  imageWidth: number,
+  imageHeight: number
+): { x: number; y: number } {
+  const x = Math.floor(
+    clamp((clientX - bounds.left) / Math.max(1, bounds.width)) * Math.max(1, imageWidth)
+  )
+  const y = Math.floor(
+    clamp((clientY - bounds.top) / Math.max(1, bounds.height)) * Math.max(1, imageHeight)
+  )
+  return {
+    x: Math.min(Math.max(0, imageWidth - 1), x),
+    y: Math.min(Math.max(0, imageHeight - 1), y)
+  }
+}
+
+function formatRgbColor(color: [number, number, number]): string {
+  return `#${color
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase()}`
 }
 
 function cloneStroke(stroke: MaskStroke): MaskStroke {

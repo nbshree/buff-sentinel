@@ -41,7 +41,8 @@ export function MaskEditorDialog({
         <DialogHeader>
           <DialogTitle>精调忽略区域</DialogTitle>
           <DialogDescription>
-            在倒计时数字、层数或动态闪光上涂抹。一次按下到松开算一笔，可用 Ctrl+Z 撤销。
+            可手工涂抹倒计时数字、层数或动态闪光，也可按颜色快速涂抹文字。所有操作均可用 Ctrl+Z
+            撤销。
           </DialogDescription>
         </DialogHeader>
         <div className="buff-image-editor-dialog__workspace">
