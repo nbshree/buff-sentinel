@@ -15,6 +15,7 @@ pub const MIN_OVERLAY_WIDTH: u32 = 75;
 pub const MIN_OVERLAY_HEIGHT: u32 = 30;
 pub const MAX_OVERLAY_WIDTH: u32 = 800;
 pub const MAX_OVERLAY_HEIGHT: u32 = 520;
+pub const DEFAULT_MONITOR_HOTKEY: &str = "Ctrl+Alt+F10";
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -342,11 +343,22 @@ impl From<&BuffAssistantSettings> for BuffListenerSettings {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-#[derive(Default)]
 pub struct BuffGlobalSettings {
     pub overlay: BuffOverlaySettings,
     #[serde(default)]
     pub capture: BuffCaptureSettings,
+    #[serde(default = "default_monitor_hotkey")]
+    pub monitor_hotkey: Option<String>,
+}
+
+impl Default for BuffGlobalSettings {
+    fn default() -> Self {
+        Self {
+            overlay: BuffOverlaySettings::default(),
+            capture: BuffCaptureSettings::default(),
+            monitor_hotkey: default_monitor_hotkey(),
+        }
+    }
 }
 
 impl BuffGlobalSettings {
@@ -359,7 +371,17 @@ impl BuffGlobalSettings {
             .overlay
             .height
             .clamp(MIN_OVERLAY_HEIGHT, MAX_OVERLAY_HEIGHT);
+        self.monitor_hotkey = self
+            .monitor_hotkey
+            .as_deref()
+            .map(str::trim)
+            .filter(|shortcut| !shortcut.is_empty())
+            .map(str::to_string);
     }
+}
+
+fn default_monitor_hotkey() -> Option<String> {
+    Some(DEFAULT_MONITOR_HOTKEY.to_string())
 }
 
 impl From<&BuffAssistantSettings> for BuffGlobalSettings {
@@ -367,6 +389,7 @@ impl From<&BuffAssistantSettings> for BuffGlobalSettings {
         Self {
             overlay: settings.overlay.clone(),
             capture: settings.capture.clone(),
+            monitor_hotkey: default_monitor_hotkey(),
         }
     }
 }
@@ -550,6 +573,7 @@ pub struct BuffAssistantState {
     pub last_error: Option<String>,
     pub capture_border_supported: bool,
     pub capture_border_notice: Option<String>,
+    pub hotkey_registration_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -647,6 +671,22 @@ mod tests {
         let settings: BuffListenerSettings = serde_json::from_value(value).unwrap();
 
         assert_eq!(settings.match_mode, BuffMatchMode::Pixel);
+    }
+
+    #[test]
+    fn monitor_hotkey_defaults_when_missing_and_allows_null() {
+        let mut value = serde_json::to_value(BuffGlobalSettings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("monitorHotkey");
+        let settings: BuffGlobalSettings = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            settings.monitor_hotkey.as_deref(),
+            Some(DEFAULT_MONITOR_HOTKEY)
+        );
+
+        let mut value = serde_json::to_value(BuffGlobalSettings::default()).unwrap();
+        value["monitorHotkey"] = serde_json::Value::Null;
+        let settings: BuffGlobalSettings = serde_json::from_value(value).unwrap();
+        assert_eq!(settings.monitor_hotkey, None);
     }
 
     #[test]

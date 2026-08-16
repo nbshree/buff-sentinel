@@ -1,6 +1,7 @@
 mod audio;
 mod capture;
 mod detector;
+mod hotkey;
 mod model;
 mod storage;
 mod timeline;
@@ -61,6 +62,8 @@ struct RuntimeData {
     last_error: Option<String>,
     capture_border_supported: bool,
     capture_border_notice: Option<String>,
+    hotkey_registration_error: Option<String>,
+    registered_monitor_hotkey: Option<String>,
     storage_directory: PathBuf,
     sound_templates: Vec<storage::SoundTemplate>,
     capture: Option<RuntimeCaptureControl>,
@@ -166,6 +169,8 @@ impl BuffAssistant {
                     last_error: None,
                     capture_border_supported,
                     capture_border_notice: None,
+                    hotkey_registration_error: None,
+                    registered_monitor_hotkey: None,
                     storage_directory: directory,
                     sound_templates,
                     capture: None,
@@ -610,14 +615,36 @@ pub fn update_buff_assistant_settings(
     mut settings: BuffGlobalSettings,
 ) -> Result<BuffAssistantState, String> {
     ensure_configuration_unlocked(&state)?;
+    settings.monitor_hotkey = hotkey::normalize_monitor_hotkey(settings.monitor_hotkey.as_deref())?;
     settings.sanitize();
+    let (old_hotkey, mut next_config, storage_directory) = {
+        let inner = state.lock();
+        (
+            inner.config.settings.monitor_hotkey.clone(),
+            inner.config.clone(),
+            inner.storage_directory.clone(),
+        )
+    };
+    if let Err(error) = hotkey::rebind(&app, settings.monitor_hotkey.as_deref()) {
+        emit_state(&app, &state.snapshot());
+        return Err(error);
+    }
+    if !state.lock().capture_border_supported {
+        settings.capture.show_system_border = true;
+    }
+    next_config.settings = settings;
+    if let Err(error) = storage::save_config(&storage_directory, &next_config) {
+        let rollback = hotkey::rebind(&app, old_hotkey.as_deref());
+        let message = match rollback {
+            Ok(()) => error,
+            Err(rollback_error) => format!("{error}；恢复旧监控热键失败：{rollback_error}"),
+        };
+        emit_state(&app, &state.snapshot());
+        return Err(message);
+    }
     {
         let mut inner = state.lock();
-        if !inner.capture_border_supported {
-            settings.capture.show_system_border = true;
-        }
-        inner.config.settings = settings;
-        storage::save_config(&inner.storage_directory, &inner.config)?;
+        inner.config = next_config;
     }
     apply_overlay_geometry(&app);
     let capture_protection_result = apply_overlay_capture_protection(&app);
@@ -1618,7 +1645,16 @@ fn snapshot_from_runtime(inner: &RuntimeData) -> BuffAssistantState {
         last_error: inner.last_error.clone(),
         capture_border_supported: inner.capture_border_supported,
         capture_border_notice: inner.capture_border_notice.clone(),
+        hotkey_registration_error: inner.hotkey_registration_error.clone(),
     }
+}
+
+pub fn initialize_monitor_hotkey(app: &AppHandle) {
+    hotkey::initialize(app);
+}
+
+pub fn handle_monitor_hotkey_pressed(app: &AppHandle) {
+    hotkey::handle_pressed(app);
 }
 
 fn listener_runtime_map(config: &BuffAssistantConfig) -> HashMap<String, ListenerRuntime> {

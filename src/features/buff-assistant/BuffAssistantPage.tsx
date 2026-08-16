@@ -21,7 +21,7 @@ import {
   Upload,
   Volume2
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
@@ -143,6 +143,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const [maskEditorOpen, setMaskEditorOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
   const [settings, setSettings] = useState<BuffGlobalSettings>(state.config.settings)
+  const [hotkeyInputError, setHotkeyInputError] = useState<string | null>(null)
   const [listenerDialogOpen, setListenerDialogOpen] = useState(false)
   const [editingListenerId, setEditingListenerId] = useState<string | null>(null)
   const [listenerName, setListenerName] = useState('')
@@ -253,6 +254,11 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   }, [preview, searchRegion])
 
   const configurationLocked = state.isMonitoring || state.activity === 'testing'
+  const savedHotkeyError =
+    settings.monitorHotkey === state.config.settings.monitorHotkey
+      ? state.hotkeyRegistrationError
+      : null
+  const displayedHotkeyError = hotkeyInputError ?? savedHotkeyError
   const canStart = Boolean(
     state.config.target &&
     state.config.searchRegion &&
@@ -430,13 +436,51 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     if (open) {
       setSettings(state.config.settings)
       setSoundError(null)
+      setHotkeyInputError(null)
     }
     setSettingsDialogOpen(open)
   }
 
   async function handleSaveSettings(): Promise<void> {
-    await updateSettings(settings)
-    setSettingsDialogOpen(false)
+    setHotkeyInputError(null)
+    try {
+      await updateSettings(settings)
+      setSettingsDialogOpen(false)
+    } catch (reason) {
+      setHotkeyInputError(toMessage(reason))
+    }
+  }
+
+  function handleMonitorHotkeyKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    if (event.key === 'Tab') return
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.key === 'Escape') {
+      event.currentTarget.blur()
+      setHotkeyInputError(null)
+      return
+    }
+    if (event.metaKey) {
+      setHotkeyInputError('监控热键不支持 Windows 键')
+      return
+    }
+
+    const primary = monitorHotkeyPrimary(event)
+    if (!primary) return
+    const isFunctionKey = /^F(?:[1-9]|1\d|2[0-4])$/.test(primary)
+    if (!isFunctionKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+      setHotkeyInputError('字母或数字热键至少需要 Ctrl、Alt、Shift 中的一个修饰键')
+      return
+    }
+
+    const parts = [
+      event.ctrlKey ? 'Ctrl' : null,
+      event.altKey ? 'Alt' : null,
+      event.shiftKey ? 'Shift' : null,
+      primary
+    ].filter((part): part is string => part !== null)
+    setSettings((current) => ({ ...current, monitorHotkey: parts.join('+') }))
+    setHotkeyInputError(null)
   }
 
   return (
@@ -606,13 +650,15 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                 <DialogTrigger asChild>
                   <Button disabled={busy || configurationLocked} variant="outline">
                     <Settings2 aria-hidden="true" />
-                    识别与提醒设置
+                    设置
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="max-h-[calc(100vh-48px)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[1000px]">
                   <DialogHeader className="border-b border-border px-5 py-4 pr-14">
-                    <DialogTitle>识别与提醒设置</DialogTitle>
-                    <DialogDescription>调整浮窗与系统捕获参数，点击保存后生效。</DialogDescription>
+                    <DialogTitle>设置</DialogTitle>
+                    <DialogDescription>
+                      调整监控热键、浮窗与系统捕获参数，点击保存后生效。
+                    </DialogDescription>
                   </DialogHeader>
                   <div className="buff-settings-dialog">
                     <div className="buff-global-settings-row">
@@ -695,6 +741,59 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                             }
                           />
                         </div>
+                      </div>
+                    </div>
+                    <div className="buff-hotkey-settings">
+                      <div className="buff-hotkey-settings__heading">
+                        <div>
+                          <strong>监控热键</strong>
+                          <span>应用最小化到托盘或游戏位于前台时也能切换监控。</span>
+                        </div>
+                      </div>
+                      <div className="buff-hotkey-settings__control">
+                        <label htmlFor="monitor-hotkey">切换开始 / 停止监控</label>
+                        <div className="buff-hotkey-settings__input-row">
+                          <Input
+                            id="monitor-hotkey"
+                            aria-describedby={
+                              displayedHotkeyError
+                                ? 'monitor-hotkey-help monitor-hotkey-error'
+                                : 'monitor-hotkey-help'
+                            }
+                            aria-invalid={Boolean(displayedHotkeyError)}
+                            placeholder="未设置（热键已关闭）"
+                            readOnly
+                            value={formatMonitorHotkey(settings.monitorHotkey)}
+                            onKeyDown={handleMonitorHotkeyKeyDown}
+                          />
+                          <Button
+                            disabled={busy || settings.monitorHotkey === null}
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                              setSettings((current) => ({
+                                ...current,
+                                monitorHotkey: null
+                              }))
+                              setHotkeyInputError(null)
+                            }}
+                          >
+                            清空
+                          </Button>
+                        </div>
+                        <p className="buff-hotkey-settings__help" id="monitor-hotkey-help">
+                          聚焦输入框后按下组合键。支持字母、数字和 F1-F24；Esc
+                          取消录入，清空后关闭热键。
+                        </p>
+                        {displayedHotkeyError ? (
+                          <p
+                            className="buff-hotkey-settings__error"
+                            id="monitor-hotkey-error"
+                            role="alert"
+                          >
+                            {displayedHotkeyError}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                     <div className="buff-sound-options">
@@ -1476,4 +1575,15 @@ function clamp(value: number, minimum: number, maximum: number): number {
 
 function toMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason)
+}
+
+function monitorHotkeyPrimary(event: KeyboardEvent<HTMLInputElement>): string | null {
+  if (/^Key[A-Z]$/.test(event.code)) return event.code.slice(3)
+  if (/^Digit\d$/.test(event.code)) return event.code.slice(5)
+  const functionKey = event.key.toUpperCase()
+  return /^F(?:[1-9]|1\d|2[0-4])$/.test(functionKey) ? functionKey : null
+}
+
+function formatMonitorHotkey(shortcut: string | null): string {
+  return shortcut?.split('+').join(' + ') ?? ''
 }

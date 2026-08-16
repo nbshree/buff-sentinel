@@ -23,7 +23,8 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
         },
         capture: {
           showSystemBorder: true
-        }
+        },
+        monitorHotkey: 'Ctrl+Alt+F10'
       }
     },
     activity: 'stopped',
@@ -31,7 +32,8 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
     listeners: [],
     lastError: null,
     captureBorderSupported: true,
-    captureBorderNotice: null
+    captureBorderNotice: null,
+    hotkeyRegistrationError: null
   }
 
   return {

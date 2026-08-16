@@ -30,7 +30,8 @@ const defaultState: BuffAssistantState = {
       },
       capture: {
         showSystemBorder: true
-      }
+      },
+      monitorHotkey: 'Ctrl+Alt+F10'
     }
   },
   activity: 'stopped',
@@ -38,7 +39,8 @@ const defaultState: BuffAssistantState = {
   listeners: [],
   lastError: null,
   captureBorderSupported: false,
-  captureBorderNotice: null
+  captureBorderNotice: null,
+  hotkeyRegistrationError: null
 }
 
 export type BuffAssistantController = ReturnType<typeof useBuffAssistantController>

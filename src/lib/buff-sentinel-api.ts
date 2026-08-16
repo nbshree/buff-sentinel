@@ -99,6 +99,7 @@ export type BuffListenerSettings = {
 export type BuffGlobalSettings = {
   overlay: BuffOverlaySettings
   capture: BuffCaptureSettings
+  monitorHotkey: string | null
 }
 
 export type BuffListenerConfig = {
@@ -133,6 +134,7 @@ export type BuffAssistantState = {
   lastError: string | null
   captureBorderSupported: boolean
   captureBorderNotice: string | null
+  hotkeyRegistrationError: string | null
 }
 
 export type BorderlessCaptureAccessResult =

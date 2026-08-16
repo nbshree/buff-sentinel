@@ -1225,10 +1225,69 @@ button.buff-editor-expand-action[data-slot='button']:hover {
   white-space: nowrap;
 }
 
+.buff-hotkey-settings {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(280px, 1fr);
+  gap: 16px;
+  margin-top: 14px;
+  border-top: 1px solid var(--border-default);
+  padding-top: 14px;
+}
+
+.buff-hotkey-settings__heading div,
+.buff-hotkey-settings__control {
+  display: grid;
+  gap: 4px;
+}
+
+.buff-hotkey-settings__heading strong,
+.buff-hotkey-settings__control label {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.buff-hotkey-settings__heading span,
+.buff-hotkey-settings__help,
+.buff-hotkey-settings__error {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.buff-hotkey-settings__heading span,
+.buff-hotkey-settings__help {
+  color: var(--text-secondary);
+}
+
+.buff-hotkey-settings__input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.buff-hotkey-settings__input-row input {
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.buff-hotkey-settings__input-row [data-slot='button'] {
+  min-width: 64px;
+  flex: none;
+}
+
+.buff-hotkey-settings__error {
+  color: var(--color-danger);
+}
+
 @media (max-width: 760px) {
   .buff-global-settings-row {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+
+  .buff-hotkey-settings {
+    grid-template-columns: 1fr;
   }
 }
 

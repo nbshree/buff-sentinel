@@ -4,6 +4,7 @@ mod platform;
 mod updater;
 
 use tauri::{Manager, RunEvent, WindowEvent};
+use tauri_plugin_global_shortcut::ShortcutState;
 
 #[tauri::command]
 fn get_app_version(app: tauri::AppHandle) -> String {
@@ -19,12 +20,22 @@ pub fn run() {
             desktop::show_main_window(app);
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        buff_assistant::handle_monitor_hotkey_pressed(app);
+                    }
+                })
+                .build(),
+        )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let (buff_state, _notices) = buff_assistant::BuffAssistant::load(app.handle())?;
             app.manage(buff_state);
             app.manage(desktop::DesktopState::default());
             app.manage(updater::PendingUpdate::default());
+            buff_assistant::initialize_monitor_hotkey(app.handle());
             updater::schedule_installer_cleanup(app.package_info().name.clone());
             desktop::create_tray(app.handle())?;
             buff_assistant::create_overlay(app.handle())?;

@@ -68,8 +68,8 @@ async function createListenerApi() {
 }
 
 async function openGlobalSettings(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await screen.findByRole('button', { name: '识别与提醒设置' }))
-  return screen.findByRole('dialog', { name: '识别与提醒设置' })
+  await user.click(await screen.findByRole('button', { name: '设置' }))
+  return screen.findByRole('dialog', { name: '设置' })
 }
 
 async function openListenerEditor(user: ReturnType<typeof userEvent.setup>) {
@@ -97,6 +97,62 @@ describe('BuffAssistantPage', () => {
         })
       )
     )
+  })
+
+  it('records and saves a global monitor hotkey', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    const dialog = await openGlobalSettings(user)
+    const hotkey = within(dialog).getByRole('textbox', { name: '切换开始 / 停止监控' })
+    expect(hotkey).toHaveValue('Ctrl + Alt + F10')
+
+    await user.click(hotkey)
+    await user.keyboard('{Control>}{Shift>}k{/Shift}{/Control}')
+    expect(hotkey).toHaveValue('Ctrl + Shift + K')
+    await user.click(within(dialog).getByRole('button', { name: '保存设置' }))
+
+    await waitFor(() =>
+      expect(api.updateBuffAssistantSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ monitorHotkey: 'Ctrl+Shift+K' })
+      )
+    )
+  })
+
+  it('clears the monitor hotkey to disable it', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    const dialog = await openGlobalSettings(user)
+    await user.click(within(dialog).getByRole('button', { name: '清空' }))
+    expect(within(dialog).getByRole('textbox', { name: '切换开始 / 停止监控' })).toHaveValue('')
+    await user.click(within(dialog).getByRole('button', { name: '保存设置' }))
+
+    await waitFor(() =>
+      expect(api.updateBuffAssistantSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ monitorHotkey: null })
+      )
+    )
+  })
+
+  it('keeps settings open and shows a hotkey registration failure', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    api.updateBuffAssistantSettings.mockRejectedValueOnce(
+      new Error('监控热键注册失败：Ctrl+Alt+F10 可能已被其他程序占用')
+    )
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    const dialog = await openGlobalSettings(user)
+    await user.click(within(dialog).getByRole('button', { name: '保存设置' }))
+
+    expect(await within(dialog).findByText(/监控热键注册失败：Ctrl\+Alt\+F10/)).toBeVisible()
+    expect(dialog).toBeVisible()
   })
 
   it('edits recognition, timing and sound settings per listener', async () => {
