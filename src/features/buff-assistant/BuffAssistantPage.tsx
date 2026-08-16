@@ -452,14 +452,9 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   }
 
   function handleMonitorHotkeyKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
-    if (event.key === 'Tab') return
+    if (event.key === 'Tab' || event.key === 'Escape') return
     event.preventDefault()
     event.stopPropagation()
-    if (event.key === 'Escape') {
-      event.currentTarget.blur()
-      setHotkeyInputError(null)
-      return
-    }
     if (event.metaKey) {
       setHotkeyInputError('监控热键不支持 Windows 键')
       return
@@ -744,14 +739,14 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                       </div>
                     </div>
                     <div className="buff-hotkey-settings">
-                      <div className="buff-hotkey-settings__heading">
-                        <div>
-                          <strong>监控热键</strong>
-                          <span>应用最小化到托盘或游戏位于前台时也能切换监控。</span>
-                        </div>
-                      </div>
                       <div className="buff-hotkey-settings__control">
-                        <label htmlFor="monitor-hotkey">切换开始 / 停止监控</label>
+                        <div className="buff-setting-label">
+                          <label htmlFor="monitor-hotkey">监控热键</label>
+                          <SettingTooltip
+                            label="查看监控热键说明"
+                            content="切换开始 / 停止监控；应用最小化到托盘或游戏位于前台时也能切换监控。"
+                          />
+                        </div>
                         <div className="buff-hotkey-settings__input-row">
                           <Input
                             id="monitor-hotkey"
@@ -782,8 +777,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                           </Button>
                         </div>
                         <p className="buff-hotkey-settings__help" id="monitor-hotkey-help">
-                          聚焦输入框后按下组合键。支持字母、数字和 F1-F24；Esc
-                          取消录入，清空后关闭热键。
+                          聚焦输入框后按下组合键。支持字母、数字和 F1-F24；清空后关闭热键。
                         </p>
                         {displayedHotkeyError ? (
                           <p
@@ -1265,7 +1259,11 @@ function ListenerSettingsEditor({
             </span>
           </label>
           <Select value={settings.matchMode} onValueChange={setMatchMode}>
-            <SelectTrigger id="listener-match-mode" aria-label="识别模式">
+            <SelectTrigger
+              id="listener-match-mode"
+              aria-label="识别模式"
+              className="h-[35px]"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

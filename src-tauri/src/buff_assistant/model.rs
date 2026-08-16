@@ -15,7 +15,6 @@ pub const MIN_OVERLAY_WIDTH: u32 = 75;
 pub const MIN_OVERLAY_HEIGHT: u32 = 30;
 pub const MAX_OVERLAY_WIDTH: u32 = 800;
 pub const MAX_OVERLAY_HEIGHT: u32 = 520;
-pub const DEFAULT_MONITOR_HOTKEY: &str = "Ctrl+Alt+F10";
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -381,7 +380,7 @@ impl BuffGlobalSettings {
 }
 
 fn default_monitor_hotkey() -> Option<String> {
-    Some(DEFAULT_MONITOR_HOTKEY.to_string())
+    None
 }
 
 impl From<&BuffAssistantSettings> for BuffGlobalSettings {
@@ -674,14 +673,11 @@ mod tests {
     }
 
     #[test]
-    fn monitor_hotkey_defaults_when_missing_and_allows_null() {
+    fn monitor_hotkey_is_disabled_when_missing_or_null() {
         let mut value = serde_json::to_value(BuffGlobalSettings::default()).unwrap();
         value.as_object_mut().unwrap().remove("monitorHotkey");
         let settings: BuffGlobalSettings = serde_json::from_value(value).unwrap();
-        assert_eq!(
-            settings.monitor_hotkey.as_deref(),
-            Some(DEFAULT_MONITOR_HOTKEY)
-        );
+        assert_eq!(settings.monitor_hotkey, None);
 
         let mut value = serde_json::to_value(BuffGlobalSettings::default()).unwrap();
         value["monitorHotkey"] = serde_json::Value::Null;

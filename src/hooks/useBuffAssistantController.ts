@@ -31,7 +31,7 @@ const defaultState: BuffAssistantState = {
       capture: {
         showSystemBorder: true
       },
-      monitorHotkey: 'Ctrl+Alt+F10'
+      monitorHotkey: null
     }
   },
   activity: 'stopped',

@@ -1227,27 +1227,23 @@ button.buff-editor-expand-action[data-slot='button']:hover {
 
 .buff-hotkey-settings {
   display: grid;
-  grid-template-columns: minmax(180px, 260px) minmax(280px, 1fr);
-  gap: 16px;
+  gap: 4px;
   margin-top: 14px;
   border-top: 1px solid var(--border-default);
   padding-top: 14px;
 }
 
-.buff-hotkey-settings__heading div,
 .buff-hotkey-settings__control {
   display: grid;
   gap: 4px;
 }
 
-.buff-hotkey-settings__heading strong,
 .buff-hotkey-settings__control label {
   color: var(--text-primary);
   font-size: 12px;
   font-weight: 700;
 }
 
-.buff-hotkey-settings__heading span,
 .buff-hotkey-settings__help,
 .buff-hotkey-settings__error {
   margin: 0;
@@ -1255,9 +1251,12 @@ button.buff-editor-expand-action[data-slot='button']:hover {
   line-height: 1.5;
 }
 
-.buff-hotkey-settings__heading span,
 .buff-hotkey-settings__help {
   color: var(--text-secondary);
+}
+
+.buff-hotkey-settings__control > .buff-setting-label {
+  justify-self: start;
 }
 
 .buff-hotkey-settings__input-row {
@@ -1284,10 +1283,6 @@ button.buff-editor-expand-action[data-slot='button']:hover {
   .buff-global-settings-row {
     grid-template-columns: 1fr;
     align-items: stretch;
-  }
-
-  .buff-hotkey-settings {
-    grid-template-columns: 1fr;
   }
 }
 

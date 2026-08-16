@@ -106,8 +106,14 @@ describe('BuffAssistantPage', () => {
     render(<BuffAssistantHarness />)
 
     const dialog = await openGlobalSettings(user)
-    const hotkey = within(dialog).getByRole('textbox', { name: '切换开始 / 停止监控' })
-    expect(hotkey).toHaveValue('Ctrl + Alt + F10')
+    const hotkey = within(dialog).getByRole('textbox', { name: '监控热键' })
+    const hotkeyHelp = within(dialog).getByRole('button', { name: '查看监控热键说明' })
+    expect(hotkey).toHaveValue('')
+    expect(hotkeyHelp).toBeVisible()
+    await user.hover(hotkeyHelp)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      '切换开始 / 停止监控；应用最小化到托盘或游戏位于前台时也能切换监控。'
+    )
 
     await user.click(hotkey)
     await user.keyboard('{Control>}{Shift>}k{/Shift}{/Control}')
@@ -128,8 +134,11 @@ describe('BuffAssistantPage', () => {
     render(<BuffAssistantHarness />)
 
     const dialog = await openGlobalSettings(user)
+    const hotkey = within(dialog).getByRole('textbox', { name: '监控热键' })
+    await user.click(hotkey)
+    await user.keyboard('{Control>}{Shift>}k{/Shift}{/Control}')
     await user.click(within(dialog).getByRole('button', { name: '清空' }))
-    expect(within(dialog).getByRole('textbox', { name: '切换开始 / 停止监控' })).toHaveValue('')
+    expect(hotkey).toHaveValue('')
     await user.click(within(dialog).getByRole('button', { name: '保存设置' }))
 
     await waitFor(() =>
@@ -149,6 +158,9 @@ describe('BuffAssistantPage', () => {
     render(<BuffAssistantHarness />)
 
     const dialog = await openGlobalSettings(user)
+    const hotkey = within(dialog).getByRole('textbox', { name: '监控热键' })
+    await user.click(hotkey)
+    await user.keyboard('{Control>}{Alt>}{F10}{/Alt}{/Control}')
     await user.click(within(dialog).getByRole('button', { name: '保存设置' }))
 
     expect(await within(dialog).findByText(/监控热键注册失败：Ctrl\+Alt\+F10/)).toBeVisible()
