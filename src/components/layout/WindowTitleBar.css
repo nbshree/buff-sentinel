@@ -108,6 +108,176 @@
   stroke-width: 1.8;
 }
 
+.window-title-bar__support-button {
+  display: inline-flex;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-left: 4px;
+  border: 1px solid rgb(212 163 89 / 18%);
+  border-radius: 7px;
+  padding: 0 9px;
+  background: rgb(212 163 89 / 6%);
+  color: var(--color-primary-hover);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  transition:
+    color var(--motion-fast) var(--ease-standard),
+    background-color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard);
+}
+
+.window-title-bar__support-button:hover {
+  border-color: rgb(212 163 89 / 32%);
+  background: rgb(212 163 89 / 11%);
+}
+
+.window-title-bar__support-button:active {
+  background: var(--window-title-bar-active);
+}
+
+.window-title-bar__support-button:focus-visible {
+  outline: 2px solid var(--window-title-bar-focus);
+  outline-offset: 1px;
+}
+
+.window-title-bar__support-button svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.8;
+}
+
+.buff-support-dialog {
+  overflow: hidden;
+  gap: 0;
+  padding: 0;
+}
+
+.buff-support-dialog__header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-default);
+  padding: 18px 54px 18px 20px;
+  text-align: left;
+}
+
+.buff-support-dialog__icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  place-items: center;
+  border: 1px solid rgb(212 163 89 / 28%);
+  border-radius: 12px;
+  background: rgb(212 163 89 / 9%);
+  color: var(--color-primary-hover);
+}
+
+.buff-support-dialog__icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.buff-support-dialog__content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 248px;
+  align-items: center;
+  gap: 20px;
+  padding: 20px;
+}
+
+.buff-support-dialog__copy {
+  display: grid;
+  gap: 12px;
+}
+
+.buff-support-dialog__kicker {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--color-primary);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  line-height: 1.2;
+}
+
+.buff-support-dialog__copy section {
+  border: 1px solid var(--border-default);
+  border-radius: 11px;
+  padding: 15px;
+  background: var(--surface-muted);
+}
+
+.buff-support-dialog__copy section:first-child {
+  border-color: rgb(240 173 78 / 25%);
+  background: linear-gradient(135deg, rgb(240 173 78 / 7%), transparent 48%), var(--surface-muted);
+}
+
+.buff-support-dialog__copy h3,
+.buff-support-dialog__copy p,
+.buff-donation-code {
+  margin: 0;
+}
+
+.buff-support-dialog__copy h3 {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.buff-support-dialog__copy p {
+  margin-top: 7px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.buff-support-dialog__copy .buff-support-dialog__author {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.buff-donation-code {
+  overflow: hidden;
+  border: 1px solid rgb(95 207 155 / 28%);
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 14px 32px rgb(0 0 0 / 28%);
+}
+
+.buff-donation-code img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 828 / 1128;
+}
+
+.buff-donation-code figcaption {
+  display: grid;
+  gap: 2px;
+  border-top: 1px solid rgb(15 20 28 / 12%);
+  padding: 10px 12px 11px;
+  background: #fff;
+  color: #152018;
+  text-align: center;
+}
+
+.buff-donation-code figcaption strong {
+  font-size: 12px;
+}
+
+.buff-donation-code figcaption span {
+  color: #607067;
+  font-size: 10px;
+}
+
 .window-title-bar__controls {
   display: flex;
   flex: none;
@@ -245,7 +415,30 @@
 
 @media (prefers-reduced-motion: reduce) {
   .window-title-bar__update-button,
+  .window-title-bar__support-button,
   .window-title-bar__control {
     transition: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .window-title-bar__support-button span {
+    display: none;
+  }
+
+  .window-title-bar__support-button {
+    width: 28px;
+    padding: 0;
+  }
+
+  .buff-support-dialog__content {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+    max-height: calc(100vh - 150px);
+  }
+
+  .buff-donation-code {
+    width: min(280px, 100%);
+    justify-self: center;
   }
 }

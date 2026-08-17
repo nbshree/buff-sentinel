@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type MouseEvent } from 'react'
 import { LoaderCircle, MousePointerClick, RefreshCw } from 'lucide-react'
 
 import type { WindowResizeDirection } from '../../lib/buff-sentinel-api'
+import { OpenSourceSupportDialog } from './OpenSourceSupportDialog'
 import './WindowTitleBar.css'
 
 const resizeDirections: WindowResizeDirection[] = [
@@ -25,6 +26,13 @@ type WindowTitleBarProps = {
 
 function reportWindowError(action: string, error: unknown) {
   console.error(`${action}失败`, error)
+}
+
+function isDialogEventTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    Boolean(target.closest('[data-slot="dialog-content"], [data-slot="dialog-overlay"]'))
+  )
 }
 
 export function WindowTitleBar({
@@ -68,7 +76,7 @@ export function WindowTitleBar({
   }, [])
 
   const handleDragStart = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || event.detail > 1) return
+    if (event.button !== 0 || event.detail > 1 || isDialogEventTarget(event.target)) return
 
     event.preventDefault()
     void window.api.window.startDragging().catch((error: unknown) => {
@@ -83,6 +91,11 @@ export function WindowTitleBar({
       .catch((error: unknown) => {
         reportWindowError('切换窗口大小', error)
       })
+  }
+
+  const handleDragRegionDoubleClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (isDialogEventTarget(event.target)) return
+    handleToggleMaximize()
   }
 
   const handleResizeStart = (
@@ -102,7 +115,7 @@ export function WindowTitleBar({
     <header className={`window-title-bar ${className}`.trim()} role="banner">
       <div
         className="window-title-bar__drag-region"
-        onDoubleClick={handleToggleMaximize}
+        onDoubleClick={handleDragRegionDoubleClick}
         onMouseDown={handleDragStart}
       >
         <MousePointerClick aria-hidden="true" className="window-title-bar__app-icon" size={18} />
@@ -127,6 +140,7 @@ export function WindowTitleBar({
             <span>{updateBusy ? '检查中' : '检查更新'}</span>
           </button>
         ) : null}
+        <OpenSourceSupportDialog />
       </div>
 
       <div className="window-title-bar__controls" aria-label="窗口控制" role="group">
