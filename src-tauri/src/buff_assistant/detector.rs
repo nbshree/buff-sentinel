@@ -167,7 +167,8 @@ pub fn rgba_to_gray_with_buffer(
     }
     let pixel_count = width as usize * height as usize;
     output.resize(pixel_count, 0);
-    for (pixel, source) in output.iter_mut().zip(rgba.chunks_exact(4)) {
+    let (pixels, _) = rgba.as_chunks::<4>();
+    for (pixel, source) in output.iter_mut().zip(pixels) {
         let luminance =
             (u32::from(source[0]) * 77 + u32::from(source[1]) * 150 + u32::from(source[2]) * 29)
                 >> 8;
