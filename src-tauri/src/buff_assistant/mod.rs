@@ -2074,7 +2074,7 @@ fn configured_overlay_height(configured_height: u32, rows: usize) -> f64 {
 }
 
 fn overlay_height_for_rows(rows: usize) -> f64 {
-    let base_height = 28.0 + rows.max(1) as f64 * 52.0;
+    let base_height = rows.max(1) as f64 * 44.0;
     base_height.clamp(f64::from(MIN_OVERLAY_HEIGHT), f64::from(MAX_OVERLAY_HEIGHT))
 }
 
@@ -2242,10 +2242,10 @@ mod tests {
 
     #[test]
     fn overlay_row_height_does_not_depend_on_width() {
-        assert_eq!(overlay_height_for_rows(1), 80.0);
-        assert_eq!(overlay_height_for_rows(2), 132.0);
+        assert_eq!(overlay_height_for_rows(1), 44.0);
+        assert_eq!(overlay_height_for_rows(2), 88.0);
         assert_eq!(configured_overlay_height(70, 2), 70.0);
-        assert_eq!(configured_overlay_height(DEFAULT_OVERLAY_HEIGHT, 2), 132.0);
+        assert_eq!(configured_overlay_height(DEFAULT_OVERLAY_HEIGHT, 2), 88.0);
     }
 
     #[test]

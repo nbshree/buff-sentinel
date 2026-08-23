@@ -246,9 +246,17 @@ describe('BuffOverlayApp', () => {
     expect(api.window.startDragging).not.toHaveBeenCalled()
   })
 
-  it('scales content by height without changing the font size when width changes', () => {
+  it('scales single-row content by height without changing the font size when width changes', () => {
     expect(calculateOverlayScale(30)).toBeCloseTo(30 / 92)
     expect(calculateOverlayScale(92)).toBe(1)
     expect(calculateOverlayScale(184)).toBe(2)
+  })
+
+  it('uses the total row height as the scale baseline for multiple listeners', () => {
+    expect(calculateOverlayScale(44, 1)).toBe(1)
+    expect(calculateOverlayScale(88, 2)).toBe(1)
+    expect(calculateOverlayScale(132, 3)).toBe(1)
+    expect(calculateOverlayScale(176, 4)).toBe(1)
+    expect(calculateOverlayScale(220, 4)).toBeCloseTo(220 / 176)
   })
 })

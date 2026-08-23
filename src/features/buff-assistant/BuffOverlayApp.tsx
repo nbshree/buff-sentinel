@@ -14,6 +14,7 @@ const hiddenState: BuffOverlayState = {
 }
 
 const defaultOverlayHeight = 92
+const overlayRowHeight = 44
 const cornerResizeHandles: Array<{
   direction: WindowResizeDirection
   label: string
@@ -25,8 +26,9 @@ const cornerResizeHandles: Array<{
   { direction: 'SouthEast', label: '从右下角调整浮窗大小', position: 'south-east' }
 ]
 
-export function calculateOverlayScale(height: number): number {
-  return height / defaultOverlayHeight
+export function calculateOverlayScale(height: number, rows = 0): number {
+  const contentHeight = rows > 0 ? rows * overlayRowHeight : defaultOverlayHeight
+  return height / contentHeight
 }
 
 export function BuffOverlayApp() {
@@ -46,7 +48,8 @@ export function BuffOverlayApp() {
 
   useEffect(() => {
     const updateScale = () => {
-      const scale = calculateOverlayScale(window.innerHeight)
+      const rows = state.mode === 'editing' ? state.items.length : Math.max(1, state.items.length)
+      const scale = calculateOverlayScale(window.innerHeight, rows)
       document.documentElement.style.setProperty('--buff-overlay-scale', String(scale))
     }
     updateScale()
@@ -56,7 +59,7 @@ export function BuffOverlayApp() {
       observer.disconnect()
       document.documentElement.style.removeProperty('--buff-overlay-scale')
     }
-  }, [])
+  }, [state.items.length, state.mode])
 
   useEffect(() => {
     if (state.mode !== 'countdown' || state.items.length === 0) {
