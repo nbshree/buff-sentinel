@@ -280,9 +280,8 @@ pub fn capture_buff_preview(
         // The preview is the user's selected capture source. Commit it immediately so
         // starting the monitor right after preview resolves the same window instead of
         // reusing a stale target from a previous configuration.
-        inner.config.target = Some(target.clone());
-        inner.config.sanitize();
-        storage::save_config(&inner.storage_directory, &inner.config)?;
+        let storage_directory = inner.storage_directory.clone();
+        persist_capture_target(&mut inner.config, &storage_directory, target.clone())?;
         update_capture_border_notice(&mut inner, outcome.used_border_fallback);
     }
     emit_state(&app, &state.snapshot());
@@ -292,6 +291,16 @@ pub fn capture_buff_preview(
         height: image.height,
         target,
     })
+}
+
+fn persist_capture_target(
+    config: &mut BuffAssistantConfig,
+    storage_directory: &std::path::Path,
+    target: BuffTarget,
+) -> Result<(), String> {
+    config.target = Some(target);
+    config.sanitize();
+    storage::save_config(storage_directory, config)
 }
 
 #[tauri::command]
@@ -2226,9 +2235,45 @@ mod tests {
     use image::DynamicImage;
 
     use super::{
-        DEFAULT_OVERLAY_HEIGHT, NormalizedRect, OverlayWindowCache, configured_overlay_height,
-        crop_saved_template, crop_template_from_preview, overlay_height_for_rows,
+        BuffAssistantConfig, BuffTarget, DEFAULT_OVERLAY_HEIGHT, NormalizedRect,
+        OverlayWindowCache, configured_overlay_height, crop_saved_template,
+        crop_template_from_preview, overlay_height_for_rows, persist_capture_target, storage,
     };
+
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    fn unique_test_directory() -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("buff-assistant-target-test-{nonce}"))
+    }
+
+    #[test]
+    fn capture_target_is_persisted_for_monitoring() {
+        let directory = unique_test_directory();
+        let mut config = BuffAssistantConfig::default();
+        let target = BuffTarget {
+            process_name: "game.exe".into(),
+            window_title: "Game".into(),
+            class_name: "GameWindow".into(),
+            reference_width: 1920,
+            reference_height: 1080,
+        };
+
+        persist_capture_target(&mut config, &directory, target.clone())
+            .expect("capture target should be saved");
+        let (loaded, notices) = storage::load_config(&directory);
+
+        assert!(notices.is_empty());
+        assert_eq!(loaded.target, Some(target));
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
 
     #[test]
     fn overlay_window_cache_only_requests_native_changes_when_state_changes() {
