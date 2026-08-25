@@ -4,7 +4,7 @@ use std::{
     path::Path,
     sync::{Mutex, MutexGuard},
     thread,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use serde::Serialize;
@@ -16,6 +16,7 @@ use crate::buff_assistant::BuffAssistant;
 
 const INSTALLER_CLEANUP_RETRY_DELAY: Duration = Duration::from_secs(2);
 const INSTALLER_CLEANUP_ATTEMPTS: usize = 10;
+const INSTALLER_CLEANUP_MIN_AGE: Duration = Duration::from_secs(60 * 60);
 
 pub fn schedule_installer_cleanup(app_name: String) {
     thread::spawn(move || {
@@ -31,6 +32,7 @@ pub fn schedule_installer_cleanup(app_name: String) {
 
 fn cleanup_installer_directories(temp_dir: &Path, app_name: &str) -> io::Result<usize> {
     let mut removed = 0;
+    let now = SystemTime::now();
     for entry in fs::read_dir(temp_dir)? {
         let Ok(entry) = entry else { continue };
         let Ok(file_type) = entry.file_type() else {
@@ -42,11 +44,31 @@ fn cleanup_installer_directories(temp_dir: &Path, app_name: &str) -> io::Result<
         {
             continue;
         }
+        if !is_stale_installer_directory(&entry.path(), now) {
+            continue;
+        }
         if fs::remove_dir_all(entry.path()).is_ok() {
             removed += 1;
         }
     }
     Ok(removed)
+}
+
+fn is_stale_installer_directory(path: &Path, now: SystemTime) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    let timestamp = match (metadata.created().ok(), metadata.modified().ok()) {
+        (Some(created), Some(modified)) => created.max(modified),
+        (Some(timestamp), None) | (None, Some(timestamp)) => timestamp,
+        (None, None) => return false,
+    };
+    is_installer_directory_old_enough(timestamp, now)
+}
+
+fn is_installer_directory_old_enough(timestamp: SystemTime, now: SystemTime) -> bool {
+    now.duration_since(timestamp)
+        .is_ok_and(|age| age >= INSTALLER_CLEANUP_MIN_AGE)
 }
 
 fn is_installer_directory_name(name: &OsStr, app_name: &str) -> bool {
@@ -362,6 +384,24 @@ fn install_in_progress_error() -> AppUpdateError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn installer_cleanup_age_requires_a_full_hour() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(10_000);
+
+        assert!(is_installer_directory_old_enough(
+            now - INSTALLER_CLEANUP_MIN_AGE,
+            now
+        ));
+        assert!(!is_installer_directory_old_enough(
+            now - INSTALLER_CLEANUP_MIN_AGE + Duration::from_secs(1),
+            now
+        ));
+        assert!(!is_installer_directory_old_enough(
+            now + Duration::from_secs(1),
+            now
+        ));
+    }
 
     #[test]
     fn only_matches_owned_tauri_updater_directories() {
