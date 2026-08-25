@@ -41,9 +41,9 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
     checkForUpdate: vi.fn(async () => ({ currentVersion: '0.1.0', update: null })),
     installUpdate: vi.fn(async () => undefined),
     getBuffAssistantState: vi.fn(async () => buffState),
-    listBuffCaptureWindows: vi.fn(async () => []),
+    listBuffCaptureWindows: vi.fn<BuffSentinelAPI['listBuffCaptureWindows']>(async () => []),
     listBuffSoundTemplates: vi.fn(async () => [{ id: 'template-1', name: '模板一' }]),
-    captureBuffPreview: vi.fn(async () => {
+    captureBuffPreview: vi.fn<BuffSentinelAPI['captureBuffPreview']>(async () => {
       throw new Error('not configured')
     }),
     updateBuffSearchRegion: vi.fn(async () => buffState),

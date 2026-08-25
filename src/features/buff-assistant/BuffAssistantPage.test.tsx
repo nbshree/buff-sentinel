@@ -15,7 +15,7 @@ function BuffAssistantHarness() {
 async function createListenerApi() {
   const baseApi = createBuffSentinelApi()
   const baseState = await baseApi.getBuffAssistantState()
-  return createBuffSentinelApi({
+  const api = createBuffSentinelApi({
     ...baseState,
     config: {
       ...baseState.config,
@@ -65,6 +65,35 @@ async function createListenerApi() {
       }
     ]
   })
+  api.listBuffCaptureWindows.mockResolvedValue([
+    {
+      id: '1',
+      processName: 'game.exe',
+      windowTitle: 'Game',
+      className: 'GameWindow',
+      width: 1920,
+      height: 1080
+    }
+  ])
+  api.captureBuffPreview.mockResolvedValue({
+    dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+    width: 1920,
+    height: 1080,
+    target: {
+      processName: 'game.exe',
+      windowTitle: 'Game',
+      className: 'GameWindow',
+      referenceWidth: 1920,
+      referenceHeight: 1080
+    }
+  })
+  return api
+}
+
+async function captureConfiguredPreview(user: ReturnType<typeof userEvent.setup>) {
+  const previewButton = await screen.findByRole('button', { name: '捕获预览' })
+  await waitFor(() => expect(previewButton).toBeEnabled())
+  await user.click(previewButton)
 }
 
 async function openGlobalSettings(user: ReturnType<typeof userEvent.setup>) {
@@ -259,6 +288,8 @@ describe('BuffAssistantPage', () => {
     expect(await screen.findByText('已添加 1/8 个，启用项会同时监听。')).toBeVisible()
     expect(screen.getByText('金周天')).toBeVisible()
     const start = screen.getByRole('button', { name: '开始监控' })
+    expect(start).toBeDisabled()
+    await captureConfiguredPreview(user)
     expect(start).toBeEnabled()
     await user.click(start)
     expect(api.startBuffMonitor).toHaveBeenCalledOnce()
@@ -321,6 +352,8 @@ describe('BuffAssistantPage', () => {
 
     const editButton = await screen.findByRole('button', { name: '调整悬浮位置' })
     const startButton = screen.getByRole('button', { name: '开始监控' })
+    expect(startButton).toBeDisabled()
+    await captureConfiguredPreview(user)
     expect(startButton).toBeEnabled()
 
     await user.click(editButton)
