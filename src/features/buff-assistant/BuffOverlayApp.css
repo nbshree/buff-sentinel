@@ -40,6 +40,20 @@
   border-color: rgb(255 255 255 / 68%);
 }
 
+.buff-overlay[data-color-scheme='custom'] {
+  background: var(--buff-overlay-custom-background);
+  color: var(--buff-overlay-custom-text);
+  border-color: color-mix(in srgb, var(--buff-overlay-custom-text) 68%, transparent);
+}
+
+.buff-overlay[data-color-scheme='custom'] .buff-overlay__countdown strong,
+.buff-overlay[data-color-scheme='custom'] .buff-overlay__countdown span,
+.buff-overlay[data-color-scheme='custom'] .buff-overlay__status,
+.buff-overlay[data-color-scheme='custom'] .buff-overlay__waiting,
+.buff-overlay[data-color-scheme='custom'] small {
+  color: var(--buff-overlay-custom-text);
+}
+
 .buff-overlay[data-mode='triggered'] {
   animation: buff-overlay-trigger 0.38s ease-in-out infinite alternate;
 }

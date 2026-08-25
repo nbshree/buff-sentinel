@@ -679,9 +679,67 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                           <SelectContent>
                             <SelectItem value="blackWhite">黑底白字（默认）</SelectItem>
                             <SelectItem value="gold">金色</SelectItem>
+                            <SelectItem value="custom">自定义</SelectItem>
                           </SelectContent>
                         </Select>
                       </label>
+                      {settings.overlay.colorScheme === 'custom' ? (
+                        <div className="buff-custom-overlay-settings">
+                          <label className="buff-color-control">
+                            <span>浮窗底色</span>
+                            <input
+                              aria-label="浮窗底色"
+                              type="color"
+                              value={settings.overlay.customBackgroundColor ?? '#080808'}
+                              onChange={(event) =>
+                                setSettings((current) => ({
+                                  ...current,
+                                  overlay: {
+                                    ...current.overlay,
+                                    customBackgroundColor: event.target.value.toUpperCase()
+                                  }
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="buff-opacity-control">
+                            <span>底色透明度 {settings.overlay.customBackgroundOpacity ?? 95}%</span>
+                            <input
+                              aria-label="底色透明度"
+                              max="100"
+                              min="10"
+                              type="range"
+                              value={settings.overlay.customBackgroundOpacity ?? 95}
+                              onChange={(event) =>
+                                setSettings((current) => ({
+                                  ...current,
+                                  overlay: {
+                                    ...current.overlay,
+                                    customBackgroundOpacity: Number(event.target.value)
+                                  }
+                                }))
+                              }
+                            />
+                          </label>
+                          <label className="buff-color-control">
+                            <span>文字颜色</span>
+                            <input
+                              aria-label="文字颜色"
+                              type="color"
+                              value={settings.overlay.customTextColor ?? '#FFFFFF'}
+                              onChange={(event) =>
+                                setSettings((current) => ({
+                                  ...current,
+                                  overlay: {
+                                    ...current.overlay,
+                                    customTextColor: event.target.value.toUpperCase()
+                                  }
+                                }))
+                              }
+                            />
+                          </label>
+                        </div>
+                      ) : null}
                       <div className="buff-check-row">
                         <Checkbox
                           aria-labelledby="exclude-overlay-capture-label"

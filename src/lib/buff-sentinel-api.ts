@@ -77,7 +77,10 @@ export type BuffOverlaySettings = {
   excludeFromCapture: boolean
   width: number
   height: number
-  colorScheme: 'gold' | 'blackWhite'
+  colorScheme: 'gold' | 'blackWhite' | 'custom'
+  customBackgroundColor?: string
+  customBackgroundOpacity?: number
+  customTextColor?: string
 }
 
 export type BuffCaptureSettings = {
@@ -179,6 +182,9 @@ export type BuffOverlayState = {
   emittedAtUnixMs: number
   editable: boolean
   colorScheme: BuffOverlaySettings['colorScheme']
+  customBackgroundColor?: string
+  customBackgroundOpacity?: number
+  customTextColor?: string
 }
 
 export type BuffOverlayItem = {

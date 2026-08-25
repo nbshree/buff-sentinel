@@ -19,7 +19,10 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
           excludeFromCapture: false,
           width: 330,
           height: 92,
-          colorScheme: 'blackWhite'
+          colorScheme: 'blackWhite',
+          customBackgroundColor: '#080808',
+          customBackgroundOpacity: 95,
+          customTextColor: '#FFFFFF'
         },
         capture: {
           showSystemBorder: true

@@ -1042,6 +1042,9 @@ fn show_overlay_preview(app: &AppHandle, mode: BuffOverlayMode) -> Result<(), St
             emitted_at_unix_ms,
             editable: true,
             color_scheme: overlay_color_scheme(app),
+            custom_background_color: overlay_custom_background_color(app),
+            custom_background_opacity: overlay_custom_background_opacity(app),
+            custom_text_color: overlay_custom_text_color(app),
         },
     );
     Ok(())
@@ -1862,6 +1865,9 @@ fn refresh_active_overlay(app: &AppHandle) {
             emitted_at_unix_ms: now_millis(),
             editable: false,
             color_scheme: overlay_color_scheme(app),
+            custom_background_color: overlay_custom_background_color(app),
+            custom_background_opacity: overlay_custom_background_opacity(app),
+            custom_text_color: overlay_custom_text_color(app),
         },
     );
 }
@@ -1904,6 +1910,9 @@ fn show_transient_overlay(
             emitted_at_unix_ms: now_millis(),
             editable: false,
             color_scheme: overlay_color_scheme(app),
+            custom_background_color: overlay_custom_background_color(app),
+            custom_background_opacity: overlay_custom_background_opacity(app),
+            custom_text_color: overlay_custom_text_color(app),
         },
     );
     let app_handle = app.clone();
@@ -1971,6 +1980,9 @@ fn show_waiting_overlay(app: &AppHandle) {
             emitted_at_unix_ms: now_millis(),
             editable: false,
             color_scheme: overlay_color_scheme(app),
+            custom_background_color: overlay_custom_background_color(app),
+            custom_background_opacity: overlay_custom_background_opacity(app),
+            custom_text_color: overlay_custom_text_color(app),
         },
     );
 }
@@ -1999,6 +2011,9 @@ fn show_target_unavailable_overlay(app: &AppHandle) {
             emitted_at_unix_ms: now_millis(),
             editable: false,
             color_scheme: overlay_color_scheme(app),
+            custom_background_color: overlay_custom_background_color(app),
+            custom_background_opacity: overlay_custom_background_opacity(app),
+            custom_text_color: overlay_custom_text_color(app),
         },
     );
 }
@@ -2013,6 +2028,9 @@ fn hide_overlay(app: &AppHandle) {
             emitted_at_unix_ms: now_millis(),
             editable: false,
             color_scheme: overlay_color_scheme(app),
+            custom_background_color: overlay_custom_background_color(app),
+            custom_background_opacity: overlay_custom_background_opacity(app),
+            custom_text_color: overlay_custom_text_color(app),
         },
     );
     let should_hide = {
@@ -2116,6 +2134,35 @@ fn overlay_color_scheme(app: &AppHandle) -> BuffOverlayColorScheme {
         .settings
         .overlay
         .color_scheme
+}
+
+fn overlay_custom_background_color(app: &AppHandle) -> String {
+    app.state::<BuffAssistant>()
+        .lock()
+        .config
+        .settings
+        .overlay
+        .custom_background_color
+        .clone()
+}
+
+fn overlay_custom_background_opacity(app: &AppHandle) -> u8 {
+    app.state::<BuffAssistant>()
+        .lock()
+        .config
+        .settings
+        .overlay
+        .custom_background_opacity
+}
+
+fn overlay_custom_text_color(app: &AppHandle) -> String {
+    app.state::<BuffAssistant>()
+        .lock()
+        .config
+        .settings
+        .overlay
+        .custom_text_color
+        .clone()
 }
 
 fn encode_png(image: &CapturedImage) -> Result<Vec<u8>, String> {

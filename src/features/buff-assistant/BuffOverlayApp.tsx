@@ -1,4 +1,4 @@
-import { useEffect, useState, type PointerEvent } from 'react'
+import { useEffect, useState, type CSSProperties, type PointerEvent } from 'react'
 
 import type { BuffOverlayState, WindowResizeDirection } from '../../lib/buff-sentinel-api'
 
@@ -10,7 +10,10 @@ const hiddenState: BuffOverlayState = {
   items: [],
   emittedAtUnixMs: 0,
   editable: false,
-  colorScheme: 'blackWhite'
+  colorScheme: 'blackWhite',
+  customBackgroundColor: '#080808',
+  customBackgroundOpacity: 95,
+  customTextColor: '#FFFFFF'
 }
 
 const defaultOverlayHeight = 92
@@ -80,6 +83,16 @@ export function BuffOverlayApp() {
   }, Number.POSITIVE_INFINITY)
   const warning = state.mode === 'countdown' && minimumRemaining <= 3_000
   const intense = state.mode === 'countdown' && minimumRemaining <= 1_000
+  const customStyle =
+    state.colorScheme === 'custom'
+      ? ({
+          '--buff-overlay-custom-background': rgbaColor(
+            state.customBackgroundColor ?? '#080808',
+            (state.customBackgroundOpacity ?? 95) / 100
+          ),
+          '--buff-overlay-custom-text': state.customTextColor ?? '#FFFFFF'
+        } as CSSProperties)
+      : undefined
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>): void {
     if (!state.editable || event.button !== 0) return
@@ -103,6 +116,7 @@ export function BuffOverlayApp() {
       data-mode={state.mode}
       data-color-scheme={state.colorScheme}
       data-warning={warning}
+      style={customStyle}
       onPointerDown={handlePointerDown}
     >
       {state.items.length > 0 ? (
@@ -159,4 +173,12 @@ export function BuffOverlayApp() {
       ) : null}
     </div>
   )
+}
+
+function rgbaColor(hex: string, alpha: number): string {
+  const value = hex.replace('#', '')
+  const red = Number.parseInt(value.slice(0, 2), 16)
+  const green = Number.parseInt(value.slice(2, 4), 16)
+  const blue = Number.parseInt(value.slice(4, 6), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
 }

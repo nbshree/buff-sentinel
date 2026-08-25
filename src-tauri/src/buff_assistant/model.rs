@@ -213,6 +213,12 @@ pub struct BuffOverlaySettings {
     pub height: u32,
     #[serde(default)]
     pub color_scheme: BuffOverlayColorScheme,
+    #[serde(default = "default_custom_background_color")]
+    pub custom_background_color: String,
+    #[serde(default = "default_custom_background_opacity")]
+    pub custom_background_opacity: u8,
+    #[serde(default = "default_custom_text_color")]
+    pub custom_text_color: String,
 }
 
 impl Default for BuffOverlaySettings {
@@ -225,6 +231,9 @@ impl Default for BuffOverlaySettings {
             width: DEFAULT_OVERLAY_WIDTH,
             height: DEFAULT_OVERLAY_HEIGHT,
             color_scheme: BuffOverlayColorScheme::BlackWhite,
+            custom_background_color: default_custom_background_color(),
+            custom_background_opacity: default_custom_background_opacity(),
+            custom_text_color: default_custom_text_color(),
         }
     }
 }
@@ -250,6 +259,19 @@ pub enum BuffOverlayColorScheme {
     Gold,
     #[default]
     BlackWhite,
+    Custom,
+}
+
+fn default_custom_background_color() -> String {
+    "#080808".into()
+}
+
+const fn default_custom_background_opacity() -> u8 {
+    95
+}
+
+fn default_custom_text_color() -> String {
+    "#FFFFFF".into()
 }
 
 const fn default_overlay_width() -> u32 {
@@ -370,6 +392,16 @@ impl BuffGlobalSettings {
             .overlay
             .height
             .clamp(MIN_OVERLAY_HEIGHT, MAX_OVERLAY_HEIGHT);
+        self.overlay.custom_background_color = sanitize_hex_color(
+            &self.overlay.custom_background_color,
+            &default_custom_background_color(),
+        );
+        self.overlay.custom_background_opacity =
+            self.overlay.custom_background_opacity.clamp(10, 100);
+        self.overlay.custom_text_color = sanitize_hex_color(
+            &self.overlay.custom_text_color,
+            &default_custom_text_color(),
+        );
         self.monitor_hotkey = self
             .monitor_hotkey
             .as_deref()
@@ -638,6 +670,12 @@ pub struct BuffOverlayState {
     pub emitted_at_unix_ms: i64,
     pub editable: bool,
     pub color_scheme: BuffOverlayColorScheme,
+    #[serde(default = "default_custom_background_color")]
+    pub custom_background_color: String,
+    #[serde(default = "default_custom_background_opacity")]
+    pub custom_background_opacity: u8,
+    #[serde(default = "default_custom_text_color")]
+    pub custom_text_color: String,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -651,6 +689,18 @@ pub struct BuffOverlayItem {
 
 fn finite_or(value: f64, fallback: f64) -> f64 {
     if value.is_finite() { value } else { fallback }
+}
+
+fn sanitize_hex_color(value: &str, fallback: &str) -> String {
+    let value = value.trim();
+    if value.len() == 7
+        && value.starts_with('#')
+        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        value.to_ascii_uppercase()
+    } else {
+        fallback.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -871,6 +921,21 @@ mod tests {
         let value = serde_json::to_value(overlay).unwrap();
 
         assert_eq!(value["excludeFromCapture"], true);
+    }
+
+    #[test]
+    fn custom_overlay_colors_are_sanitized_and_persisted() {
+        let mut settings = BuffGlobalSettings::default();
+        settings.overlay.color_scheme = BuffOverlayColorScheme::Custom;
+        settings.overlay.custom_background_color = " #123abc ".into();
+        settings.overlay.custom_background_opacity = 0;
+        settings.overlay.custom_text_color = "invalid".into();
+
+        settings.sanitize();
+
+        assert_eq!(settings.overlay.custom_background_color, "#123ABC");
+        assert_eq!(settings.overlay.custom_background_opacity, 10);
+        assert_eq!(settings.overlay.custom_text_color, "#FFFFFF");
     }
 
     #[test]

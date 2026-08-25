@@ -278,6 +278,46 @@
   flex-wrap: wrap;
 }
 
+.buff-custom-overlay-settings {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.buff-color-control,
+.buff-opacity-control {
+  display: flex;
+  min-width: 92px;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.buff-color-control input[type='color'] {
+  width: 56px;
+  height: 35px;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-2);
+  padding: 3px;
+}
+
+.buff-opacity-control {
+  min-width: 180px;
+}
+
+.buff-opacity-control input[type='range'] {
+  width: 180px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .buff-card__actions svg {
   width: 15px;
   height: 15px;
