@@ -260,7 +260,6 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
       : null
   const displayedHotkeyError = hotkeyInputError ?? savedHotkeyError
   const canStart = Boolean(
-    preview &&
     state.config.target &&
     state.config.searchRegion &&
     state.config.listeners.some((listener) => listener.enabled && listener.template)
