@@ -43,10 +43,11 @@ pub fn find_target(target: &BuffTarget) -> Result<Option<Window>, String> {
         let Ok(candidate) = candidate_from_window(window) else {
             continue;
         };
-        if !candidate
-            .process_name
-            .eq_ignore_ascii_case(&target.process_name)
-        {
+        let process_matches = target.process_name.is_empty()
+            || candidate
+                .process_name
+                .eq_ignore_ascii_case(&target.process_name);
+        if !process_matches {
             continue;
         }
         let class_matches = target.class_name.is_empty()

@@ -277,6 +277,12 @@ pub fn capture_buff_preview(
             png,
             target: target.clone(),
         });
+        // The preview is the user's selected capture source. Commit it immediately so
+        // starting the monitor right after preview resolves the same window instead of
+        // reusing a stale target from a previous configuration.
+        inner.config.target = Some(target.clone());
+        inner.config.sanitize();
+        storage::save_config(&inner.storage_directory, &inner.config)?;
         update_capture_border_notice(&mut inner, outcome.used_border_fallback);
     }
     emit_state(&app, &state.snapshot());
