@@ -380,6 +380,7 @@ pub fn save_buff_listener(
         listener_id,
         name,
         enabled,
+        hide_in_overlay,
         mut settings,
         search_region,
         crop,
@@ -443,12 +444,14 @@ pub fn save_buff_listener(
             }
             listener.name = name;
             listener.enabled = enabled;
+            listener.hide_in_overlay = hide_in_overlay;
             listener.settings = settings;
         } else {
             inner.config.listeners.push(BuffListenerConfig {
                 id: id.clone(),
                 name,
                 enabled,
+                hide_in_overlay,
                 template: Some(summary),
                 settings,
             });
@@ -469,6 +472,8 @@ pub struct SaveBuffListenerRequest {
     listener_id: Option<String>,
     name: String,
     enabled: bool,
+    #[serde(default)]
+    hide_in_overlay: bool,
     settings: BuffListenerSettings,
     search_region: NormalizedRect,
     crop: NormalizedRect,
@@ -541,6 +546,7 @@ pub fn update_buff_listener(
         listener_id,
         name,
         enabled,
+        hide_in_overlay,
         mut settings,
         mask_data_url,
         crop,
@@ -560,6 +566,7 @@ pub fn update_buff_listener(
             let listener = &mut next_config.listeners[listener_index];
             listener.name = name;
             listener.enabled = enabled;
+            listener.hide_in_overlay = hide_in_overlay;
             listener.settings = settings;
             listener.template.clone()
         };
@@ -618,6 +625,8 @@ pub struct UpdateBuffListenerRequest {
     listener_id: String,
     name: String,
     enabled: bool,
+    #[serde(default)]
+    hide_in_overlay: bool,
     settings: BuffListenerSettings,
     mask_data_url: Option<String>,
     crop: Option<NormalizedRect>,
@@ -966,11 +975,16 @@ fn show_overlay_preview(app: &AppHandle, mode: BuffOverlayMode) -> Result<(), St
             return Err("请先进入悬浮窗调整模式".into());
         }
         inner.overlay_generation = inner.overlay_generation.wrapping_add(1);
+        let has_hidden_running_listeners = inner
+            .config
+            .listeners
+            .iter()
+            .any(|listener| listener_runs(listener) && listener.hide_in_overlay);
         let listeners = inner
             .config
             .listeners
             .iter()
-            .filter(|listener| listener.enabled && listener.template.is_some())
+            .filter(|listener| listener_shows_in_overlay(listener))
             .map(|listener| {
                 (
                     listener.id.clone(),
@@ -980,7 +994,15 @@ fn show_overlay_preview(app: &AppHandle, mode: BuffOverlayMode) -> Result<(), St
             })
             .collect::<Vec<_>>();
         if listeners.is_empty() {
-            vec![("preview".into(), "监听图标".into(), 20_000)]
+            vec![(
+                "preview".into(),
+                if has_hidden_running_listeners {
+                    "所有监听项已隐藏".into()
+                } else {
+                    "监听图标".into()
+                },
+                20_000,
+            )]
         } else {
             listeners
         }
@@ -1816,7 +1838,7 @@ fn refresh_active_overlay(app: &AppHandle) {
             .listeners
             .iter()
             .filter_map(|listener| {
-                if !listener.enabled || listener.template.is_none() {
+                if !listener_shows_in_overlay(listener) {
                     return None;
                 }
                 let runtime = inner.listeners.get(&listener.id)?;
@@ -1885,6 +1907,11 @@ fn show_transient_overlay(
         if inner.overlay_editing {
             return;
         }
+        if !inner.config.listeners.iter().any(listener_shows_in_overlay) {
+            drop(inner);
+            hide_overlay(app);
+            return;
+        }
         inner.overlay_generation = inner.overlay_generation.wrapping_add(1);
         inner.overlay_generation
     };
@@ -1949,7 +1976,7 @@ fn show_waiting_overlay(app: &AppHandle) {
                     .config
                     .listeners
                     .iter()
-                    .filter(|listener| listener.enabled && listener.template.is_some())
+                    .filter(|listener| listener_shows_in_overlay(listener))
                     .map(|listener| BuffOverlayItem {
                         listener_id: listener.id.clone(),
                         name: listener.name.clone(),
@@ -1964,18 +1991,18 @@ fn show_waiting_overlay(app: &AppHandle) {
         hide_overlay(app);
         return;
     };
-    let rows = items.len().max(1);
+    if items.is_empty() {
+        hide_overlay(app);
+        return;
+    }
+    let rows = items.len();
     resize_overlay_for_rows(app, rows);
     ensure_overlay_visible(app);
     emit_overlay(
         app,
         BuffOverlayState {
             mode: BuffOverlayMode::Waiting,
-            message: if items.is_empty() {
-                "等待监听图标".into()
-            } else {
-                String::new()
-            },
+            message: String::new(),
             items,
             emitted_at_unix_ms: now_millis(),
             editable: false,
@@ -1989,12 +2016,17 @@ fn show_waiting_overlay(app: &AppHandle) {
 
 fn show_target_unavailable_overlay(app: &AppHandle) {
     let state = app.state::<BuffAssistant>();
-    {
+    let should_show = {
         let mut inner = state.lock();
         if inner.overlay_editing {
             return;
         }
         inner.overlay_generation = inner.overlay_generation.wrapping_add(1);
+        inner.config.listeners.iter().any(listener_shows_in_overlay)
+    };
+    if !should_show {
+        hide_overlay(app);
+        return;
     }
     resize_overlay_for_rows(app, 1);
     if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
@@ -2052,6 +2084,14 @@ fn ensure_overlay_visible(app: &AppHandle) {
     if should_show && let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = overlay.show();
     }
+}
+
+fn listener_runs(listener: &BuffListenerConfig) -> bool {
+    listener.enabled && listener.template.is_some()
+}
+
+fn listener_shows_in_overlay(listener: &BuffListenerConfig) -> bool {
+    listener_runs(listener) && !listener.hide_in_overlay
 }
 
 fn apply_overlay_geometry(app: &AppHandle) {
@@ -2281,10 +2321,13 @@ impl BuffMetricBatch {
 mod tests {
     use image::DynamicImage;
 
+    use super::model::BuffTemplateSummary;
+
     use super::{
-        BuffAssistantConfig, BuffTarget, DEFAULT_OVERLAY_HEIGHT, NormalizedRect,
-        OverlayWindowCache, configured_overlay_height, crop_saved_template,
-        crop_template_from_preview, overlay_height_for_rows, persist_capture_target, storage,
+        BuffAssistantConfig, BuffListenerConfig, BuffListenerSettings, BuffTarget,
+        DEFAULT_OVERLAY_HEIGHT, NormalizedRect, OverlayWindowCache, configured_overlay_height,
+        crop_saved_template, crop_template_from_preview, listener_runs, listener_shows_in_overlay,
+        overlay_height_for_rows, persist_capture_target, storage,
     };
 
     use std::{
@@ -2344,6 +2387,40 @@ mod tests {
         assert_eq!(overlay_height_for_rows(2), 88.0);
         assert_eq!(configured_overlay_height(70, 2), 70.0);
         assert_eq!(configured_overlay_height(DEFAULT_OVERLAY_HEIGHT, 2), 88.0);
+    }
+
+    #[test]
+    fn overlay_visibility_only_includes_running_non_hidden_listeners() {
+        let listener =
+            |enabled: bool, configured: bool, hide_in_overlay: bool| BuffListenerConfig {
+                id: "listener-1".into(),
+                name: "测试".into(),
+                enabled,
+                hide_in_overlay,
+                template: configured.then(|| BuffTemplateSummary {
+                    id: "template-1".into(),
+                    width: 32,
+                    height: 32,
+                    crop: None,
+                }),
+                settings: BuffListenerSettings::default(),
+            };
+
+        let visible = listener(true, true, false);
+        assert!(listener_runs(&visible));
+        assert!(listener_shows_in_overlay(&visible));
+
+        let hidden = listener(true, true, true);
+        assert!(listener_runs(&hidden));
+        assert!(!listener_shows_in_overlay(&hidden));
+
+        let disabled = listener(false, true, false);
+        assert!(!listener_runs(&disabled));
+        assert!(!listener_shows_in_overlay(&disabled));
+
+        let unconfigured = listener(true, false, false);
+        assert!(!listener_runs(&unconfigured));
+        assert!(!listener_shows_in_overlay(&unconfigured));
     }
 
     #[test]

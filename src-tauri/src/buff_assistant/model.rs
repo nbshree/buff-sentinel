@@ -490,6 +490,8 @@ pub struct BuffListenerConfig {
     pub name: String,
     #[serde(default = "enabled_by_default")]
     pub enabled: bool,
+    #[serde(default)]
+    pub hide_in_overlay: bool,
     pub template: Option<BuffTemplateSummary>,
     pub settings: BuffListenerSettings,
 }
@@ -564,6 +566,7 @@ impl LegacyBuffAssistantConfig {
                 id: "jinzhoutian".into(),
                 name: "金周天".into(),
                 enabled: true,
+                hide_in_overlay: false,
                 template: Some(template),
                 settings: BuffListenerSettings::from(&self.settings),
             })
@@ -720,6 +723,24 @@ mod tests {
         let settings: BuffListenerSettings = serde_json::from_value(value).unwrap();
 
         assert_eq!(settings.match_mode, BuffMatchMode::Pixel);
+    }
+
+    #[test]
+    fn listener_defaults_to_showing_in_overlay_when_field_is_missing() {
+        let listener = BuffListenerConfig {
+            id: "listener-1".into(),
+            name: "测试".into(),
+            enabled: true,
+            hide_in_overlay: false,
+            template: None,
+            settings: BuffListenerSettings::default(),
+        };
+        let mut value = serde_json::to_value(listener).unwrap();
+        value.as_object_mut().unwrap().remove("hideInOverlay");
+
+        let listener: BuffListenerConfig = serde_json::from_value(value).unwrap();
+
+        assert!(!listener.hide_in_overlay);
     }
 
     #[test]

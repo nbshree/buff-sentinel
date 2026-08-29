@@ -12,7 +12,7 @@ function BuffAssistantHarness() {
   return <BuffAssistantPage controller={controller} />
 }
 
-async function createListenerApi() {
+async function createListenerApi(hideInOverlay = false) {
   const baseApi = createBuffSentinelApi()
   const baseState = await baseApi.getBuffAssistantState()
   const api = createBuffSentinelApi({
@@ -32,6 +32,7 @@ async function createListenerApi() {
           id: 'jinzhoutian',
           name: '金周天',
           enabled: true,
+          hideInOverlay,
           template: { id: 'template', width: 32, height: 32 },
           settings: {
             cycleMs: 20_000,
@@ -205,6 +206,7 @@ describe('BuffAssistantPage', () => {
     const dialog = await openListenerEditor(user)
     expect(within(dialog).getByRole('spinbutton', { name: /触发宽限期/ })).toHaveValue(1500)
     expect(within(dialog).getByRole('checkbox', { name: '真实触发确认音' })).toBeChecked()
+    expect(within(dialog).getByRole('checkbox', { name: '隐藏浮窗显示' })).not.toBeChecked()
     await user.clear(within(dialog).getByRole('spinbutton', { name: '周期（秒）' }))
     await user.type(within(dialog).getByRole('spinbutton', { name: '周期（秒）' }), '30')
     await user.click(within(dialog).getByRole('button', { name: '保存监听项' }))
@@ -214,7 +216,33 @@ describe('BuffAssistantPage', () => {
         'jinzhoutian',
         '金周天',
         true,
+        false,
         expect.objectContaining({ cycleMs: 30_000 })
+      )
+    )
+  })
+
+  it('edits whether a listener is shown in the overlay', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi(true)
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    const dialog = await openListenerEditor(user)
+    const hideInOverlay = within(dialog).getByRole('checkbox', { name: '隐藏浮窗显示' })
+    expect(hideInOverlay).toBeChecked()
+    expect(within(dialog).getByText('仍会继续监听和播放提示音，仅不显示在悬浮窗中。')).toBeVisible()
+
+    await user.click(hideInOverlay)
+    await user.click(within(dialog).getByRole('button', { name: '保存监听项' }))
+
+    await waitFor(() =>
+      expect(api.updateBuffListener).toHaveBeenCalledWith(
+        'jinzhoutian',
+        '金周天',
+        true,
+        false,
+        expect.any(Object)
       )
     )
   })
@@ -306,6 +334,7 @@ describe('BuffAssistantPage', () => {
       expect(api.updateBuffListener).toHaveBeenCalledWith(
         'jinzhoutian',
         '金周天',
+        false,
         false,
         expect.any(Object)
       )

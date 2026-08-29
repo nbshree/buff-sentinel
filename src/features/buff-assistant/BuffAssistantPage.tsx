@@ -148,6 +148,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const [editingListenerId, setEditingListenerId] = useState<string | null>(null)
   const [listenerName, setListenerName] = useState('')
   const [listenerEnabled, setListenerEnabled] = useState(true)
+  const [listenerHiddenInOverlay, setListenerHiddenInOverlay] = useState(false)
   const [listenerSettings, setListenerSettings] =
     useState<BuffListenerSettings>(defaultListenerSettings)
   const [listenerError, setListenerError] = useState<string | null>(null)
@@ -303,6 +304,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     setEditingListenerId(null)
     setListenerName(`监听图标 ${state.config.listeners.length + 1}`)
     setListenerEnabled(true)
+    setListenerHiddenInOverlay(false)
     setListenerSettings(defaultListenerSettings)
     setTemplateCrop(null)
     setSavedTemplateSource(null)
@@ -320,6 +322,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     setEditingListenerId(listener.id)
     setListenerName(listener.name)
     setListenerEnabled(listener.enabled)
+    setListenerHiddenInOverlay(listener.hideInOverlay)
     setListenerSettings(listener.settings)
     setTemplateCrop(null)
     setSavedTemplateSource(null)
@@ -372,6 +375,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           editingListenerId,
           name,
           listenerEnabled,
+          listenerHiddenInOverlay,
           listenerSettings,
           maskRef.current?.getMaskDataUrl()
         )
@@ -380,13 +384,20 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           editingListenerId,
           name,
           listenerEnabled,
+          listenerHiddenInOverlay,
           listenerSettings,
           searchRegion,
           templateCrop,
           maskRef.current?.getMaskDataUrl()
         )
       } else if (editingListenerId) {
-        await updateListener(editingListenerId, name, listenerEnabled, listenerSettings)
+        await updateListener(
+          editingListenerId,
+          name,
+          listenerEnabled,
+          listenerHiddenInOverlay,
+          listenerSettings
+        )
       } else {
         setListenerError('请先从预览中框选监听图标')
         return
@@ -947,6 +958,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                                   listener.id,
                                   listener.name,
                                   checked === true,
+                                  listener.hideInOverlay,
                                   listener.settings
                                 )
                               }
@@ -1117,6 +1129,20 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                     onCheckedChange={(checked) => setListenerEnabled(checked === true)}
                   />
                   启用监听
+                </label>
+                <label className="buff-listener-overlay-visibility">
+                  <Checkbox
+                    aria-describedby="buff-listener-overlay-visibility-help"
+                    aria-label="隐藏浮窗显示"
+                    checked={listenerHiddenInOverlay}
+                    onCheckedChange={(checked) => setListenerHiddenInOverlay(checked === true)}
+                  />
+                  <span>
+                    <strong>隐藏浮窗显示</strong>
+                    <small id="buff-listener-overlay-visibility-help">
+                      仍会继续监听和播放提示音，仅不显示在悬浮窗中。
+                    </small>
+                  </span>
                 </label>
               </div>
               {loadingListenerTemplate ? (

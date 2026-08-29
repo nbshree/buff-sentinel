@@ -521,6 +521,7 @@ mod tests {
                 id: "listener-1".into(),
                 name: "测试".into(),
                 enabled: true,
+                hide_in_overlay: false,
                 template: None,
                 settings: crate::buff_assistant::model::BuffListenerSettings::default(),
             });

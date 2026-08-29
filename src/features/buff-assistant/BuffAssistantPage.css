@@ -1598,6 +1598,31 @@ button.buff-editor-expand-action[data-slot='button']:hover {
   font-weight: 700;
 }
 
+.buff-listener-overlay-visibility {
+  display: flex;
+  min-height: 44px;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.buff-listener-overlay-visibility > span {
+  display: grid;
+  gap: 3px;
+}
+
+.buff-listener-overlay-visibility strong {
+  font-size: 13px;
+}
+
+.buff-listener-overlay-visibility small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
 .buff-listener-template-editor {
   display: grid;
   gap: 14px;

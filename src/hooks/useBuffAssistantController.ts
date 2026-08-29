@@ -171,6 +171,7 @@ export function useBuffAssistantController() {
       listenerId: string | null,
       name: string,
       enabled: boolean,
+      hideInOverlay: boolean,
       settings: BuffListenerSettings,
       searchRegion: NormalizedRect,
       crop: NormalizedRect,
@@ -181,6 +182,7 @@ export function useBuffAssistantController() {
           listenerId,
           name,
           enabled,
+          hideInOverlay,
           settings,
           searchRegion,
           crop,
@@ -197,14 +199,23 @@ export function useBuffAssistantController() {
     listenerId: string,
     name: string,
     enabled: boolean,
+    hideInOverlay: boolean,
     settings: BuffListenerSettings,
     maskDataUrl?: string,
     crop?: NormalizedRect
   ) => {
     const result = await run(() =>
       maskDataUrl === undefined && crop === undefined
-        ? window.api.updateBuffListener(listenerId, name, enabled, settings)
-        : window.api.updateBuffListener(listenerId, name, enabled, settings, maskDataUrl, crop)
+        ? window.api.updateBuffListener(listenerId, name, enabled, hideInOverlay, settings)
+        : window.api.updateBuffListener(
+            listenerId,
+            name,
+            enabled,
+            hideInOverlay,
+            settings,
+            maskDataUrl,
+            crop
+          )
     )
     setState(result)
     return result

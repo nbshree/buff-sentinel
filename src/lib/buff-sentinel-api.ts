@@ -109,6 +109,7 @@ export type BuffListenerConfig = {
   id: string
   name: string
   enabled: boolean
+  hideInOverlay: boolean
   template: BuffTemplateSummary | null
   settings: BuffListenerSettings
 }
@@ -251,6 +252,7 @@ export type BuffSentinelAPI = {
     listenerId: string | null,
     name: string,
     enabled: boolean,
+    hideInOverlay: boolean,
     settings: BuffListenerSettings,
     searchRegion: NormalizedRect,
     crop: NormalizedRect,
@@ -260,6 +262,7 @@ export type BuffSentinelAPI = {
     listenerId: string,
     name: string,
     enabled: boolean,
+    hideInOverlay: boolean,
     settings: BuffListenerSettings,
     maskDataUrl?: string,
     crop?: NormalizedRect
@@ -368,13 +371,23 @@ export const buffSentinelApi: BuffSentinelAPI = {
     callTauri(() => invoke<BuffAssistantState>('update_buff_search_region', { searchRegion })),
   getBuffListenerTemplate: (listenerId) =>
     callTauri(() => invoke<BuffTemplatePreview>('get_buff_listener_template', { listenerId })),
-  saveBuffListener: (listenerId, name, enabled, settings, searchRegion, crop, maskDataUrl) =>
+  saveBuffListener: (
+    listenerId,
+    name,
+    enabled,
+    hideInOverlay,
+    settings,
+    searchRegion,
+    crop,
+    maskDataUrl
+  ) =>
     callTauri(() =>
       invoke<BuffAssistantState>('save_buff_listener', {
         request: {
           listenerId,
           name,
           enabled,
+          hideInOverlay,
           settings,
           searchRegion,
           crop,
@@ -382,13 +395,14 @@ export const buffSentinelApi: BuffSentinelAPI = {
         }
       })
     ),
-  updateBuffListener: (listenerId, name, enabled, settings, maskDataUrl, crop) =>
+  updateBuffListener: (listenerId, name, enabled, hideInOverlay, settings, maskDataUrl, crop) =>
     callTauri(() =>
       invoke<BuffAssistantState>('update_buff_listener', {
         request: {
           listenerId,
           name,
           enabled,
+          hideInOverlay,
           settings,
           maskDataUrl,
           crop
