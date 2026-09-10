@@ -30,12 +30,12 @@ use capture::{
 use image::{DynamicImage, GrayImage, Luma, RgbaImage};
 pub use model::{
     BorderlessCaptureAccessResult, BuffAssistantActivity, BuffAssistantConfig, BuffAssistantState,
-    BuffCustomSoundAsset, BuffGlobalSettings, BuffListenerConfig, BuffListenerRuntimeState,
-    BuffListenerSettings, BuffOverlayColorScheme, BuffOverlayItem, BuffOverlayMode,
-    BuffOverlayState, BuffSoundCue, BuffSoundSource, BuffSoundTemplateSummary, BuffTarget,
-    BuffTemplatePreview, CapturePreview, CaptureWindowCandidate, DEFAULT_OVERLAY_HEIGHT,
-    MAX_LISTENERS, MAX_OVERLAY_HEIGHT, MAX_OVERLAY_WIDTH, MIN_OVERLAY_HEIGHT, MIN_OVERLAY_WIDTH,
-    NormalizedRect,
+    BuffAudioOutputDevice, BuffCustomSoundAsset, BuffGlobalSettings, BuffListenerConfig,
+    BuffListenerRuntimeState, BuffListenerSettings, BuffOverlayColorScheme, BuffOverlayItem,
+    BuffOverlayMode, BuffOverlayState, BuffSoundCue, BuffSoundSource, BuffSoundTemplateSummary,
+    BuffTarget, BuffTemplatePreview, CapturePreview, CaptureWindowCandidate,
+    DEFAULT_OVERLAY_HEIGHT, MAX_LISTENERS, MAX_OVERLAY_HEIGHT, MAX_OVERLAY_WIDTH,
+    MIN_OVERLAY_HEIGHT, MIN_OVERLAY_WIDTH, NormalizedRect,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{
@@ -252,6 +252,20 @@ pub fn list_buff_sound_templates(state: State<'_, BuffAssistant>) -> Vec<BuffSou
         .iter()
         .map(|template| template.summary.clone())
         .collect()
+}
+
+#[tauri::command]
+pub fn list_buff_audio_output_devices() -> Result<Vec<BuffAudioOutputDevice>, String> {
+    audio::list_output_devices().map(|devices| {
+        devices
+            .into_iter()
+            .map(|device| BuffAudioOutputDevice {
+                id: device.id,
+                name: device.name,
+                is_default: device.is_default,
+            })
+            .collect()
+    })
 }
 
 #[tauri::command]
@@ -843,10 +857,23 @@ pub fn play_buff_assistant_sound(
     source: BuffSoundSource,
     volume: f32,
 ) -> Result<(), String> {
-    let inner = state.lock();
-    let resolved = resolve_sound_source(&inner, cue, &source)?;
-    state.audio.play(cue, resolved, volume);
+    let (resolved, output_device_id) = {
+        let inner = state.lock();
+        (
+            resolve_sound_source(&inner, cue, &source)?,
+            inner.config.settings.audio_output_device_id.clone(),
+        )
+    };
+    state.audio.play(cue, resolved, volume, output_device_id);
     Ok(())
+}
+
+#[tauri::command]
+pub fn test_buff_audio_output(
+    state: State<'_, BuffAssistant>,
+    output_device_id: Option<String>,
+) -> Result<(), String> {
+    state.audio.test_output(output_device_id)
 }
 
 #[tauri::command]
@@ -1505,11 +1532,17 @@ fn play_configured_sound(
     cue: BuffSoundCue,
     sound: &model::BuffSoundSettings,
 ) {
-    let resolved = {
+    let (resolved, output_device_id) = {
         let inner = state.lock();
-        resolve_sound_source(&inner, cue, sound.source(cue)).unwrap_or(ResolvedSoundSource::Sine)
+        (
+            resolve_sound_source(&inner, cue, sound.source(cue))
+                .unwrap_or(ResolvedSoundSource::Sine),
+            inner.config.settings.audio_output_device_id.clone(),
+        )
     };
-    state.audio.play(cue, resolved, sound.volume);
+    state
+        .audio
+        .play(cue, resolved, sound.volume, output_device_id);
 }
 
 fn preload_monitor_sounds(state: &BuffAssistant) {

@@ -70,6 +70,12 @@ export type BuffSoundSettings = {
   volume: number
 }
 
+export type BuffAudioOutputDevice = {
+  id: string
+  name: string
+  isDefault: boolean
+}
+
 export type BuffOverlaySettings = {
   x: number
   y: number
@@ -103,6 +109,7 @@ export type BuffGlobalSettings = {
   overlay: BuffOverlaySettings
   capture: BuffCaptureSettings
   monitorHotkey: string | null
+  audioOutputDeviceId: string | null
 }
 
 export type BuffListenerConfig = {
@@ -245,6 +252,7 @@ export type BuffSentinelAPI = {
   getBuffAssistantState: () => Promise<BuffAssistantState>
   listBuffCaptureWindows: () => Promise<CaptureWindowCandidate[]>
   listBuffSoundTemplates: () => Promise<BuffSoundTemplateSummary[]>
+  listBuffAudioOutputDevices: () => Promise<BuffAudioOutputDevice[]>
   captureBuffPreview: (windowId: string) => Promise<BuffCapturePreview>
   updateBuffSearchRegion: (searchRegion: NormalizedRect) => Promise<BuffAssistantState>
   getBuffListenerTemplate: (listenerId: string) => Promise<BuffTemplatePreview>
@@ -280,6 +288,7 @@ export type BuffSentinelAPI = {
     source: BuffSoundSource,
     volume: number
   ) => Promise<void>
+  testBuffAudioOutput: (outputDeviceId: string | null) => Promise<void>
   openTtsOnline: () => Promise<void>
   setBuffOverlayEditMode: (enabled: boolean) => Promise<BuffAssistantState>
   setBuffOverlayPreviewMode: (mode: BuffOverlayPreviewMode) => Promise<void>
@@ -365,6 +374,8 @@ export const buffSentinelApi: BuffSentinelAPI = {
     callTauri(() => invoke<CaptureWindowCandidate[]>('list_buff_capture_windows')),
   listBuffSoundTemplates: () =>
     callTauri(() => invoke<BuffSoundTemplateSummary[]>('list_buff_sound_templates')),
+  listBuffAudioOutputDevices: () =>
+    callTauri(() => invoke<BuffAudioOutputDevice[]>('list_buff_audio_output_devices')),
   captureBuffPreview: (windowId) =>
     callTauri(() => invoke<BuffCapturePreview>('capture_buff_preview', { windowId })),
   updateBuffSearchRegion: (searchRegion) =>
@@ -429,6 +440,8 @@ export const buffSentinelApi: BuffSentinelAPI = {
     callTauri(() => invoke<BuffCustomSoundAsset | null>('import_buff_assistant_sound', { cue })),
   playBuffAssistantSound: (cue, source, volume) =>
     callTauri(() => invoke<void>('play_buff_assistant_sound', { cue, source, volume })),
+  testBuffAudioOutput: (outputDeviceId) =>
+    callTauri(() => invoke<void>('test_buff_audio_output', { outputDeviceId })),
   openTtsOnline: () => callTauri(() => invoke<void>('open_tts_online')),
   setBuffOverlayEditMode: (enabled) =>
     callTauri(() => invoke<BuffAssistantState>('set_buff_overlay_edit_mode', { enabled })),

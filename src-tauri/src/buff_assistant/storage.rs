@@ -20,6 +20,7 @@ use super::{
 const CONFIG_FILE: &str = "config-v1.json";
 const SOUND_ASSETS_DIRECTORY: &str = "sound-assets";
 const MAX_SOUND_FILE_BYTES: u64 = 10 * 1024 * 1024;
+const MULTI_LISTENER_SCHEMA_VERSION: u32 = 10;
 
 #[derive(Clone)]
 pub struct SoundTemplate {
@@ -71,7 +72,7 @@ pub fn load_config(directory: &Path) -> (BuffAssistantConfig, Vec<String>) {
                     .get("schemaVersion")
                     .and_then(serde_json::Value::as_u64)
                     .unwrap_or(1) as u32;
-                if version < CONFIG_SCHEMA_VERSION {
+                if version < MULTI_LISTENER_SCHEMA_VERSION {
                     serde_json::from_value::<LegacyBuffAssistantConfig>(value)
                         .map(LegacyBuffAssistantConfig::migrate)
                         .map_err(|error| error.to_string())
@@ -112,7 +113,7 @@ pub fn load_config(directory: &Path) -> (BuffAssistantConfig, Vec<String>) {
         .is_some_and(|version| version < u64::from(CONFIG_SCHEMA_VERSION));
     if needs_migration {
         match save_config(directory, &config) {
-            Ok(()) => notices.push("旧版单图标配置已迁移为多监听项".into()),
+            Ok(()) => notices.push("旧版 Buff 助手配置已迁移到当前版本".into()),
             Err(error) => notices.push(error),
         }
     }
@@ -581,6 +582,47 @@ mod tests {
         assert!(notices.iter().any(|notice| notice.contains("已迁移")));
         let persisted = fs::read_to_string(directory.join(CONFIG_FILE)).unwrap();
         assert!(persisted.contains("\"listeners\""));
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn version_ten_multi_listener_config_keeps_listeners_and_defaults_audio_output() {
+        let directory = std::env::temp_dir().join(format!(
+            "buff-sentinel-v10-config-migration-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let mut config = BuffAssistantConfig::default();
+        config.schema_version = 10;
+        config
+            .listeners
+            .push(crate::buff_assistant::model::BuffListenerConfig {
+                id: "existing-listener".into(),
+                name: "已有监听项".into(),
+                enabled: true,
+                hide_in_overlay: false,
+                template: None,
+                settings: crate::buff_assistant::model::BuffListenerSettings::default(),
+            });
+        let mut value = serde_json::to_value(config).unwrap();
+        value["settings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("audioOutputDeviceId");
+        fs::write(
+            directory.join(CONFIG_FILE),
+            serde_json::to_string_pretty(&value).unwrap(),
+        )
+        .unwrap();
+
+        let (config, notices) = load_config(&directory);
+
+        assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
+        assert_eq!(config.listeners.len(), 1);
+        assert_eq!(config.listeners[0].id, "existing-listener");
+        assert_eq!(config.settings.audio_output_device_id, None);
+        assert!(notices.iter().any(|notice| notice.contains("已迁移")));
         let _ = fs::remove_dir_all(directory);
     }
 }

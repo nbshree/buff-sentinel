@@ -51,6 +51,7 @@ import {
 } from '../../components/ui/tooltip'
 import type { BuffAssistantController } from '../../hooks/useBuffAssistantController'
 import type {
+  BuffAudioOutputDevice,
   BuffGlobalSettings,
   BuffListenerConfig,
   BuffListenerSettings,
@@ -144,6 +145,10 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
   const [settings, setSettings] = useState<BuffGlobalSettings>(state.config.settings)
   const [hotkeyInputError, setHotkeyInputError] = useState<string | null>(null)
+  const [audioOutputDevices, setAudioOutputDevices] = useState<BuffAudioOutputDevice[]>([])
+  const [audioOutputError, setAudioOutputError] = useState<string | null>(null)
+  const [loadingAudioOutputs, setLoadingAudioOutputs] = useState(false)
+  const [testingAudioOutput, setTestingAudioOutput] = useState(false)
   const [listenerDialogOpen, setListenerDialogOpen] = useState(false)
   const [editingListenerId, setEditingListenerId] = useState<string | null>(null)
   const [listenerName, setListenerName] = useState('')
@@ -223,6 +228,30 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     }
   }
 
+  async function refreshAudioOutputDevices(): Promise<void> {
+    setLoadingAudioOutputs(true)
+    setAudioOutputError(null)
+    try {
+      setAudioOutputDevices(await window.api.listBuffAudioOutputDevices())
+    } catch (reason) {
+      setAudioOutputError(toMessage(reason))
+    } finally {
+      setLoadingAudioOutputs(false)
+    }
+  }
+
+  async function testAudioOutput(): Promise<void> {
+    setTestingAudioOutput(true)
+    setAudioOutputError(null)
+    try {
+      await window.api.testBuffAudioOutput(settings.audioOutputDeviceId)
+    } catch (reason) {
+      setAudioOutputError(toMessage(reason))
+    } finally {
+      setTestingAudioOutput(false)
+    }
+  }
+
   useEffect(() => {
     if (selectedWindowId || windows.length === 0) return
     const configured = state.config.target
@@ -255,6 +284,12 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   }, [preview, searchRegion])
 
   const configurationLocked = state.isMonitoring || state.activity === 'testing'
+  const selectedAudioOutputUnavailable = Boolean(
+    settings.audioOutputDeviceId &&
+      !loadingAudioOutputs &&
+      !audioOutputError &&
+      !audioOutputDevices.some((device) => device.id === settings.audioOutputDeviceId)
+  )
   const savedHotkeyError =
     settings.monitorHotkey === state.config.settings.monitorHotkey
       ? state.hotkeyRegistrationError
@@ -449,6 +484,8 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
       setSettings(state.config.settings)
       setSoundError(null)
       setHotkeyInputError(null)
+      setAudioOutputError(null)
+      void refreshAudioOutputDevices()
     }
     setSettingsDialogOpen(open)
   }
@@ -664,7 +701,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                   <DialogHeader className="border-b border-border px-5 py-4 pr-14">
                     <DialogTitle>设置</DialogTitle>
                     <DialogDescription>
-                      调整监控热键、浮窗与系统捕获参数，点击保存后生效。
+                      调整播报设备、监控热键、浮窗与系统捕获参数，点击保存后生效。
                     </DialogDescription>
                   </DialogHeader>
                   <div className="buff-settings-dialog">
@@ -859,6 +896,77 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                           </p>
                         ) : null}
                       </div>
+                    </div>
+                    <div className="buff-audio-output-settings">
+                      <div className="buff-setting-label">
+                        <label htmlFor="audio-output-device">播报输出设备</label>
+                        <SettingTooltip
+                          label="查看播报输出设备说明"
+                          content="系统默认会跟随 Windows 当前输出；固定设备断开时会临时改用系统默认，重新连接后自动恢复。"
+                        />
+                      </div>
+                      <div className="buff-audio-output-settings__controls">
+                        <Select
+                          value={settings.audioOutputDeviceId ?? 'system-default'}
+                          onValueChange={(value) =>
+                            setSettings((current) => ({
+                              ...current,
+                              audioOutputDeviceId: value === 'system-default' ? null : value
+                            }))
+                          }
+                        >
+                          <SelectTrigger id="audio-output-device" aria-label="播报输出设备">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="system-default">系统默认</SelectItem>
+                            {selectedAudioOutputUnavailable && settings.audioOutputDeviceId ? (
+                              <SelectItem value={settings.audioOutputDeviceId}>
+                                已选设备（不可用）
+                              </SelectItem>
+                            ) : null}
+                            {audioOutputDevices.map((device) => (
+                              <SelectItem key={device.id} value={device.id}>
+                                {device.name}
+                                {device.isDefault ? '（当前默认）' : ''}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          aria-label="刷新播报输出设备"
+                          disabled={busy || loadingAudioOutputs}
+                          type="button"
+                          variant="outline"
+                          onClick={() => void refreshAudioOutputDevices()}
+                        >
+                          <RefreshCw aria-hidden="true" />
+                          {loadingAudioOutputs ? '刷新中' : '刷新'}
+                        </Button>
+                        <Button
+                          disabled={
+                            busy ||
+                            testingAudioOutput ||
+                            selectedAudioOutputUnavailable
+                          }
+                          type="button"
+                          variant="outline"
+                          onClick={() => void testAudioOutput()}
+                        >
+                          <Volume2 aria-hidden="true" />
+                          {testingAudioOutput ? '播放中' : '测试声音'}
+                        </Button>
+                      </div>
+                      {selectedAudioOutputUnavailable ? (
+                        <p className="buff-setting-help buff-setting-help--warning">
+                          已选设备当前不可用，播报会临时使用系统默认设备。
+                        </p>
+                      ) : null}
+                      {audioOutputError ? (
+                        <p className="buff-sound-error" role="alert">
+                          {audioOutputError}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="buff-sound-options">
                       {state.captureBorderNotice ? (

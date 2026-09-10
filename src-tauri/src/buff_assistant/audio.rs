@@ -2,13 +2,16 @@ use std::{
     collections::{HashMap, HashSet},
     fs::File,
     path::{Path, PathBuf},
-    sync::mpsc::{self, RecvTimeoutError, Sender},
+    str::FromStr,
+    sync::mpsc::{self, RecvTimeoutError, Sender, SyncSender},
     thread,
     time::{Duration, Instant},
 };
 
 use rodio::{
-    Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source, buffer::SamplesBuffer,
+    Decoder, Device, DeviceSinkBuilder, DeviceTrait, MixerDeviceSink, Player, Source,
+    buffer::SamplesBuffer,
+    cpal::{DeviceId, traits::HostTrait},
     source::SineWave,
 };
 use tauri::{AppHandle, Emitter};
@@ -29,11 +32,28 @@ struct AudioRequest {
     cue: BuffSoundCue,
     source: ResolvedSoundSource,
     volume: f32,
+    output_device_id: Option<String>,
+    allow_fallback: bool,
 }
 
 enum AudioCommand {
     Preload(Vec<PathBuf>),
     Play(AudioRequest),
+    Test(AudioRequest, SyncSender<Result<(), String>>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AudioOutputDevice {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+}
+
+struct ResolvedOutputDevice {
+    device: Device,
+    id: String,
+    warning: Option<String>,
+    requested_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -49,6 +69,8 @@ impl AudioEngine {
             let mut players = Vec::<Player>::new();
             let mut idle_since = None;
             let mut cache = HashMap::<PathBuf, SamplesBuffer>::new();
+            let mut active_device_id = None::<String>;
+            let mut last_route_warning = None::<String>;
 
             loop {
                 let command = if stream.is_some() {
@@ -68,36 +90,34 @@ impl AudioEngine {
                     None => {}
                     Some(AudioCommand::Preload(paths)) => preload_wavs(paths, &mut cache),
                     Some(AudioCommand::Play(request)) => {
-                        players.retain(|player| !player.empty());
-                        if stream.is_none() {
-                            match DeviceSinkBuilder::open_default_sink() {
-                                Ok(mut opened) => {
-                                    opened.log_on_drop(false);
-                                    stream = Some(opened);
-                                }
-                                Err(error) => {
-                                    let _ = app.emit(
-                                        "buff-assistant-execution-log",
-                                        format!("提示音播放失败：无法打开声音设备：{error}"),
-                                    );
-                                    continue;
-                                }
-                            }
+                        if let Err(error) = play_request(
+                            request,
+                            &mut stream,
+                            &mut active_device_id,
+                            &mut players,
+                            &mut idle_since,
+                            &mut cache,
+                            &app,
+                            &mut last_route_warning,
+                        ) {
+                            let _ = app.emit(
+                                "buff-assistant-execution-log",
+                                format!("提示音播放失败：{error}"),
+                            );
                         }
-
-                        let next = Player::connect_new(
-                            stream.as_ref().expect("audio stream was opened").mixer(),
+                    }
+                    Some(AudioCommand::Test(request, response)) => {
+                        let result = play_request(
+                            request,
+                            &mut stream,
+                            &mut active_device_id,
+                            &mut players,
+                            &mut idle_since,
+                            &mut cache,
+                            &app,
+                            &mut last_route_warning,
                         );
-                        next.set_volume(request.volume.clamp(0.0, 1.0));
-                        match request.source {
-                            ResolvedSoundSource::Sine => next.append(sine_wave(request.cue)),
-                            ResolvedSoundSource::Wav(path) => match cached_wav(&path, &mut cache) {
-                                Ok(sound) => next.append(sound),
-                                Err(_) => next.append(sine_wave(request.cue)),
-                            },
-                        }
-                        players.push(next);
-                        idle_since = None;
+                        let _ = response.send(result);
                     }
                 }
 
@@ -110,6 +130,7 @@ impl AudioEngine {
                     ) {
                         players.clear();
                         stream = None;
+                        active_device_id = None;
                         idle_since = None;
                     }
                 }
@@ -119,16 +140,211 @@ impl AudioEngine {
         Self { sender }
     }
 
-    pub fn play(&self, cue: BuffSoundCue, source: ResolvedSoundSource, volume: f32) {
+    pub fn play(
+        &self,
+        cue: BuffSoundCue,
+        source: ResolvedSoundSource,
+        volume: f32,
+        output_device_id: Option<String>,
+    ) {
         let _ = self.sender.send(AudioCommand::Play(AudioRequest {
             cue,
             source,
             volume,
+            output_device_id,
+            allow_fallback: true,
         }));
+    }
+
+    pub fn test_output(&self, output_device_id: Option<String>) -> Result<(), String> {
+        let (response_sender, response_receiver) = mpsc::sync_channel(1);
+        self.sender
+            .send(AudioCommand::Test(
+                AudioRequest {
+                    cue: BuffSoundCue::Triggered,
+                    source: ResolvedSoundSource::Sine,
+                    volume: 0.45,
+                    output_device_id,
+                    allow_fallback: false,
+                },
+                response_sender,
+            ))
+            .map_err(|_| "声音播放线程不可用".to_string())?;
+        response_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .map_err(|_| "等待声音设备响应超时".to_string())?
     }
 
     pub fn preload(&self, paths: Vec<PathBuf>) {
         let _ = self.sender.send(AudioCommand::Preload(paths));
+    }
+}
+
+pub fn list_output_devices() -> Result<Vec<AudioOutputDevice>, String> {
+    let host = rodio::cpal::default_host();
+    let default_id = host
+        .default_output_device()
+        .and_then(|device| device.id().ok())
+        .map(|id| id.to_string());
+    let devices = host
+        .output_devices()
+        .map_err(|error| format!("无法读取声音输出设备：{error}"))?;
+    let mut result = devices
+        .filter_map(|device| {
+            let id = device.id().ok()?.to_string();
+            let name = device
+                .description()
+                .map(|description| description.name().to_string())
+                .unwrap_or_else(|_| "未知输出设备".into());
+            Some(AudioOutputDevice {
+                is_default: default_id.as_deref() == Some(id.as_str()),
+                id,
+                name,
+            })
+        })
+        .collect::<Vec<_>>();
+    result.sort_by(|left, right| {
+        right
+            .is_default
+            .cmp(&left.is_default)
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn play_request(
+    request: AudioRequest,
+    stream: &mut Option<MixerDeviceSink>,
+    active_device_id: &mut Option<String>,
+    players: &mut Vec<Player>,
+    idle_since: &mut Option<Instant>,
+    cache: &mut HashMap<PathBuf, SamplesBuffer>,
+    app: &AppHandle,
+    last_route_warning: &mut Option<String>,
+) -> Result<(), String> {
+    players.retain(|player| !player.empty());
+    let mut resolved =
+        resolve_output_device(request.output_device_id.as_deref(), request.allow_fallback)?;
+    if resolved.warning.is_some() {
+        emit_route_warning(app, resolved.warning.as_deref(), last_route_warning);
+    }
+
+    if active_device_id.as_deref() != Some(resolved.id.as_str()) {
+        players.clear();
+        *stream = None;
+        let opened = open_device_sink(resolved.device);
+        let (mut opened, warning) = match opened {
+            Ok(opened) => (opened, resolved.warning.take()),
+            Err(error) if resolved.requested_id.is_some() && request.allow_fallback => {
+                let fallback = resolve_output_device(None, true)?;
+                let fallback_id = fallback.id.clone();
+                let opened = open_device_sink(fallback.device).map_err(|fallback_error| {
+                    format!(
+                        "无法打开指定声音设备：{error}；系统默认设备也无法打开：{fallback_error}"
+                    )
+                })?;
+                resolved.id = fallback_id;
+                (
+                    opened,
+                    Some("已选择的播报输出设备无法打开，临时改用系统默认设备".into()),
+                )
+            }
+            Err(error) => return Err(format!("无法打开声音设备：{error}")),
+        };
+        emit_route_warning(app, warning.as_deref(), last_route_warning);
+        opened.log_on_drop(false);
+        *stream = Some(opened);
+        *active_device_id = Some(resolved.id);
+    } else if resolved.warning.is_none() {
+        emit_route_warning(app, None, last_route_warning);
+    }
+
+    let next = Player::connect_new(stream.as_ref().expect("audio stream was opened").mixer());
+    next.set_volume(request.volume.clamp(0.0, 1.0));
+    match request.source {
+        ResolvedSoundSource::Sine => next.append(sine_wave(request.cue)),
+        ResolvedSoundSource::Wav(path) => match cached_wav(&path, cache) {
+            Ok(sound) => next.append(sound),
+            Err(_) => next.append(sine_wave(request.cue)),
+        },
+    }
+    players.push(next);
+    *idle_since = None;
+    Ok(())
+}
+
+fn resolve_output_device(
+    requested_id: Option<&str>,
+    allow_fallback: bool,
+) -> Result<ResolvedOutputDevice, String> {
+    let host = rodio::cpal::default_host();
+    if let Some(requested_id) = requested_id {
+        let selected = DeviceId::from_str(requested_id)
+            .ok()
+            .and_then(|device_id| host.device_by_id(&device_id));
+        if let Some(device) = selected {
+            return Ok(ResolvedOutputDevice {
+                id: requested_id.to_string(),
+                device,
+                warning: None,
+                requested_id: Some(requested_id.to_string()),
+            });
+        }
+
+        if !allow_fallback {
+            return Err("已选择的播报输出设备当前不可用，请刷新设备列表后重试".into());
+        }
+
+        let fallback = host
+            .default_output_device()
+            .ok_or_else(|| "指定的输出设备不可用，且系统没有默认输出设备".to_string())?;
+        let fallback_id = fallback
+            .id()
+            .map_err(|error| format!("无法读取系统默认输出设备标识：{error}"))?
+            .to_string();
+        return Ok(ResolvedOutputDevice {
+            device: fallback,
+            id: fallback_id,
+            warning: Some("已选择的播报输出设备不可用，临时改用系统默认设备".into()),
+            requested_id: Some(requested_id.to_string()),
+        });
+    }
+
+    let device = host
+        .default_output_device()
+        .ok_or_else(|| "系统没有可用的默认输出设备".to_string())?;
+    let id = device
+        .id()
+        .map_err(|error| format!("无法读取系统默认输出设备标识：{error}"))?
+        .to_string();
+    Ok(ResolvedOutputDevice {
+        device,
+        id,
+        warning: None,
+        requested_id: None,
+    })
+}
+
+fn open_device_sink(device: Device) -> Result<MixerDeviceSink, String> {
+    DeviceSinkBuilder::from_device(device)
+        .and_then(|builder| builder.open_sink_or_fallback())
+        .map_err(|error| error.to_string())
+}
+
+fn emit_route_warning(
+    app: &AppHandle,
+    warning: Option<&str>,
+    last_route_warning: &mut Option<String>,
+) {
+    match warning {
+        Some(warning) if last_route_warning.as_deref() != Some(warning) => {
+            let _ = app.emit("buff-assistant-execution-log", warning.to_string());
+            *last_route_warning = Some(warning.to_string());
+        }
+        None => *last_route_warning = None,
+        Some(_) => {}
     }
 }
 

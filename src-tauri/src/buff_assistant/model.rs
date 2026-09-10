@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 10;
+pub const CONFIG_SCHEMA_VERSION: u32 = 11;
 pub const MAX_LISTENERS: usize = 8;
 pub const DEFAULT_CYCLE_MS: u64 = 20_000;
 pub const DEFAULT_DEADLINE_GRACE_MS: u64 = 1_500;
@@ -105,6 +105,14 @@ pub enum BuffSoundCue {
 pub struct BuffSoundTemplateSummary {
     pub id: String,
     pub name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuffAudioOutputDevice {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -370,6 +378,8 @@ pub struct BuffGlobalSettings {
     pub capture: BuffCaptureSettings,
     #[serde(default = "default_monitor_hotkey")]
     pub monitor_hotkey: Option<String>,
+    #[serde(default)]
+    pub audio_output_device_id: Option<String>,
 }
 
 impl Default for BuffGlobalSettings {
@@ -378,6 +388,7 @@ impl Default for BuffGlobalSettings {
             overlay: BuffOverlaySettings::default(),
             capture: BuffCaptureSettings::default(),
             monitor_hotkey: default_monitor_hotkey(),
+            audio_output_device_id: None,
         }
     }
 }
@@ -408,6 +419,12 @@ impl BuffGlobalSettings {
             .map(str::trim)
             .filter(|shortcut| !shortcut.is_empty())
             .map(str::to_string);
+        self.audio_output_device_id = self
+            .audio_output_device_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|device_id| !device_id.is_empty())
+            .map(str::to_string);
     }
 }
 
@@ -421,6 +438,7 @@ impl From<&BuffAssistantSettings> for BuffGlobalSettings {
             overlay: settings.overlay.clone(),
             capture: settings.capture.clone(),
             monitor_hotkey: default_monitor_hotkey(),
+            audio_output_device_id: None,
         }
     }
 }
@@ -754,6 +772,28 @@ mod tests {
         value["monitorHotkey"] = serde_json::Value::Null;
         let settings: BuffGlobalSettings = serde_json::from_value(value).unwrap();
         assert_eq!(settings.monitor_hotkey, None);
+    }
+
+    #[test]
+    fn audio_output_device_defaults_to_system_default_when_missing() {
+        let mut value = serde_json::to_value(BuffGlobalSettings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("audioOutputDeviceId");
+
+        let settings: BuffGlobalSettings = serde_json::from_value(value).unwrap();
+
+        assert_eq!(settings.audio_output_device_id, None);
+    }
+
+    #[test]
+    fn blank_audio_output_device_is_sanitized_to_system_default() {
+        let mut settings = BuffGlobalSettings {
+            audio_output_device_id: Some("   ".into()),
+            ..BuffGlobalSettings::default()
+        };
+
+        settings.sanitize();
+
+        assert_eq!(settings.audio_output_device_id, None);
     }
 
     #[test]

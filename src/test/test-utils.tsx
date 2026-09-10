@@ -7,7 +7,7 @@ import type { BuffAssistantState, BuffSentinelAPI } from '@/lib/buff-sentinel-ap
 export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
   const buffState: BuffAssistantState = buffStateOverride ?? {
     config: {
-      schemaVersion: 10,
+      schemaVersion: 11,
       target: null,
       searchRegion: null,
       listeners: [],
@@ -27,7 +27,8 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
         capture: {
           showSystemBorder: true
         },
-        monitorHotkey: null
+        monitorHotkey: null,
+        audioOutputDeviceId: null
       }
     },
     activity: 'stopped',
@@ -46,6 +47,10 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
     getBuffAssistantState: vi.fn(async () => buffState),
     listBuffCaptureWindows: vi.fn<BuffSentinelAPI['listBuffCaptureWindows']>(async () => []),
     listBuffSoundTemplates: vi.fn(async () => [{ id: 'template-1', name: '模板一' }]),
+    listBuffAudioOutputDevices: vi.fn(async () => [
+      { id: 'wasapi:speakers', name: '扬声器', isDefault: true },
+      { id: 'wasapi:headphones', name: '耳机', isDefault: false }
+    ]),
     captureBuffPreview: vi.fn<BuffSentinelAPI['captureBuffPreview']>(async () => {
       throw new Error('not configured')
     }),
@@ -68,6 +73,7 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
     stopBuffTemplateTest: vi.fn(async () => buffState),
     importBuffAssistantSound: vi.fn<BuffSentinelAPI['importBuffAssistantSound']>(async () => null),
     playBuffAssistantSound: vi.fn(async () => undefined),
+    testBuffAudioOutput: vi.fn(async () => undefined),
     openTtsOnline: vi.fn(async () => undefined),
     setBuffOverlayEditMode: vi.fn(async () => buffState),
     setBuffOverlayPreviewMode: vi.fn(async () => undefined),

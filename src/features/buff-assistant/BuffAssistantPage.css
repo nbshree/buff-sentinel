@@ -638,6 +638,38 @@
   margin-top: 9px;
 }
 
+.buff-audio-output-settings {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.buff-audio-output-settings__controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.buff-audio-output-settings__controls [data-slot='select-trigger'] {
+  min-width: 0;
+}
+
+.buff-audio-output-settings .buff-setting-help,
+.buff-audio-output-settings .buff-sound-error {
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .buff-audio-output-settings__controls {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .buff-audio-output-settings__controls [data-slot='select-trigger'] {
+    grid-column: 1 / -1;
+  }
+}
+
 .buff-settings-dialog .buff-sound-row,
 .buff-settings-dialog .buff-volume-row,
 .buff-settings-dialog .buff-check-row {

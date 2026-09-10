@@ -14,7 +14,7 @@ import type {
 
 const defaultState: BuffAssistantState = {
   config: {
-    schemaVersion: 10,
+    schemaVersion: 11,
     target: null,
     searchRegion: null,
     listeners: [],
@@ -31,7 +31,8 @@ const defaultState: BuffAssistantState = {
       capture: {
         showSystemBorder: true
       },
-      monitorHotkey: null
+      monitorHotkey: null,
+      audioOutputDeviceId: null
     }
   },
   activity: 'stopped',

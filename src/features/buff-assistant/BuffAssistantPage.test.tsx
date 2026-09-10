@@ -129,6 +129,69 @@ describe('BuffAssistantPage', () => {
     )
   })
 
+  it('lists, tests and saves a global audio output device', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    const dialog = await openGlobalSettings(user)
+    await waitFor(() => expect(api.listBuffAudioOutputDevices).toHaveBeenCalledOnce())
+    const output = within(dialog).getByRole('combobox', { name: '播报输出设备' })
+    await user.click(output)
+    await user.click(await screen.findByRole('option', { name: '耳机' }))
+    await user.click(within(dialog).getByRole('button', { name: '测试声音' }))
+
+    expect(api.testBuffAudioOutput).toHaveBeenCalledWith('wasapi:headphones')
+
+    await user.click(within(dialog).getByRole('button', { name: '保存设置' }))
+    await waitFor(() =>
+      expect(api.updateBuffAssistantSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ audioOutputDeviceId: 'wasapi:headphones' })
+      )
+    )
+  })
+
+  it('refreshes audio outputs and reports enumeration failures', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    api.listBuffAudioOutputDevices.mockRejectedValue(new Error('无法读取声音输出设备'))
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    const dialog = await openGlobalSettings(user)
+    expect(await within(dialog).findByText('无法读取声音输出设备')).toBeVisible()
+    await user.click(within(dialog).getByRole('button', { name: '刷新播报输出设备' }))
+    await waitFor(() => expect(api.listBuffAudioOutputDevices).toHaveBeenCalledTimes(2))
+  })
+
+  it('keeps an unavailable saved audio output and shows the fallback', async () => {
+    const user = userEvent.setup()
+    const baseApi = await createListenerApi()
+    const baseState = await baseApi.getBuffAssistantState()
+    const api = createBuffSentinelApi({
+      ...baseState,
+      config: {
+        ...baseState.config,
+        settings: {
+          ...baseState.config.settings,
+          audioOutputDeviceId: 'wasapi:missing-headset'
+        }
+      }
+    })
+    api.listBuffAudioOutputDevices.mockResolvedValue([
+      { id: 'wasapi:speakers', name: '扬声器', isDefault: true }
+    ])
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    const dialog = await openGlobalSettings(user)
+    expect(
+      await within(dialog).findByText('已选设备当前不可用，播报会临时使用系统默认设备。')
+    ).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: '测试声音' })).toBeDisabled()
+  })
+
   it('records and saves a global monitor hotkey', async () => {
     const user = userEvent.setup()
     const api = await createListenerApi()
