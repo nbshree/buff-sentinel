@@ -703,4 +703,42 @@ mod tests {
         assert!(!notices.iter().any(|notice| notice.contains("已迁移")));
         let _ = fs::remove_dir_all(directory);
     }
+
+    #[test]
+    fn version_thirteen_config_gains_the_skill_overlay_geometry() {
+        let directory = std::env::temp_dir().join(format!(
+            "buff-sentinel-v13-config-migration-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir_all(&directory).unwrap();
+        let mut config = BuffAssistantConfig::default();
+        config.schema_version = 13;
+        config.settings.overlay.x = 120;
+        config.settings.overlay.y = 240;
+        let mut value = serde_json::to_value(config).unwrap();
+        value["settings"]
+            .as_object_mut()
+            .unwrap()
+            .remove("skillOverlay");
+        fs::write(
+            directory.join(CONFIG_FILE),
+            serde_json::to_string_pretty(&value).unwrap(),
+        )
+        .unwrap();
+
+        let (config, notices) = load_config(&directory);
+
+        assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
+        assert_eq!(config.settings.overlay.x, 120);
+        assert_eq!(config.settings.overlay.y, 240);
+        assert_eq!(config.settings.skill_overlay.x, 8);
+        assert_eq!(config.settings.skill_overlay.y, 8);
+        assert_eq!(config.settings.skill_overlay.width, 330);
+        assert_eq!(config.settings.skill_overlay.height, 92);
+        assert!(notices.iter().any(|notice| notice.contains("已迁移")));
+        let persisted = fs::read_to_string(directory.join(CONFIG_FILE)).unwrap();
+        assert!(persisted.contains("\"skillOverlay\""));
+        let _ = fs::remove_dir_all(directory);
+    }
 }

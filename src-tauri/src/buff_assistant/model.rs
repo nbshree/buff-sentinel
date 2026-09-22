@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 13;
+pub const CONFIG_SCHEMA_VERSION: u32 = 14;
 /// The schema version that introduced a dedicated skill icon search region.
 /// Older configs inherit their Buff search region so existing listeners keep
 /// watching exactly the same pixels.
@@ -18,6 +18,8 @@ pub const MIN_SKILL_DURATION_MS: u64 = 1_000;
 pub const MAX_SKILL_DURATION_MS: u64 = 120_000;
 pub const DEFAULT_OVERLAY_WIDTH: u32 = 330;
 pub const DEFAULT_OVERLAY_HEIGHT: u32 = 92;
+const DEFAULT_SKILL_OVERLAY_X: i32 = 8;
+const DEFAULT_SKILL_OVERLAY_Y: i32 = 8;
 pub const MIN_OVERLAY_WIDTH: u32 = 75;
 pub const MIN_OVERLAY_HEIGHT: u32 = 30;
 pub const MAX_OVERLAY_WIDTH: u32 = 800;
@@ -305,6 +307,40 @@ const fn default_overlay_height() -> u32 {
     DEFAULT_OVERLAY_HEIGHT
 }
 
+/// Position and size of one overlay window in physical pixels.
+///
+/// The skill countdown overlay keeps only its geometry here: the color scheme,
+/// custom colors and capture exclusion in [`BuffOverlaySettings`] are shared by
+/// both overlay windows.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuffOverlayGeometry {
+    pub x: i32,
+    pub y: i32,
+    #[serde(default = "default_overlay_width")]
+    pub width: u32,
+    #[serde(default = "default_overlay_height")]
+    pub height: u32,
+}
+
+impl Default for BuffOverlayGeometry {
+    fn default() -> Self {
+        Self {
+            x: DEFAULT_SKILL_OVERLAY_X,
+            y: DEFAULT_SKILL_OVERLAY_Y,
+            width: DEFAULT_OVERLAY_WIDTH,
+            height: DEFAULT_OVERLAY_HEIGHT,
+        }
+    }
+}
+
+impl BuffOverlayGeometry {
+    pub fn sanitize(&mut self) {
+        self.width = self.width.clamp(MIN_OVERLAY_WIDTH, MAX_OVERLAY_WIDTH);
+        self.height = self.height.clamp(MIN_OVERLAY_HEIGHT, MAX_OVERLAY_HEIGHT);
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuffAssistantSettings {
@@ -397,6 +433,8 @@ impl From<&BuffAssistantSettings> for BuffListenerSettings {
 pub struct BuffGlobalSettings {
     pub overlay: BuffOverlaySettings,
     #[serde(default)]
+    pub skill_overlay: BuffOverlayGeometry,
+    #[serde(default)]
     pub capture: BuffCaptureSettings,
     #[serde(default = "default_monitor_hotkey")]
     pub monitor_hotkey: Option<String>,
@@ -408,6 +446,7 @@ impl Default for BuffGlobalSettings {
     fn default() -> Self {
         Self {
             overlay: BuffOverlaySettings::default(),
+            skill_overlay: BuffOverlayGeometry::default(),
             capture: BuffCaptureSettings::default(),
             monitor_hotkey: default_monitor_hotkey(),
             audio_output_device_id: None,
@@ -435,6 +474,7 @@ impl BuffGlobalSettings {
             &self.overlay.custom_text_color,
             &default_custom_text_color(),
         );
+        self.skill_overlay.sanitize();
         self.monitor_hotkey = self
             .monitor_hotkey
             .as_deref()
@@ -458,6 +498,7 @@ impl From<&BuffAssistantSettings> for BuffGlobalSettings {
     fn from(settings: &BuffAssistantSettings) -> Self {
         Self {
             overlay: settings.overlay.clone(),
+            skill_overlay: BuffOverlayGeometry::default(),
             capture: settings.capture.clone(),
             monitor_hotkey: default_monitor_hotkey(),
             audio_output_device_id: None,
@@ -1006,6 +1047,71 @@ mod tests {
         assert_eq!(migrated.schema_version, CONFIG_SCHEMA_VERSION);
         assert_eq!(migrated.search_region, Some(region));
         assert_eq!(migrated.skill_search_region, Some(region));
+    }
+
+    #[test]
+    fn skill_overlay_defaults_to_the_top_left_corner_when_missing() {
+        let mut value = serde_json::to_value(BuffGlobalSettings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("skillOverlay");
+
+        let settings: BuffGlobalSettings = serde_json::from_value(value).unwrap();
+
+        assert_eq!(settings.skill_overlay.x, 8);
+        assert_eq!(settings.skill_overlay.y, 8);
+        assert_eq!(settings.skill_overlay.width, DEFAULT_OVERLAY_WIDTH);
+        assert_eq!(settings.skill_overlay.height, DEFAULT_OVERLAY_HEIGHT);
+        assert_eq!(settings.overlay.x, 40);
+        assert_eq!(settings.overlay.y, 100);
+    }
+
+    #[test]
+    fn skill_overlay_uses_the_frontend_field_shape() {
+        let settings = BuffGlobalSettings {
+            skill_overlay: BuffOverlayGeometry {
+                x: 12,
+                y: 34,
+                width: 200,
+                height: 60,
+            },
+            ..BuffGlobalSettings::default()
+        };
+
+        let value = serde_json::to_value(settings).unwrap();
+
+        assert_eq!(value["skillOverlay"]["x"], 12);
+        assert_eq!(value["skillOverlay"]["y"], 34);
+        assert_eq!(value["skillOverlay"]["width"], 200);
+        assert_eq!(value["skillOverlay"]["height"], 60);
+    }
+
+    #[test]
+    fn skill_overlay_size_is_clamped_to_supported_bounds() {
+        let mut settings = BuffGlobalSettings {
+            skill_overlay: BuffOverlayGeometry {
+                x: -120,
+                y: 900,
+                width: 1,
+                height: 5_000,
+            },
+            ..BuffGlobalSettings::default()
+        };
+
+        settings.sanitize();
+
+        assert_eq!(settings.skill_overlay.x, -120);
+        assert_eq!(settings.skill_overlay.y, 900);
+        assert_eq!(settings.skill_overlay.width, MIN_OVERLAY_WIDTH);
+        assert_eq!(settings.skill_overlay.height, MAX_OVERLAY_HEIGHT);
+    }
+
+    #[test]
+    fn legacy_configs_start_with_the_skill_overlay_at_the_top_left_corner() {
+        let config = legacy_config(13, BuffAssistantSettings::default()).migrate();
+
+        assert_eq!(config.settings.skill_overlay.x, 8);
+        assert_eq!(config.settings.skill_overlay.y, 8);
+        assert_eq!(config.settings.overlay.x, 40);
+        assert_eq!(config.settings.overlay.y, 100);
     }
 
     #[test]

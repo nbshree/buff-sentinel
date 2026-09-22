@@ -7,10 +7,9 @@ import { createRoot } from 'react-dom/client'
 
 async function renderApp(): Promise<void> {
   const currentWindow = getCurrentWindow()
-  const Component =
-    currentWindow.label === 'buff-overlay'
-      ? (await import('./features/buff-assistant/BuffOverlayApp')).BuffOverlayApp
-      : (await import('./App')).default
+  const Component = currentWindow.label.startsWith('buff-overlay')
+    ? (await import('./features/buff-assistant/BuffOverlayApp')).BuffOverlayApp
+    : (await import('./App')).default
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

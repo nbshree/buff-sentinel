@@ -90,6 +90,10 @@ const listenerKindLabels: Record<BuffListenerKind, string> = {
   cycle: '周期提醒',
   skillCountdown: '技能倒计时'
 }
+const overlayEntries: Array<{ kind: BuffListenerKind; label: string }> = [
+  { kind: 'cycle', label: '周期浮窗' },
+  { kind: 'skillCountdown', label: '技能浮窗' }
+]
 const overlayPreviewOptions: Array<{ value: BuffOverlayPreviewMode; label: string }> = [
   { value: 'waiting', label: '等待监听' },
   { value: 'countdown', label: '倒计时' },
@@ -173,7 +177,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const [listenerSettings, setListenerSettings] =
     useState<BuffListenerSettings>(defaultListenerSettings)
   const [listenerError, setListenerError] = useState<string | null>(null)
-  const [overlayEditing, setOverlayEditingState] = useState(false)
+  const [overlayEditing, setOverlayEditingState] = useState<BuffListenerKind | null>(null)
   const [overlayPreviewMode, setOverlayPreviewMode] =
     useState<BuffOverlayPreviewMode>('countdown')
   const [soundTemplates, setSoundTemplates] = useState<BuffSoundTemplateSummary[]>([])
@@ -323,17 +327,14 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
         : state.config.searchRegion)
   )
   const canStart = Boolean(
-    preview &&
-    state.config.target &&
-    !missingSearchRegion &&
-    configuredEnabledListeners.length > 0
+    preview && state.config.target && !missingSearchRegion && configuredEnabledListeners.length > 0
   )
   const enabledListenerCount = state.config.listeners.filter((listener) => listener.enabled).length
   const monitoringStatus = state.isMonitoring
     ? { label: '监控中', detail: `${enabledListenerCount} 个监听项运行中`, tone: 'active' }
     : state.activity === 'testing'
       ? { label: '测试中', detail: '正在校验监听图标', tone: 'testing' }
-      : overlayEditing
+      : overlayEditing !== null
         ? { label: '调整浮窗', detail: '拖动并保存悬浮窗位置', tone: 'editing' }
         : canStart
           ? { label: '待命', detail: `${enabledListenerCount} 个监听项已就绪`, tone: 'ready' }
@@ -489,18 +490,19 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const listenerEditorSource =
     usingSavedTemplate && !editingFromSharedSource ? savedTemplateSource : templateSource
 
-  async function handleOverlayEdit(): Promise<void> {
-    const next = !overlayEditing
-    await setOverlayEditing(next)
-    setOverlayEditingState(next)
+  async function handleOverlayEdit(kind: BuffListenerKind): Promise<void> {
+    const next = overlayEditing !== kind
+    await setOverlayEditing(kind, next)
+    setOverlayEditingState(next ? kind : null)
     if (next) setOverlayPreviewMode('countdown')
   }
 
   async function handleOverlayPreviewChange(mode: BuffOverlayPreviewMode): Promise<void> {
+    const kind = overlayEditing ?? 'cycle'
     const previous = overlayPreviewMode
     setOverlayPreviewMode(mode)
     try {
-      await setOverlayPreview(mode)
+      await setOverlayPreview(kind, mode)
     } catch {
       setOverlayPreviewMode(previous)
     }
@@ -712,7 +714,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                 </Button>
               ) : (
                 <Button
-                  disabled={busy || !canStart || overlayEditing}
+                  disabled={busy || !canStart || overlayEditing !== null}
                   title={overlayEditing ? '请先保存悬浮位置' : undefined}
                   onClick={() => void startMonitor()}
                 >
@@ -720,10 +722,22 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                   开始监控
                 </Button>
               )}
-              <Button disabled={busy} variant="outline" onClick={() => void handleOverlayEdit()}>
-                <MonitorPlay aria-hidden="true" />
-                {overlayEditing ? '保存悬浮位置' : '调整悬浮位置'}
-              </Button>
+              {overlayEntries.map(({ kind, label }) => {
+                const editing = overlayEditing === kind
+                const blocked = overlayEditing !== null && !editing
+                return (
+                  <Button
+                    disabled={busy || blocked}
+                    key={kind}
+                    title={blocked ? '请先保存当前浮窗位置' : undefined}
+                    variant="outline"
+                    onClick={() => void handleOverlayEdit(kind)}
+                  >
+                    <MonitorPlay aria-hidden="true" />
+                    {editing ? `保存${label}` : `调整${label}`}
+                  </Button>
+                )
+              })}
               {overlayEditing ? (
                 <label className="buff-overlay-preview-control" htmlFor="buff-overlay-preview-mode">
                   <span>预览状态</span>
@@ -766,6 +780,9 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                     </DialogDescription>
                   </DialogHeader>
                   <div className="buff-settings-dialog">
+                    <p className="text-[11px] leading-5 text-muted-foreground">
+                      周期浮窗与技能浮窗的位置、尺寸各自独立；下面的配色与录屏排除对两个浮窗同时生效。
+                    </p>
                     <div className="buff-global-settings-row">
                       <label>
                         <span>浮窗配色</span>

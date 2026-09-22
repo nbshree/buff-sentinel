@@ -30,6 +30,7 @@ const defaultState: BuffAssistantState = {
         height: 92,
         colorScheme: 'blackWhite'
       },
+      skillOverlay: { x: 8, y: 8, width: 330, height: 92 },
       capture: {
         showSystemBorder: true
       },
@@ -294,8 +295,8 @@ export function useBuffAssistantController() {
   const clearLogs = useCallback(() => setLogs([]), [])
 
   const setOverlayEditing = useCallback(
-    async (enabled: boolean) => {
-      const result = await run(() => window.api.setBuffOverlayEditMode(enabled))
+    async (kind: BuffListenerKind, enabled: boolean) => {
+      const result = await run(() => window.api.setBuffOverlayEditMode(kind, enabled))
       setState(result)
       return result
     },
@@ -303,7 +304,8 @@ export function useBuffAssistantController() {
   )
 
   const setOverlayPreview = useCallback(
-    (mode: BuffOverlayPreviewMode) => run(() => window.api.setBuffOverlayPreviewMode(mode)),
+    (kind: BuffListenerKind, mode: BuffOverlayPreviewMode) =>
+      run(() => window.api.setBuffOverlayPreviewMode(kind, mode)),
     [run]
   )
 

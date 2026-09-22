@@ -89,6 +89,13 @@ export type BuffOverlaySettings = {
   customTextColor?: string
 }
 
+export type BuffOverlayGeometry = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export type BuffCaptureSettings = {
   showSystemBorder: boolean
 }
@@ -110,6 +117,7 @@ export type BuffListenerSettings = {
 
 export type BuffGlobalSettings = {
   overlay: BuffOverlaySettings
+  skillOverlay?: BuffOverlayGeometry
   capture: BuffCaptureSettings
   monitorHotkey: string | null
   audioOutputDeviceId: string | null
@@ -300,8 +308,8 @@ export type BuffSentinelAPI = {
   ) => Promise<void>
   testBuffAudioOutput: (outputDeviceId: string | null) => Promise<void>
   openTtsOnline: () => Promise<void>
-  setBuffOverlayEditMode: (enabled: boolean) => Promise<BuffAssistantState>
-  setBuffOverlayPreviewMode: (mode: BuffOverlayPreviewMode) => Promise<void>
+  setBuffOverlayEditMode: (kind: BuffListenerKind, enabled: boolean) => Promise<BuffAssistantState>
+  setBuffOverlayPreviewMode: (kind: BuffListenerKind, mode: BuffOverlayPreviewMode) => Promise<void>
   onBuffAssistantState: (callback: (state: BuffAssistantState) => void) => () => void
   onBuffMetric: (callback: (metric: BuffMetricBatch) => void) => () => void
   onBuffExecutionLog: (callback: (message: string) => void) => () => void
@@ -457,10 +465,10 @@ export const buffSentinelApi: BuffSentinelAPI = {
   testBuffAudioOutput: (outputDeviceId) =>
     callTauri(() => invoke<void>('test_buff_audio_output', { outputDeviceId })),
   openTtsOnline: () => callTauri(() => invoke<void>('open_tts_online')),
-  setBuffOverlayEditMode: (enabled) =>
-    callTauri(() => invoke<BuffAssistantState>('set_buff_overlay_edit_mode', { enabled })),
-  setBuffOverlayPreviewMode: (mode) =>
-    callTauri(() => invoke<void>('set_buff_overlay_preview_mode', { mode })),
+  setBuffOverlayEditMode: (kind, enabled) =>
+    callTauri(() => invoke<BuffAssistantState>('set_buff_overlay_edit_mode', { kind, enabled })),
+  setBuffOverlayPreviewMode: (kind, mode) =>
+    callTauri(() => invoke<void>('set_buff_overlay_preview_mode', { kind, mode })),
   onBuffAssistantState: (callback) => createEventListener('buff-assistant-state', callback),
   onBuffMetric: (callback) => createEventListener('buff-assistant-metric', callback),
   onBuffExecutionLog: (callback) => createEventListener('buff-assistant-execution-log', callback),

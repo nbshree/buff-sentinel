@@ -542,10 +542,10 @@ describe('BuffAssistantPage', () => {
     render(<BuffAssistantHarness />)
 
     expect(await screen.findByRole('button', { name: '开始监控' })).toBeVisible()
-    expect(screen.getByRole('button', { name: '调整悬浮位置' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '调整周期浮窗' })).toBeVisible()
     const dialog = await openGlobalSettings(user)
     expect(within(dialog).queryByRole('button', { name: '开始监控' })).toBeNull()
-    expect(within(dialog).queryByRole('button', { name: '调整悬浮位置' })).toBeNull()
+    expect(within(dialog).queryByRole('button', { name: '调整周期浮窗' })).toBeNull()
   })
 
   it('switches the live overlay preview while adjusting its position', async () => {
@@ -554,8 +554,8 @@ describe('BuffAssistantPage', () => {
     installBuffSentinelApi(api)
     render(<BuffAssistantHarness />)
 
-    await user.click(await screen.findByRole('button', { name: '调整悬浮位置' }))
-    expect(api.setBuffOverlayEditMode).toHaveBeenCalledWith(true)
+    await user.click(await screen.findByRole('button', { name: '调整周期浮窗' }))
+    expect(api.setBuffOverlayEditMode).toHaveBeenCalledWith('cycle', true)
 
     const previewSelect = await screen.findByRole('combobox', { name: '悬浮窗预览状态' })
     expect(previewSelect).toHaveTextContent('倒计时')
@@ -563,7 +563,7 @@ describe('BuffAssistantPage', () => {
     await user.click(await screen.findByRole('option', { name: '等待确认' }))
 
     await waitFor(() =>
-      expect(api.setBuffOverlayPreviewMode).toHaveBeenCalledWith('confirming')
+      expect(api.setBuffOverlayPreviewMode).toHaveBeenCalledWith('cycle', 'confirming')
     )
   })
 
@@ -573,7 +573,7 @@ describe('BuffAssistantPage', () => {
     installBuffSentinelApi(api)
     render(<BuffAssistantHarness />)
 
-    const editButton = await screen.findByRole('button', { name: '调整悬浮位置' })
+    const editButton = await screen.findByRole('button', { name: '调整周期浮窗' })
     const startButton = screen.getByRole('button', { name: '开始监控' })
     expect(startButton).toBeDisabled()
     await captureConfiguredPreview(user)
@@ -583,7 +583,7 @@ describe('BuffAssistantPage', () => {
     expect(startButton).toBeDisabled()
     expect(startButton).toHaveAttribute('title', '请先保存悬浮位置')
 
-    await user.click(screen.getByRole('button', { name: '保存悬浮位置' }))
+    await user.click(screen.getByRole('button', { name: '保存周期浮窗' }))
     expect(startButton).toBeEnabled()
   })
 
@@ -745,5 +745,40 @@ describe('BuffAssistantPage', () => {
     await captureConfiguredPreview(user)
 
     expect(start).toBeEnabled()
+  })
+
+  it('offers an independent position editor for every overlay window', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    const cycleButton = await screen.findByRole('button', { name: '调整周期浮窗' })
+    const skillButton = screen.getByRole('button', { name: '调整技能浮窗' })
+    expect(cycleButton).toBeEnabled()
+    expect(skillButton).toBeEnabled()
+
+    await user.click(skillButton)
+
+    expect(api.setBuffOverlayEditMode).toHaveBeenCalledWith('skillCountdown', true)
+    expect(await screen.findByRole('button', { name: '保存技能浮窗' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '调整周期浮窗' })).toBeDisabled()
+  })
+
+  it('previews the overlay window that is being adjusted', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    await user.click(await screen.findByRole('button', { name: '调整技能浮窗' }))
+
+    const previewSelect = await screen.findByRole('combobox', { name: '悬浮窗预览状态' })
+    await user.click(previewSelect)
+    await user.click(await screen.findByRole('option', { name: '等待确认' }))
+
+    await waitFor(() =>
+      expect(api.setBuffOverlayPreviewMode).toHaveBeenCalledWith('skillCountdown', 'confirming')
+    )
   })
 })
