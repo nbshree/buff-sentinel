@@ -25,6 +25,12 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '../../components/ui/dropdown-menu'
 import { Input } from '../../components/ui/input'
 import { Slider } from '../../components/ui/slider'
 import {
@@ -54,6 +60,7 @@ import type {
   BuffAudioOutputDevice,
   BuffGlobalSettings,
   BuffListenerConfig,
+  BuffListenerKind,
   BuffListenerSettings,
   BuffOverlayPreviewMode,
   BuffSoundCue,
@@ -78,6 +85,11 @@ type BuffAssistantPageProps = {
 }
 
 const defaultRegion: NormalizedRect = { x: 0.55, y: 0.02, width: 0.4, height: 0.16 }
+const defaultSkillDurationMs = 10_000
+const listenerKindLabels: Record<BuffListenerKind, string> = {
+  cycle: '周期提醒',
+  skillCountdown: '技能倒计时'
+}
 const overlayPreviewOptions: Array<{ value: BuffOverlayPreviewMode; label: string }> = [
   { value: 'waiting', label: '等待监听' },
   { value: 'countdown', label: '倒计时' },
@@ -87,6 +99,7 @@ const overlayPreviewOptions: Array<{ value: BuffOverlayPreviewMode; label: strin
 const defaultListenerSettings: BuffListenerSettings = {
   cycleMs: 20_000,
   deadlineGraceMs: 1500,
+  skillDurationMs: defaultSkillDurationMs,
   matchMode: 'pixel',
   threshold: 0.95,
   confirmFrames: 3,
@@ -151,6 +164,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const [testingAudioOutput, setTestingAudioOutput] = useState(false)
   const [listenerDialogOpen, setListenerDialogOpen] = useState(false)
   const [editingListenerId, setEditingListenerId] = useState<string | null>(null)
+  const [listenerKind, setListenerKind] = useState<BuffListenerKind>('cycle')
   const [listenerName, setListenerName] = useState('')
   const [listenerEnabled, setListenerEnabled] = useState(true)
   const [listenerHiddenInOverlay, setListenerHiddenInOverlay] = useState(false)
@@ -334,10 +348,15 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     setMaskHistory(createMaskHistory())
   }
 
-  function openAddListener(): void {
+  function openAddListener(kind: BuffListenerKind): void {
     listenerTemplateRequestRef.current += 1
     setEditingListenerId(null)
-    setListenerName(`监听图标 ${state.config.listeners.length + 1}`)
+    setListenerKind(kind)
+    setListenerName(
+      kind === 'skillCountdown'
+        ? `技能倒计时 ${state.config.listeners.length + 1}`
+        : `监听图标 ${state.config.listeners.length + 1}`
+    )
     setListenerEnabled(true)
     setListenerHiddenInOverlay(false)
     setListenerSettings(defaultListenerSettings)
@@ -355,6 +374,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     const requestId = listenerTemplateRequestRef.current + 1
     listenerTemplateRequestRef.current = requestId
     setEditingListenerId(listener.id)
+    setListenerKind(listener.kind ?? 'cycle')
     setListenerName(listener.name)
     setListenerEnabled(listener.enabled)
     setListenerHiddenInOverlay(listener.hideInOverlay)
@@ -417,6 +437,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
       } else if (templateCrop && searchRegion) {
         await saveListener(
           editingListenerId,
+          listenerKind,
           name,
           listenerEnabled,
           listenerHiddenInOverlay,
@@ -1004,20 +1025,38 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                   <p>已添加 {state.config.listeners.length}/8 个，启用项会同时监听。</p>
                 </div>
               </div>
-              <Button
-                className="buff-add-listener-button"
-                disabled={
-                  busy ||
-                  configurationLocked ||
-                  !templateSource ||
-                  state.config.listeners.length >= 8
-                }
-                size="sm"
-                onClick={openAddListener}
-              >
-                <Plus aria-hidden="true" />
-                添加监听图标
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    className="buff-add-listener-button"
+                    disabled={
+                      busy ||
+                      configurationLocked ||
+                      !templateSource ||
+                      state.config.listeners.length >= 8
+                    }
+                    size="sm"
+                  >
+                    <Plus aria-hidden="true" />
+                    添加监听图标
+                    <ChevronDown aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem onSelect={() => openAddListener('cycle')}>
+                    <strong>{listenerKindLabels.cycle}</strong>
+                    <small className="text-[10px] leading-4 text-muted-foreground">
+                      图标出现只校准周期，提前 3 / 2 / 1 秒提醒
+                    </small>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => openAddListener('skillCountdown')}>
+                    <strong>{listenerKindLabels.skillCountdown}</strong>
+                    <small className="text-[10px] leading-4 text-muted-foreground">
+                      图标出现即开始倒计时，消失即结束，不播放提示音
+                    </small>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </header>
             {state.config.listeners.length === 0 ? (
               <div className="buff-listener-empty">
@@ -1032,6 +1071,12 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                     (metric?.confidence ?? runtime?.lastConfidence ?? 0) * 100
                   )
                   const activity = runtime?.activity ?? 'stopped'
+                  const skillCountdown = (listener.kind ?? 'cycle') === 'skillCountdown'
+                  const countdownSeconds = Math.round(
+                    (skillCountdown
+                      ? (listener.settings.skillDurationMs ?? defaultSkillDurationMs)
+                      : listener.settings.cycleMs) / 1000
+                  )
                   return (
                     <article
                       className="buff-listener-item"
@@ -1073,7 +1118,10 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                             />
                             <span>{listener.name}</span>
                           </label>
-                          <span>{listener.template ? '模板已配置' : '需要重新裁剪模板'}</span>
+                          <span>
+                            {listenerKindLabels[listener.kind ?? 'cycle']} ·{' '}
+                            {listener.template ? '模板已配置' : '需要重新裁剪模板'}
+                          </span>
                         </div>
                         <span className="buff-runtime-badge" data-activity={activity}>
                           {runtimeActivityLabel(activity)}
@@ -1089,8 +1137,8 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                           <strong>{Math.round(listener.settings.threshold * 100)}%</strong>
                         </div>
                         <div>
-                          <span>监听周期</span>
-                          <strong>{Math.round(listener.settings.cycleMs / 1000)}s</strong>
+                          <span>{skillCountdown ? '技能持续时间' : '监听周期'}</span>
+                          <strong>{countdownSeconds}s</strong>
                         </div>
                       </div>
                       <div className="buff-confidence-track" aria-hidden="true">
@@ -1211,9 +1259,14 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
         <Dialog open={listenerDialogOpen} onOpenChange={setListenerDialogOpen}>
           <DialogContent className="max-h-[calc(100vh-48px)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:max-w-[1000px]">
             <DialogHeader className="border-b border-border px-5 py-4 pr-14">
-              <DialogTitle>{editingListenerId ? '编辑监听图标' : '添加监听图标'}</DialogTitle>
+              <DialogTitle>
+                {`${editingListenerId ? '编辑' : '添加'}`}
+                {listenerKind === 'skillCountdown' ? '技能倒计时' : '监听图标'}
+              </DialogTitle>
               <DialogDescription>
-                名称、模板、识别参数、周期和提示音均仅作用于当前项。
+                {listenerKind === 'skillCountdown'
+                  ? '名称、模板与识别参数仅作用于当前项；技能倒计时不会播放提示音。'
+                  : '名称、模板、识别参数、周期和提示音均仅作用于当前项。'}
               </DialogDescription>
             </DialogHeader>
             <div className="buff-listener-dialog">
@@ -1228,6 +1281,15 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                     type="text"
                     value={listenerName}
                     onChange={(event) => setListenerName(event.target.value)}
+                  />
+                </label>
+                <label htmlFor="buff-listener-kind">
+                  <span>类型</span>
+                  <Input
+                    id="buff-listener-kind"
+                    readOnly
+                    type="text"
+                    value={listenerKindLabels[listenerKind]}
                   />
                 </label>
                 <label className="buff-listener-enabled">
@@ -1248,7 +1310,9 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                   <span>
                     <strong>隐藏浮窗显示</strong>
                     <small id="buff-listener-overlay-visibility-help">
-                      仍会继续监听和播放提示音，仅不显示在悬浮窗中。
+                      {listenerKind === 'skillCountdown'
+                        ? '仍会继续监听，仅不显示在悬浮窗中。'
+                        : '仍会继续监听和播放提示音，仅不显示在悬浮窗中。'}
                     </small>
                   </span>
                 </label>
@@ -1297,6 +1361,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                 </div>
               ) : null}
               <ListenerSettingsEditor
+                kind={listenerKind}
                 settings={listenerSettings}
                 soundError={soundError}
                 soundTemplates={soundTemplates}
@@ -1374,6 +1439,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
 }
 
 type ListenerSettingsEditorProps = {
+  kind: BuffListenerKind
   settings: BuffListenerSettings
   soundTemplates: BuffSoundTemplateSummary[]
   uploadingCue: BuffSoundCue | null
@@ -1385,6 +1451,7 @@ type ListenerSettingsEditorProps = {
 }
 
 function ListenerSettingsEditor({
+  kind,
   settings,
   soundTemplates,
   uploadingCue,
@@ -1394,6 +1461,7 @@ function ListenerSettingsEditor({
   onUploadSound,
   onOpenTts
 }: ListenerSettingsEditorProps) {
+  const skillCountdown = kind === 'skillCountdown'
   const setSound = (patch: Partial<BuffListenerSettings['sound']>) =>
     onChange({ ...settings, sound: { ...settings.sound, ...patch } })
   const setMatchMode = (matchMode: BuffListenerSettings['matchMode']) => {
@@ -1409,38 +1477,62 @@ function ListenerSettingsEditor({
   return (
     <div className="buff-listener-settings">
       <div className="buff-settings-grid">
-        <label>
-          <span>周期（秒）</span>
-          <Input
-            max={120}
-            min={5}
-            step={0.01}
-            type="number"
-            value={settings.cycleMs / 1000}
-            onChange={(event) =>
-              onChange({ ...settings, cycleMs: Math.round(Number(event.target.value) * 1000) })
-            }
-          />
-        </label>
-        <div className="buff-settings-field">
-          <label htmlFor="listener-deadline-grace-ms">
-            <span className="buff-setting-label">
-              触发宽限期
-              <SettingTooltip label="查看触发宽限期说明" content="单位：毫秒，建议值 1500" />
-            </span>
+        {skillCountdown ? (
+          <label>
+            <span>技能持续时间（秒）</span>
+            <Input
+              max={120}
+              min={1}
+              step={1}
+              type="number"
+              value={(settings.skillDurationMs ?? defaultSkillDurationMs) / 1000}
+              onChange={(event) =>
+                onChange({
+                  ...settings,
+                  skillDurationMs: Math.round(Number(event.target.value) * 1000)
+                })
+              }
+            />
           </label>
-          <Input
-            id="listener-deadline-grace-ms"
-            max={2000}
-            min={0}
-            step={50}
-            type="number"
-            value={settings.deadlineGraceMs}
-            onChange={(event) =>
-              onChange({ ...settings, deadlineGraceMs: Number(event.target.value) })
-            }
-          />
-        </div>
+        ) : (
+          <>
+            <label>
+              <span>周期（秒）</span>
+              <Input
+                max={120}
+                min={5}
+                step={0.01}
+                type="number"
+                value={settings.cycleMs / 1000}
+                onChange={(event) =>
+                  onChange({
+                    ...settings,
+                    cycleMs: Math.round(Number(event.target.value) * 1000)
+                  })
+                }
+              />
+            </label>
+            <div className="buff-settings-field">
+              <label htmlFor="listener-deadline-grace-ms">
+                <span className="buff-setting-label">
+                  触发宽限期
+                  <SettingTooltip label="查看触发宽限期说明" content="单位：毫秒，建议值 1500" />
+                </span>
+              </label>
+              <Input
+                id="listener-deadline-grace-ms"
+                max={2000}
+                min={0}
+                step={50}
+                type="number"
+                value={settings.deadlineGraceMs}
+                onChange={(event) =>
+                  onChange({ ...settings, deadlineGraceMs: Number(event.target.value) })
+                }
+              />
+            </div>
+          </>
+        )}
         <div className="buff-settings-field">
           <label htmlFor="listener-match-mode">
             <span className="buff-setting-label">
@@ -1501,77 +1593,79 @@ function ListenerSettingsEditor({
           />
         </label>
       </div>
-      <div className="buff-sound-options">
-        <SoundRow
-          checked={settings.sound.triggerEnabled}
-          cue="triggered"
-          label="真实触发确认音"
-          source={settings.sound.triggerSource}
-          templates={soundTemplates}
-          uploading={uploadingCue === 'triggered'}
-          onChange={(checked) => setSound({ triggerEnabled: checked })}
-          onSourceChange={(source) => setSound({ triggerSource: source })}
-          onTest={() => onPreviewSound('triggered', settings.sound.triggerSource)}
-          onUpload={() => onUploadSound('triggered', 'triggerSource')}
-        />
-        <SoundRow
-          checked={settings.sound.prewarnThreeEnabled}
-          cue="prewarnThree"
-          label="倒计时 3 秒提示音"
-          source={settings.sound.prewarnThreeSource}
-          templates={soundTemplates}
-          uploading={uploadingCue === 'prewarnThree'}
-          onChange={(checked) => setSound({ prewarnThreeEnabled: checked })}
-          onSourceChange={(source) => setSound({ prewarnThreeSource: source })}
-          onTest={() => onPreviewSound('prewarnThree', settings.sound.prewarnThreeSource)}
-          onUpload={() => onUploadSound('prewarnThree', 'prewarnThreeSource')}
-        />
-        <SoundRow
-          checked={settings.sound.prewarnTwoEnabled}
-          cue="prewarnTwo"
-          label="倒计时 2 秒提示音"
-          source={settings.sound.prewarnTwoSource}
-          templates={soundTemplates}
-          uploading={uploadingCue === 'prewarnTwo'}
-          onChange={(checked) => setSound({ prewarnTwoEnabled: checked })}
-          onSourceChange={(source) => setSound({ prewarnTwoSource: source })}
-          onTest={() => onPreviewSound('prewarnTwo', settings.sound.prewarnTwoSource)}
-          onUpload={() => onUploadSound('prewarnTwo', 'prewarnTwoSource')}
-        />
-        <SoundRow
-          checked={settings.sound.prewarnOneEnabled}
-          cue="prewarnOne"
-          label="倒计时 1 秒提示音"
-          source={settings.sound.prewarnOneSource}
-          templates={soundTemplates}
-          uploading={uploadingCue === 'prewarnOne'}
-          onChange={(checked) => setSound({ prewarnOneEnabled: checked })}
-          onSourceChange={(source) => setSound({ prewarnOneSource: source })}
-          onTest={() => onPreviewSound('prewarnOne', settings.sound.prewarnOneSource)}
-          onUpload={() => onUploadSound('prewarnOne', 'prewarnOneSource')}
-        />
-        <label className="buff-volume-row">
-          <Volume2 aria-hidden="true" />
-          <span>提示音量</span>
-          <Slider
-            aria-label="提示音量"
-            max={1}
-            min={0}
-            step={0.05}
-            value={[settings.sound.volume]}
-            onValueChange={([volume]) => setSound({ volume })}
+      {skillCountdown ? null : (
+        <div className="buff-sound-options">
+          <SoundRow
+            checked={settings.sound.triggerEnabled}
+            cue="triggered"
+            label="真实触发确认音"
+            source={settings.sound.triggerSource}
+            templates={soundTemplates}
+            uploading={uploadingCue === 'triggered'}
+            onChange={(checked) => setSound({ triggerEnabled: checked })}
+            onSourceChange={(source) => setSound({ triggerSource: source })}
+            onTest={() => onPreviewSound('triggered', settings.sound.triggerSource)}
+            onUpload={() => onUploadSound('triggered', 'triggerSource')}
           />
-          <strong>{Math.round(settings.sound.volume * 100)}%</strong>
-        </label>
-        <div className="buff-sound-tip">
-          <p>可使用 TTS Online 生成不同监听项的语音提示。</p>
-          <Button size="compact" type="button" variant="ghost" onClick={onOpenTts}>
-            <ExternalLink aria-hidden="true" />
-            前往 TTS Online
-          </Button>
+          <SoundRow
+            checked={settings.sound.prewarnThreeEnabled}
+            cue="prewarnThree"
+            label="倒计时 3 秒提示音"
+            source={settings.sound.prewarnThreeSource}
+            templates={soundTemplates}
+            uploading={uploadingCue === 'prewarnThree'}
+            onChange={(checked) => setSound({ prewarnThreeEnabled: checked })}
+            onSourceChange={(source) => setSound({ prewarnThreeSource: source })}
+            onTest={() => onPreviewSound('prewarnThree', settings.sound.prewarnThreeSource)}
+            onUpload={() => onUploadSound('prewarnThree', 'prewarnThreeSource')}
+          />
+          <SoundRow
+            checked={settings.sound.prewarnTwoEnabled}
+            cue="prewarnTwo"
+            label="倒计时 2 秒提示音"
+            source={settings.sound.prewarnTwoSource}
+            templates={soundTemplates}
+            uploading={uploadingCue === 'prewarnTwo'}
+            onChange={(checked) => setSound({ prewarnTwoEnabled: checked })}
+            onSourceChange={(source) => setSound({ prewarnTwoSource: source })}
+            onTest={() => onPreviewSound('prewarnTwo', settings.sound.prewarnTwoSource)}
+            onUpload={() => onUploadSound('prewarnTwo', 'prewarnTwoSource')}
+          />
+          <SoundRow
+            checked={settings.sound.prewarnOneEnabled}
+            cue="prewarnOne"
+            label="倒计时 1 秒提示音"
+            source={settings.sound.prewarnOneSource}
+            templates={soundTemplates}
+            uploading={uploadingCue === 'prewarnOne'}
+            onChange={(checked) => setSound({ prewarnOneEnabled: checked })}
+            onSourceChange={(source) => setSound({ prewarnOneSource: source })}
+            onTest={() => onPreviewSound('prewarnOne', settings.sound.prewarnOneSource)}
+            onUpload={() => onUploadSound('prewarnOne', 'prewarnOneSource')}
+          />
+          <label className="buff-volume-row">
+            <Volume2 aria-hidden="true" />
+            <span>提示音量</span>
+            <Slider
+              aria-label="提示音量"
+              max={1}
+              min={0}
+              step={0.05}
+              value={[settings.sound.volume]}
+              onValueChange={([volume]) => setSound({ volume })}
+            />
+            <strong>{Math.round(settings.sound.volume * 100)}%</strong>
+          </label>
+          <div className="buff-sound-tip">
+            <p>可使用 TTS Online 生成不同监听项的语音提示。</p>
+            <Button size="compact" type="button" variant="ghost" onClick={onOpenTts}>
+              <ExternalLink aria-hidden="true" />
+              前往 TTS Online
+            </Button>
+          </div>
+          {soundError ? <p className="buff-sound-error">{soundError}</p> : null}
         </div>
-        {soundError ? <p className="buff-sound-error">{soundError}</p> : null}
-      </div>
+      )}
     </div>
   )
 }

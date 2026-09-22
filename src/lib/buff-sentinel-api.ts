@@ -95,9 +95,12 @@ export type BuffCaptureSettings = {
 
 export type BuffMatchMode = 'pixel' | 'brightText'
 
+export type BuffListenerKind = 'cycle' | 'skillCountdown'
+
 export type BuffListenerSettings = {
   cycleMs: number
   deadlineGraceMs: number
+  skillDurationMs?: number
   matchMode: BuffMatchMode
   threshold: number
   confirmFrames: number
@@ -117,6 +120,7 @@ export type BuffListenerConfig = {
   name: string
   enabled: boolean
   hideInOverlay: boolean
+  kind?: BuffListenerKind
   template: BuffTemplateSummary | null
   settings: BuffListenerSettings
 }
@@ -198,6 +202,7 @@ export type BuffOverlayState = {
 export type BuffOverlayItem = {
   listenerId: string
   name: string
+  kind?: BuffListenerKind
   mode: BuffOverlayMode
   expectedAtUnixMs: number | null
 }
@@ -258,6 +263,7 @@ export type BuffSentinelAPI = {
   getBuffListenerTemplate: (listenerId: string) => Promise<BuffTemplatePreview>
   saveBuffListener: (
     listenerId: string | null,
+    kind: BuffListenerKind,
     name: string,
     enabled: boolean,
     hideInOverlay: boolean,
@@ -384,6 +390,7 @@ export const buffSentinelApi: BuffSentinelAPI = {
     callTauri(() => invoke<BuffTemplatePreview>('get_buff_listener_template', { listenerId })),
   saveBuffListener: (
     listenerId,
+    kind,
     name,
     enabled,
     hideInOverlay,
@@ -396,6 +403,7 @@ export const buffSentinelApi: BuffSentinelAPI = {
       invoke<BuffAssistantState>('save_buff_listener', {
         request: {
           listenerId,
+          kind,
           name,
           enabled,
           hideInOverlay,

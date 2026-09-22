@@ -133,9 +133,7 @@ export function BuffOverlayApp() {
                     <span>秒</span>
                   </div>
                 ) : (
-                  <div className="buff-overlay__status">
-                    {item.mode === 'waiting' ? '等待监听' : '等待确认'}
-                  </div>
+                  <div className="buff-overlay__status">{overlayStatusText(item)}</div>
                 )}
               </div>
             )
@@ -173,6 +171,11 @@ export function BuffOverlayApp() {
       ) : null}
     </div>
   )
+}
+
+export function overlayStatusText(item: { kind?: string; mode: string; name: string }): string {
+  if (item.mode !== 'waiting') return '等待确认'
+  return item.kind === 'skillCountdown' ? `正在等待${item.name}` : '等待监听'
 }
 
 function rgbaColor(hex: string, alpha: number): string {

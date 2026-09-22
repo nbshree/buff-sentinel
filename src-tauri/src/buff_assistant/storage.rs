@@ -523,6 +523,7 @@ mod tests {
                 name: "测试".into(),
                 enabled: true,
                 hide_in_overlay: false,
+                kind: crate::buff_assistant::model::BuffListenerKind::Cycle,
                 template: None,
                 settings: crate::buff_assistant::model::BuffListenerSettings::default(),
             });
@@ -602,6 +603,7 @@ mod tests {
                 name: "已有监听项".into(),
                 enabled: true,
                 hide_in_overlay: false,
+                kind: crate::buff_assistant::model::BuffListenerKind::Cycle,
                 template: None,
                 settings: crate::buff_assistant::model::BuffListenerSettings::default(),
             });

@@ -191,6 +191,89 @@ describe('BuffOverlayApp', () => {
     expect(screen.getAllByText('等待监听')).toHaveLength(2)
   })
 
+  it('names the skill countdown listener while it waits for the icon', () => {
+    renderOverlay()
+
+    emit({
+      mode: 'waiting',
+      message: '',
+      items: [
+        {
+          listenerId: 'skill-1',
+          name: '疾风步',
+          kind: 'skillCountdown',
+          mode: 'waiting',
+          expectedAtUnixMs: null
+        }
+      ],
+      emittedAtUnixMs: Date.now(),
+      editable: false,
+      colorScheme: 'gold'
+    })
+
+    expect(screen.getByText('正在等待疾风步')).toBeInTheDocument()
+    expect(screen.queryByText('等待监听')).not.toBeInTheDocument()
+  })
+
+  it('keeps the cycle reminder labels while mixing both listener kinds', () => {
+    renderOverlay()
+
+    emit({
+      mode: 'waiting',
+      message: '',
+      items: [
+        {
+          listenerId: 'jinzhoutian',
+          name: '金周天',
+          kind: 'cycle',
+          mode: 'waiting',
+          expectedAtUnixMs: null
+        },
+        {
+          listenerId: 'skill-1',
+          name: '疾风步',
+          kind: 'skillCountdown',
+          mode: 'waiting',
+          expectedAtUnixMs: null
+        }
+      ],
+      emittedAtUnixMs: Date.now(),
+      editable: false,
+      colorScheme: 'gold'
+    })
+
+    expect(screen.getByText('等待监听')).toBeInTheDocument()
+    expect(screen.getByText('正在等待疾风步')).toBeInTheDocument()
+  })
+
+  it('counts the skill countdown down and stops at zero until the icon leaves', () => {
+    renderOverlay()
+
+    emit({
+      mode: 'countdown',
+      message: '',
+      items: [
+        {
+          listenerId: 'skill-1',
+          name: '疾风步',
+          kind: 'skillCountdown',
+          mode: 'countdown',
+          expectedAtUnixMs: Date.now() + 10_000
+        }
+      ],
+      emittedAtUnixMs: Date.now(),
+      editable: false,
+      colorScheme: 'gold'
+    })
+
+    expect(screen.getByText('10.0')).toBeInTheDocument()
+    act(() => vi.advanceTimersByTime(3_000))
+    expect(screen.getByText('7.0')).toBeInTheDocument()
+    act(() => vi.advanceTimersByTime(12_000))
+    expect(screen.getByText('0.0')).toBeInTheDocument()
+    expect(screen.queryByText('正在等待疾风步')).not.toBeInTheDocument()
+  })
+
   it('only exposes resize handles while editing and keeps resize separate from dragging', () => {
     const api = renderOverlay()
 

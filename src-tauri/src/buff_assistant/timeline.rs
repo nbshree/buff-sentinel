@@ -19,6 +19,9 @@ pub enum TimelineAction {
     PrewarnOne,
     ConfirmationPending,
     Reset,
+    SkillStarted,
+    SkillUsed,
+    SkillEnded,
 }
 
 pub struct BuffTimeline {
@@ -200,6 +203,89 @@ fn valid_detection_time(now: Instant, detected_at: Option<Instant>) -> Instant {
     detected_at
         .filter(|detected| *detected <= now)
         .unwrap_or(now)
+}
+
+/// Tracks how long a single icon stays on screen after it first appears.
+///
+/// Unlike [`BuffTimeline`] this never predicts the next appearance and never
+/// emits a pre-warning, so it needs no `armed` gate: an icon that is already
+/// visible when monitoring starts simply begins counting right away. The
+/// countdown is only ended by a *confirmed* absence, and reaching the deadline
+/// keeps the row at `0.0` until the icon actually disappears.
+pub struct SkillCountdownTimeline {
+    phase: TimelinePhase,
+    duration: Duration,
+    expected_at: Option<Instant>,
+}
+
+impl SkillCountdownTimeline {
+    pub fn new(duration_ms: u64) -> Self {
+        Self {
+            phase: TimelinePhase::Stopped,
+            duration: Duration::from_millis(duration_ms),
+            expected_at: None,
+        }
+    }
+
+    pub fn start_waiting(&mut self, duration_ms: u64) {
+        self.duration = Duration::from_millis(duration_ms);
+        self.reset_waiting();
+    }
+
+    pub fn reset_waiting(&mut self) {
+        self.phase = TimelinePhase::Waiting;
+        self.expected_at = None;
+    }
+
+    pub fn stop(&mut self) {
+        self.phase = TimelinePhase::Stopped;
+        self.expected_at = None;
+    }
+
+    pub const fn phase(&self) -> TimelinePhase {
+        self.phase
+    }
+
+    pub const fn expected_at(&self) -> Option<Instant> {
+        self.expected_at
+    }
+
+    pub fn update(
+        &mut self,
+        now: Instant,
+        icon_present: bool,
+        absence_confirmed: bool,
+        detected_at: Option<Instant>,
+    ) -> Vec<TimelineAction> {
+        match self.phase {
+            TimelinePhase::Waiting => {
+                if !icon_present {
+                    return Vec::new();
+                }
+                self.phase = TimelinePhase::Tracking;
+                self.expected_at =
+                    valid_detection_time(now, detected_at).checked_add(self.duration);
+                vec![TimelineAction::SkillStarted]
+            }
+            TimelinePhase::Tracking => {
+                if !absence_confirmed {
+                    return Vec::new();
+                }
+                let used = self
+                    .expected_at
+                    .is_some_and(|expected_at| now < expected_at);
+                self.reset_waiting();
+                vec![if used {
+                    TimelineAction::SkillUsed
+                } else {
+                    TimelineAction::SkillEnded
+                }]
+            }
+            TimelinePhase::Stopped | TimelinePhase::Prewarning | TimelinePhase::Confirming => {
+                Vec::new()
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -580,5 +666,164 @@ mod tests {
                 trigger.checked_add(Duration::from_secs(20))
             );
         }
+    }
+
+    #[test]
+    fn skill_countdown_starts_from_the_first_matching_frame() {
+        let start = Instant::now();
+        let mut timeline = SkillCountdownTimeline::new(10_000);
+        timeline.start_waiting(10_000);
+        assert!(timeline.update(start, false, true, None).is_empty());
+
+        let first_match = start + Duration::from_millis(500);
+        let confirmed_at = first_match + Duration::from_millis(166);
+
+        assert_eq!(
+            timeline.update(confirmed_at, true, false, Some(first_match)),
+            [TimelineAction::SkillStarted]
+        );
+        assert_eq!(timeline.phase(), TimelinePhase::Tracking);
+        assert_eq!(
+            timeline.expected_at(),
+            first_match.checked_add(Duration::from_secs(10))
+        );
+    }
+
+    #[test]
+    fn skill_countdown_starts_immediately_for_an_icon_that_is_already_visible() {
+        let start = Instant::now();
+        let mut timeline = SkillCountdownTimeline::new(10_000);
+        timeline.start_waiting(10_000);
+
+        assert_eq!(
+            timeline.update(start, true, false, None),
+            [TimelineAction::SkillStarted]
+        );
+        assert_eq!(
+            timeline.expected_at(),
+            start.checked_add(Duration::from_secs(10))
+        );
+    }
+
+    #[test]
+    fn skill_countdown_ends_early_when_the_icon_is_used() {
+        let start = Instant::now();
+        let mut timeline = SkillCountdownTimeline::new(10_000);
+        timeline.start_waiting(10_000);
+        timeline.update(start, true, false, None);
+
+        assert_eq!(
+            timeline.update(start + Duration::from_secs(3), false, true, None),
+            [TimelineAction::SkillUsed]
+        );
+        assert_eq!(timeline.phase(), TimelinePhase::Waiting);
+        assert_eq!(timeline.expected_at(), None);
+    }
+
+    #[test]
+    fn skill_countdown_reports_the_end_when_the_deadline_passed_first() {
+        let start = Instant::now();
+        let mut timeline = SkillCountdownTimeline::new(10_000);
+        timeline.start_waiting(10_000);
+        timeline.update(start, true, false, None);
+
+        assert_eq!(
+            timeline.update(start + Duration::from_secs(10), false, true, None),
+            [TimelineAction::SkillEnded]
+        );
+        assert_eq!(timeline.phase(), TimelinePhase::Waiting);
+    }
+
+    #[test]
+    fn skill_countdown_holds_at_zero_until_the_icon_disappears() {
+        let start = Instant::now();
+        let expected = start + Duration::from_secs(10);
+        let mut timeline = SkillCountdownTimeline::new(10_000);
+        timeline.start_waiting(10_000);
+        timeline.update(start, true, false, None);
+
+        assert!(timeline.update(expected, true, false, None).is_empty());
+        assert!(
+            timeline
+                .update(expected + Duration::from_secs(2), true, false, None)
+                .is_empty()
+        );
+        assert_eq!(timeline.phase(), TimelinePhase::Tracking);
+        assert_eq!(timeline.expected_at(), Some(expected));
+
+        assert_eq!(
+            timeline.update(expected + Duration::from_secs(3), false, true, None),
+            [TimelineAction::SkillEnded]
+        );
+    }
+
+    #[test]
+    fn skill_countdown_ignores_an_unconfirmed_flicker() {
+        let start = Instant::now();
+        let expected = start + Duration::from_secs(10);
+        let mut timeline = SkillCountdownTimeline::new(10_000);
+        timeline.start_waiting(10_000);
+        timeline.update(start, true, false, None);
+
+        assert!(
+            timeline
+                .update(start + Duration::from_millis(400), false, false, None)
+                .is_empty()
+        );
+        assert_eq!(timeline.phase(), TimelinePhase::Tracking);
+        assert_eq!(timeline.expected_at(), Some(expected));
+
+        assert!(
+            timeline
+                .update(start + Duration::from_millis(500), true, false, None)
+                .is_empty()
+        );
+        assert_eq!(timeline.phase(), TimelinePhase::Tracking);
+        assert_eq!(timeline.expected_at(), Some(expected));
+    }
+
+    #[test]
+    fn skill_countdown_starts_a_new_round_after_the_icon_reappears() {
+        let start = Instant::now();
+        let mut timeline = SkillCountdownTimeline::new(10_000);
+        timeline.start_waiting(10_000);
+        timeline.update(start, true, false, None);
+        assert_eq!(
+            timeline.update(start + Duration::from_secs(3), false, true, None),
+            [TimelineAction::SkillUsed]
+        );
+
+        let second_round = start + Duration::from_secs(20);
+        assert_eq!(
+            timeline.update(second_round, true, false, None),
+            [TimelineAction::SkillStarted]
+        );
+        assert_eq!(
+            timeline.expected_at(),
+            second_round.checked_add(Duration::from_secs(10))
+        );
+    }
+
+    #[test]
+    fn skill_countdown_is_silent_after_stopping() {
+        let start = Instant::now();
+        let mut timeline = SkillCountdownTimeline::new(10_000);
+        timeline.start_waiting(10_000);
+        timeline.update(start, true, false, None);
+
+        timeline.stop();
+
+        assert!(
+            timeline
+                .update(start + Duration::from_secs(1), true, false, None)
+                .is_empty()
+        );
+        assert!(
+            timeline
+                .update(start + Duration::from_secs(2), false, true, None)
+                .is_empty()
+        );
+        assert_eq!(timeline.phase(), TimelinePhase::Stopped);
+        assert_eq!(timeline.expected_at(), None);
     }
 }

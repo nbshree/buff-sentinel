@@ -31,11 +31,11 @@ use image::{DynamicImage, GrayImage, Luma, RgbaImage};
 pub use model::{
     BorderlessCaptureAccessResult, BuffAssistantActivity, BuffAssistantConfig, BuffAssistantState,
     BuffAudioOutputDevice, BuffCustomSoundAsset, BuffGlobalSettings, BuffListenerConfig,
-    BuffListenerRuntimeState, BuffListenerSettings, BuffOverlayColorScheme, BuffOverlayItem,
-    BuffOverlayMode, BuffOverlayState, BuffSoundCue, BuffSoundSource, BuffSoundTemplateSummary,
-    BuffTarget, BuffTemplatePreview, CapturePreview, CaptureWindowCandidate,
-    DEFAULT_OVERLAY_HEIGHT, MAX_LISTENERS, MAX_OVERLAY_HEIGHT, MAX_OVERLAY_WIDTH,
-    MIN_OVERLAY_HEIGHT, MIN_OVERLAY_WIDTH, NormalizedRect,
+    BuffListenerKind, BuffListenerRuntimeState, BuffListenerSettings, BuffOverlayColorScheme,
+    BuffOverlayItem, BuffOverlayMode, BuffOverlayState, BuffSoundCue, BuffSoundSource,
+    BuffSoundTemplateSummary, BuffTarget, BuffTemplatePreview, CapturePreview,
+    CaptureWindowCandidate, DEFAULT_OVERLAY_HEIGHT, MAX_LISTENERS, MAX_OVERLAY_HEIGHT,
+    MAX_OVERLAY_WIDTH, MIN_OVERLAY_HEIGHT, MIN_OVERLAY_WIDTH, NormalizedRect,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{
@@ -43,7 +43,7 @@ use tauri::{
     WebviewWindowBuilder,
 };
 use tauri_plugin_dialog::DialogExt;
-use timeline::{BuffTimeline, TimelineAction, TimelinePhase};
+use timeline::{BuffTimeline, SkillCountdownTimeline, TimelineAction, TimelinePhase};
 
 const MONITOR_FRAME_TIMEOUT: Duration = Duration::from_secs(3);
 const OVERLAY_LABEL: &str = "buff-overlay";
@@ -121,19 +121,100 @@ struct ListenerRuntime {
     expected_at_unix_ms: Option<i64>,
     last_confidence: f32,
     last_error: Option<String>,
-    timeline: BuffTimeline,
+    timeline: ListenerTimeline,
 }
 
 impl ListenerRuntime {
-    fn new(settings: &BuffListenerSettings) -> Self {
+    fn new(kind: BuffListenerKind, settings: &BuffListenerSettings) -> Self {
         Self {
             activity: BuffAssistantActivity::Stopped,
             expected_at_unix_ms: None,
             last_confidence: 0.0,
             last_error: None,
-            timeline: BuffTimeline::new(settings.cycle_ms),
+            timeline: ListenerTimeline::new(kind, settings),
         }
     }
+}
+
+/// Dispatches between the two listener mechanisms so the monitoring loop does
+/// not have to know which one a listener uses.
+enum ListenerTimeline {
+    Cycle(BuffTimeline),
+    Skill(SkillCountdownTimeline),
+}
+
+impl ListenerTimeline {
+    fn new(kind: BuffListenerKind, settings: &BuffListenerSettings) -> Self {
+        match kind {
+            BuffListenerKind::Cycle => Self::Cycle(BuffTimeline::new(settings.cycle_ms)),
+            BuffListenerKind::SkillCountdown => {
+                Self::Skill(SkillCountdownTimeline::new(settings.skill_duration_ms))
+            }
+        }
+    }
+
+    fn start_waiting(&mut self, settings: &BuffListenerSettings) {
+        match self {
+            Self::Cycle(timeline) => {
+                timeline.start_waiting_with_grace(settings.cycle_ms, settings.deadline_grace_ms);
+            }
+            Self::Skill(timeline) => timeline.start_waiting(settings.skill_duration_ms),
+        }
+    }
+
+    fn reset_waiting(&mut self) {
+        match self {
+            Self::Cycle(timeline) => timeline.reset_waiting(),
+            Self::Skill(timeline) => timeline.reset_waiting(),
+        }
+    }
+
+    fn stop(&mut self) {
+        match self {
+            Self::Cycle(timeline) => timeline.stop(),
+            Self::Skill(timeline) => timeline.stop(),
+        }
+    }
+
+    fn phase(&self) -> TimelinePhase {
+        match self {
+            Self::Cycle(timeline) => timeline.phase(),
+            Self::Skill(timeline) => timeline.phase(),
+        }
+    }
+
+    fn expected_at(&self) -> Option<Instant> {
+        match self {
+            Self::Cycle(timeline) => timeline.expected_at(),
+            Self::Skill(timeline) => timeline.expected_at(),
+        }
+    }
+
+    fn update(
+        &mut self,
+        now: Instant,
+        icon_present: bool,
+        absence_confirmed: bool,
+        detected_at: Option<Instant>,
+    ) -> Vec<TimelineAction> {
+        match self {
+            Self::Cycle(timeline) => {
+                timeline.update_with_detected_at(now, icon_present, absence_confirmed, detected_at)
+            }
+            Self::Skill(timeline) => {
+                timeline.update(now, icon_present, absence_confirmed, detected_at)
+            }
+        }
+    }
+}
+
+/// A timeline action captured while the runtime lock is held, so logging and
+/// sound playback happen after the lock is released.
+struct PendingListenerAction {
+    name: String,
+    sound: model::BuffSoundSettings,
+    skill_duration_ms: u64,
+    action: TimelineAction,
 }
 
 pub struct BuffAssistant {
@@ -395,6 +476,7 @@ pub fn save_buff_listener(
         name,
         enabled,
         hide_in_overlay,
+        kind,
         mut settings,
         search_region,
         crop,
@@ -453,6 +535,8 @@ pub fn save_buff_listener(
         inner.config.search_region = Some(region);
         let id = listener_id.unwrap_or_else(|| format!("listener-{}", now_millis()));
         if let Some(listener) = inner.config.listeners.iter_mut().find(|item| item.id == id) {
+            // The mechanism is fixed when a listener is created, so an edit
+            // never rewrites `kind`.
             if let Some(previous) = listener.template.replace(summary) {
                 storage::delete_template(&directory, &previous)?;
             }
@@ -466,6 +550,7 @@ pub fn save_buff_listener(
                 name,
                 enabled,
                 hide_in_overlay,
+                kind,
                 template: Some(summary),
                 settings,
             });
@@ -488,6 +573,8 @@ pub struct SaveBuffListenerRequest {
     enabled: bool,
     #[serde(default)]
     hide_in_overlay: bool,
+    #[serde(default)]
+    kind: BuffListenerKind,
     settings: BuffListenerSettings,
     search_region: NormalizedRect,
     crop: NormalizedRect,
@@ -717,21 +804,25 @@ pub fn start_buff_monitor_internal(app: &AppHandle) -> Result<(), String> {
             .listeners
             .iter()
             .filter(|listener| listener.enabled && listener.template.is_some())
-            .map(|listener| (listener.id.clone(), listener.settings.clone()))
+            .map(|listener| {
+                (
+                    listener.id.clone(),
+                    listener.kind,
+                    listener.settings.clone(),
+                )
+            })
             .collect::<Vec<_>>();
         if enabled.is_empty() {
             return Err("请至少启用一个已配置模板的监听项".into());
         }
         inner.monitor_requested = true;
         inner.reconnect_generation = inner.reconnect_generation.wrapping_add(1);
-        for (id, settings) in enabled {
+        for (id, kind, settings) in enabled {
             let runtime = inner
                 .listeners
                 .entry(id)
-                .or_insert_with(|| ListenerRuntime::new(&settings));
-            runtime
-                .timeline
-                .start_waiting_with_grace(settings.cycle_ms, settings.deadline_grace_ms);
+                .or_insert_with(|| ListenerRuntime::new(kind, &settings));
+            runtime.timeline.start_waiting(&settings);
             runtime.activity = BuffAssistantActivity::Waiting;
             runtime.expected_at_unix_ms = None;
             runtime.last_error = None;
@@ -1016,7 +1107,8 @@ fn show_overlay_preview(app: &AppHandle, mode: BuffOverlayMode) -> Result<(), St
                 (
                     listener.id.clone(),
                     listener.name.clone(),
-                    listener.settings.cycle_ms,
+                    listener.kind,
+                    preview_countdown_ms(listener),
                 )
             })
             .collect::<Vec<_>>();
@@ -1028,6 +1120,7 @@ fn show_overlay_preview(app: &AppHandle, mode: BuffOverlayMode) -> Result<(), St
                 } else {
                     "监听图标".into()
                 },
+                BuffListenerKind::Cycle,
                 20_000,
             )]
         } else {
@@ -1039,9 +1132,10 @@ fn show_overlay_preview(app: &AppHandle, mode: BuffOverlayMode) -> Result<(), St
         BuffOverlayMode::Waiting => {
             let items = listeners
                 .iter()
-                .map(|(id, name, _)| BuffOverlayItem {
+                .map(|(id, name, kind, _)| BuffOverlayItem {
                     listener_id: id.clone(),
                     name: name.clone(),
+                    kind: *kind,
                     mode: BuffOverlayMode::Waiting,
                     expected_at_unix_ms: None,
                 })
@@ -1052,13 +1146,14 @@ fn show_overlay_preview(app: &AppHandle, mode: BuffOverlayMode) -> Result<(), St
             let items = listeners
                 .iter()
                 .enumerate()
-                .map(|(index, (id, name, cycle_ms))| BuffOverlayItem {
+                .map(|(index, (id, name, kind, countdown_ms))| BuffOverlayItem {
                     listener_id: id.clone(),
                     name: name.clone(),
+                    kind: *kind,
                     mode: BuffOverlayMode::Countdown,
                     expected_at_unix_ms: Some(
                         emitted_at_unix_ms
-                            + i64::try_from((*cycle_ms).min(60_000)).unwrap_or(60_000)
+                            + i64::try_from((*countdown_ms).min(60_000)).unwrap_or(60_000)
                             + i64::try_from(index).unwrap_or_default() * 1_500,
                     ),
                 })
@@ -1068,9 +1163,10 @@ fn show_overlay_preview(app: &AppHandle, mode: BuffOverlayMode) -> Result<(), St
         BuffOverlayMode::Confirming => {
             let items = listeners
                 .iter()
-                .map(|(id, name, _)| BuffOverlayItem {
+                .map(|(id, name, kind, _)| BuffOverlayItem {
                     listener_id: id.clone(),
                     name: name.clone(),
+                    kind: *kind,
                     mode: BuffOverlayMode::Confirming,
                     expected_at_unix_ms: None,
                 })
@@ -1180,7 +1276,7 @@ pub(crate) fn handle_detection_batch(
                 continue;
             };
             runtime.last_confidence = detection.confidence;
-            let next_actions = runtime.timeline.update_with_detected_at(
+            let next_actions = runtime.timeline.update(
                 now,
                 detection.present,
                 detection.absence_confirmed,
@@ -1192,10 +1288,13 @@ pub(crate) fn handle_detection_batch(
             });
             if !next_actions.is_empty() {
                 let listener = &inner.config.listeners[listener_index];
-                let name = listener.name.clone();
-                let sound = listener.settings.sound.clone();
                 for action in next_actions {
-                    actions.push((name.clone(), sound.clone(), action));
+                    actions.push(PendingListenerAction {
+                        name: listener.name.clone(),
+                        sound: listener.settings.sound.clone(),
+                        skill_duration_ms: listener.settings.skill_duration_ms,
+                        action,
+                    });
                 }
             }
         }
@@ -1213,7 +1312,13 @@ pub(crate) fn handle_detection_batch(
         return;
     }
     emit_state(app, snapshot.as_ref().unwrap());
-    for (listener_name, sound, action) in actions {
+    for pending in actions {
+        let PendingListenerAction {
+            name: listener_name,
+            sound,
+            skill_duration_ms,
+            action,
+        } = pending;
         match action {
             TimelineAction::Triggered => {
                 if sound.trigger_enabled {
@@ -1250,6 +1355,21 @@ pub(crate) fn handle_detection_batch(
             }
             TimelineAction::Reset => {
                 emit_execution_log(app, &format!("{listener_name}：截止点未确认，时间轴已重置"));
+            }
+            TimelineAction::SkillStarted => {
+                emit_execution_log(
+                    app,
+                    &format!(
+                        "{listener_name}：图标出现，开始 {} 秒倒计时",
+                        format_seconds(skill_duration_ms)
+                    ),
+                );
+            }
+            TimelineAction::SkillUsed => {
+                emit_execution_log(app, &format!("{listener_name}：图标提前消失，技能已使用"));
+            }
+            TimelineAction::SkillEnded => {
+                emit_execution_log(app, &format!("{listener_name}：倒计时结束，回到等待"));
             }
         }
     }
@@ -1345,9 +1465,7 @@ fn attach_monitor_capture(
                 .collect::<Vec<_>>();
             for (id, settings) in enabled {
                 if let Some(runtime) = inner.listeners.get_mut(&id) {
-                    runtime
-                        .timeline
-                        .start_waiting_with_grace(settings.cycle_ms, settings.deadline_grace_ms);
+                    runtime.timeline.start_waiting(&settings);
                     runtime.activity = BuffAssistantActivity::Waiting;
                     runtime.expected_at_unix_ms = None;
                 }
@@ -1552,7 +1670,11 @@ fn preload_monitor_sounds(state: &BuffAssistant) {
             .config
             .listeners
             .iter()
-            .filter(|listener| listener.enabled && listener.template.is_some())
+            .filter(|listener| {
+                listener.kind == BuffListenerKind::Cycle
+                    && listener.enabled
+                    && listener.template.is_some()
+            })
             .flat_map(|listener| {
                 let sound = &listener.settings.sound;
                 [
@@ -1737,7 +1859,7 @@ fn listener_runtime_map(config: &BuffAssistantConfig) -> HashMap<String, Listene
         .map(|listener| {
             (
                 listener.id.clone(),
-                ListenerRuntime::new(&listener.settings),
+                ListenerRuntime::new(listener.kind, &listener.settings),
             )
         })
         .collect()
@@ -1799,6 +1921,14 @@ fn timeline_activity(phase: TimelinePhase) -> BuffAssistantActivity {
         TimelinePhase::Tracking => BuffAssistantActivity::Tracking,
         TimelinePhase::Prewarning => BuffAssistantActivity::Prewarning,
         TimelinePhase::Confirming => BuffAssistantActivity::Confirming,
+    }
+}
+
+fn format_seconds(milliseconds: u64) -> String {
+    if milliseconds.is_multiple_of(1_000) {
+        format!("{}", milliseconds / 1_000)
+    } else {
+        format!("{:.1}", milliseconds as f64 / 1_000.0)
     }
 }
 
@@ -1886,6 +2016,7 @@ fn refresh_active_overlay(app: &AppHandle) {
                 Some(BuffOverlayItem {
                     listener_id: listener.id.clone(),
                     name: listener.name.clone(),
+                    kind: listener.kind,
                     mode,
                     expected_at_unix_ms: runtime.expected_at_unix_ms,
                 })
@@ -1962,6 +2093,7 @@ fn show_transient_overlay(
                 .map(|expected_at_unix_ms| BuffOverlayItem {
                     listener_id: "transient".into(),
                     name: message.into(),
+                    kind: BuffListenerKind::Cycle,
                     mode,
                     expected_at_unix_ms: Some(expected_at_unix_ms),
                 })
@@ -2013,6 +2145,7 @@ fn show_waiting_overlay(app: &AppHandle) {
                     .map(|listener| BuffOverlayItem {
                         listener_id: listener.id.clone(),
                         name: listener.name.clone(),
+                        kind: listener.kind,
                         mode: BuffOverlayMode::Waiting,
                         expected_at_unix_ms: None,
                     })
@@ -2125,6 +2258,13 @@ fn listener_runs(listener: &BuffListenerConfig) -> bool {
 
 fn listener_shows_in_overlay(listener: &BuffListenerConfig) -> bool {
     listener_runs(listener) && !listener.hide_in_overlay
+}
+
+fn preview_countdown_ms(listener: &BuffListenerConfig) -> u64 {
+    match listener.kind {
+        BuffListenerKind::Cycle => listener.settings.cycle_ms,
+        BuffListenerKind::SkillCountdown => listener.settings.skill_duration_ms,
+    }
 }
 
 fn apply_overlay_geometry(app: &AppHandle) {
@@ -2357,9 +2497,10 @@ mod tests {
     use super::model::BuffTemplateSummary;
 
     use super::{
-        BuffAssistantConfig, BuffListenerConfig, BuffListenerSettings, BuffTarget,
-        DEFAULT_OVERLAY_HEIGHT, NormalizedRect, OverlayWindowCache, configured_overlay_height,
-        crop_saved_template, crop_template_from_preview, listener_runs, listener_shows_in_overlay,
+        BuffAssistantConfig, BuffListenerConfig, BuffListenerKind, BuffListenerSettings,
+        BuffTarget, DEFAULT_OVERLAY_HEIGHT, NormalizedRect, OverlayWindowCache,
+        SaveBuffListenerRequest, configured_overlay_height, crop_saved_template,
+        crop_template_from_preview, listener_runs, listener_shows_in_overlay,
         overlay_height_for_rows, persist_capture_target, storage,
     };
 
@@ -2423,6 +2564,26 @@ mod tests {
     }
 
     #[test]
+    fn save_listener_request_defaults_to_the_cycle_reminder() {
+        let mut value = serde_json::json!({
+            "listenerId": null,
+            "name": "测试",
+            "enabled": true,
+            "hideInOverlay": false,
+            "settings": serde_json::to_value(BuffListenerSettings::default()).unwrap(),
+            "searchRegion": { "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 },
+            "crop": { "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 }
+        });
+
+        let request: SaveBuffListenerRequest = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(request.kind, BuffListenerKind::Cycle);
+
+        value["kind"] = serde_json::json!("skillCountdown");
+        let request: SaveBuffListenerRequest = serde_json::from_value(value).unwrap();
+        assert_eq!(request.kind, BuffListenerKind::SkillCountdown);
+    }
+
+    #[test]
     fn overlay_visibility_only_includes_running_non_hidden_listeners() {
         let listener =
             |enabled: bool, configured: bool, hide_in_overlay: bool| BuffListenerConfig {
@@ -2430,6 +2591,7 @@ mod tests {
                 name: "测试".into(),
                 enabled,
                 hide_in_overlay,
+                kind: BuffListenerKind::Cycle,
                 template: configured.then(|| BuffTemplateSummary {
                     id: "template-1".into(),
                     width: 32,

@@ -107,6 +107,43 @@ async function openListenerEditor(user: ReturnType<typeof userEvent.setup>) {
   return screen.findByRole('dialog', { name: '编辑监听图标' })
 }
 
+/**
+ * jsdom has neither image loading nor a canvas implementation, so the capture
+ * preview would never be cropped into a template source. Both are stubbed so
+ * the add-listener menu becomes reachable in tests.
+ */
+function stubCroppedPreview(): () => void {
+  const canvasPrototype = HTMLCanvasElement.prototype as unknown as {
+    getContext: (...args: unknown[]) => unknown
+    toDataURL: (...args: unknown[]) => string
+  }
+  const originalImage = globalThis.Image
+  const originalGetContext = canvasPrototype.getContext
+  const originalToDataURL = canvasPrototype.toDataURL
+
+  class ImmediateImage {
+    decoding = 'async'
+    naturalWidth = 1920
+    naturalHeight = 1080
+    onload: (() => void) | null = null
+    onerror: (() => void) | null = null
+
+    set src(_value: string) {
+      this.onload?.()
+    }
+  }
+
+  Object.defineProperty(globalThis, 'Image', { configurable: true, value: ImmediateImage })
+  canvasPrototype.getContext = () => ({ drawImage() {} })
+  canvasPrototype.toDataURL = () => 'data:image/png;base64,Y3V0'
+
+  return () => {
+    Object.defineProperty(globalThis, 'Image', { configurable: true, value: originalImage })
+    canvasPrototype.getContext = originalGetContext
+    canvasPrototype.toDataURL = originalToDataURL
+  }
+}
+
 describe('BuffAssistantPage', () => {
   it('keeps global capture settings in the top-level dialog', async () => {
     const user = userEvent.setup()
@@ -465,5 +502,71 @@ describe('BuffAssistantPage', () => {
     const dialog = await openListenerEditor(user)
     await user.click(within(dialog).getByRole('button', { name: '前往 TTS Online' }))
     expect(api.openTtsOnline).toHaveBeenCalledOnce()
+  })
+
+  it('offers both listener mechanisms from the add button menu', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    installBuffSentinelApi(api)
+    const restorePreview = stubCroppedPreview()
+
+    try {
+      render(<BuffAssistantHarness />)
+      await captureConfiguredPreview(user)
+
+      const addButton = await screen.findByRole('button', { name: '添加监听图标' })
+      await waitFor(() => expect(addButton).toBeEnabled())
+      await user.click(addButton)
+
+      expect(await screen.findByRole('menuitem', { name: /周期提醒/ })).toBeVisible()
+      expect(screen.getByRole('menuitem', { name: /技能倒计时/ })).toBeVisible()
+    } finally {
+      restorePreview()
+    }
+  })
+
+  it('adds a skill countdown listener without any sound settings', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    installBuffSentinelApi(api)
+    const restorePreview = stubCroppedPreview()
+
+    try {
+      render(<BuffAssistantHarness />)
+      await captureConfiguredPreview(user)
+
+      const addButton = await screen.findByRole('button', { name: '添加监听图标' })
+      await waitFor(() => expect(addButton).toBeEnabled())
+      await user.click(addButton)
+      await user.click(await screen.findByRole('menuitem', { name: /技能倒计时/ }))
+
+      const dialog = await screen.findByRole('dialog', { name: '添加技能倒计时' })
+      expect(within(dialog).getByRole('textbox', { name: '类型' })).toHaveValue('技能倒计时')
+      expect(within(dialog).getByRole('spinbutton', { name: '技能持续时间（秒）' })).toHaveValue(10)
+      expect(within(dialog).getByRole('spinbutton', { name: '匹配阈值' })).toBeVisible()
+      expect(within(dialog).queryByRole('spinbutton', { name: '周期（秒）' })).toBeNull()
+      expect(within(dialog).queryByRole('spinbutton', { name: /触发宽限期/ })).toBeNull()
+      expect(within(dialog).queryByRole('checkbox', { name: '真实触发确认音' })).toBeNull()
+      expect(within(dialog).queryByRole('button', { name: '前往 TTS Online' })).toBeNull()
+      expect(
+        within(dialog).getByText('名称、模板与识别参数仅作用于当前项；技能倒计时不会播放提示音。')
+      ).toBeVisible()
+    } finally {
+      restorePreview()
+    }
+  })
+
+  it('keeps the listener mechanism read-only while editing', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    const dialog = await openListenerEditor(user)
+    const kind = within(dialog).getByRole('textbox', { name: '类型' })
+
+    expect(kind).toHaveValue('周期提醒')
+    expect(kind).toHaveAttribute('readonly')
+    expect(within(dialog).getByRole('spinbutton', { name: '周期（秒）' })).toBeVisible()
   })
 })

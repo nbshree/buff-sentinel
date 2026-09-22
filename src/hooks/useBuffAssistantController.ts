@@ -5,6 +5,7 @@ import type {
   BuffAssistantState,
   BuffCapturePreview,
   BuffGlobalSettings,
+  BuffListenerKind,
   BuffListenerSettings,
   BuffMetric,
   BuffOverlayPreviewMode,
@@ -14,7 +15,7 @@ import type {
 
 const defaultState: BuffAssistantState = {
   config: {
-    schemaVersion: 11,
+    schemaVersion: 12,
     target: null,
     searchRegion: null,
     listeners: [],
@@ -170,6 +171,7 @@ export function useBuffAssistantController() {
   const saveListener = useCallback(
     async (
       listenerId: string | null,
+      kind: BuffListenerKind,
       name: string,
       enabled: boolean,
       hideInOverlay: boolean,
@@ -181,6 +183,7 @@ export function useBuffAssistantController() {
       const result = await run(() =>
         window.api.saveBuffListener(
           listenerId,
+          kind,
           name,
           enabled,
           hideInOverlay,

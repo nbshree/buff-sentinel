@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 11;
+pub const CONFIG_SCHEMA_VERSION: u32 = 12;
 pub const MAX_LISTENERS: usize = 8;
 pub const DEFAULT_CYCLE_MS: u64 = 20_000;
 pub const DEFAULT_DEADLINE_GRACE_MS: u64 = 1_500;
@@ -9,6 +9,9 @@ pub const DEFAULT_THRESHOLD: f32 = 0.95;
 const LEGACY_DEFAULT_THRESHOLD: f32 = 0.86;
 pub const DEFAULT_CONFIRM_FRAMES: u32 = 3;
 pub const DEFAULT_MISSING_FRAMES: u32 = 5;
+pub const DEFAULT_SKILL_DURATION_MS: u64 = 10_000;
+pub const MIN_SKILL_DURATION_MS: u64 = 1_000;
+pub const MAX_SKILL_DURATION_MS: u64 = 120_000;
 pub const DEFAULT_OVERLAY_WIDTH: u32 = 330;
 pub const DEFAULT_OVERLAY_HEIGHT: u32 = 92;
 pub const MIN_OVERLAY_WIDTH: u32 = 75;
@@ -22,6 +25,14 @@ pub enum BuffMatchMode {
     #[default]
     Pixel,
     BrightText,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BuffListenerKind {
+    #[default]
+    Cycle,
+    SkillCountdown,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -311,6 +322,8 @@ pub struct BuffListenerSettings {
     pub cycle_ms: u64,
     #[serde(default = "default_deadline_grace_ms")]
     pub deadline_grace_ms: u64,
+    #[serde(default = "default_skill_duration_ms")]
+    pub skill_duration_ms: u64,
     #[serde(default)]
     pub match_mode: BuffMatchMode,
     pub threshold: f32,
@@ -325,6 +338,7 @@ impl Default for BuffListenerSettings {
         Self {
             cycle_ms: settings.cycle_ms,
             deadline_grace_ms: settings.deadline_grace_ms,
+            skill_duration_ms: DEFAULT_SKILL_DURATION_MS,
             match_mode: BuffMatchMode::Pixel,
             threshold: settings.threshold,
             confirm_frames: settings.confirm_frames,
@@ -349,6 +363,9 @@ impl BuffListenerSettings {
         settings.sanitize();
         self.cycle_ms = settings.cycle_ms;
         self.deadline_grace_ms = settings.deadline_grace_ms;
+        self.skill_duration_ms = self
+            .skill_duration_ms
+            .clamp(MIN_SKILL_DURATION_MS, MAX_SKILL_DURATION_MS);
         self.threshold = settings.threshold;
         self.confirm_frames = settings.confirm_frames;
         self.missing_frames = settings.missing_frames;
@@ -361,6 +378,7 @@ impl From<&BuffAssistantSettings> for BuffListenerSettings {
         Self {
             cycle_ms: settings.cycle_ms,
             deadline_grace_ms: settings.deadline_grace_ms,
+            skill_duration_ms: DEFAULT_SKILL_DURATION_MS,
             match_mode: BuffMatchMode::Pixel,
             threshold: settings.threshold,
             confirm_frames: settings.confirm_frames,
@@ -489,6 +507,10 @@ const fn default_deadline_grace_ms() -> u64 {
     DEFAULT_DEADLINE_GRACE_MS
 }
 
+const fn default_skill_duration_ms() -> u64 {
+    DEFAULT_SKILL_DURATION_MS
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuffAssistantConfig {
@@ -510,6 +532,8 @@ pub struct BuffListenerConfig {
     pub enabled: bool,
     #[serde(default)]
     pub hide_in_overlay: bool,
+    #[serde(default)]
+    pub kind: BuffListenerKind,
     pub template: Option<BuffTemplateSummary>,
     pub settings: BuffListenerSettings,
 }
@@ -585,6 +609,7 @@ impl LegacyBuffAssistantConfig {
                 name: "金周天".into(),
                 enabled: true,
                 hide_in_overlay: false,
+                kind: BuffListenerKind::Cycle,
                 template: Some(template),
                 settings: BuffListenerSettings::from(&self.settings),
             })
@@ -704,6 +729,8 @@ pub struct BuffOverlayState {
 pub struct BuffOverlayItem {
     pub listener_id: String,
     pub name: String,
+    #[serde(default)]
+    pub kind: BuffListenerKind,
     pub mode: BuffOverlayMode,
     pub expected_at_unix_ms: Option<i64>,
 }
@@ -750,6 +777,7 @@ mod tests {
             name: "测试".into(),
             enabled: true,
             hide_in_overlay: false,
+            kind: BuffListenerKind::Cycle,
             template: None,
             settings: BuffListenerSettings::default(),
         };
@@ -806,6 +834,92 @@ mod tests {
 
         assert_eq!(value["matchMode"], "brightText");
         assert_eq!(restored.match_mode, BuffMatchMode::BrightText);
+    }
+
+    #[test]
+    fn listener_kind_defaults_to_the_cycle_reminder_when_missing() {
+        let listener = BuffListenerConfig {
+            id: "listener-1".into(),
+            name: "测试".into(),
+            enabled: true,
+            hide_in_overlay: false,
+            kind: BuffListenerKind::Cycle,
+            template: None,
+            settings: BuffListenerSettings::default(),
+        };
+        let mut value = serde_json::to_value(listener).unwrap();
+        value.as_object_mut().unwrap().remove("kind");
+
+        let listener: BuffListenerConfig = serde_json::from_value(value).unwrap();
+
+        assert_eq!(listener.kind, BuffListenerKind::Cycle);
+    }
+
+    #[test]
+    fn skill_countdown_kind_serializes_as_camel_case() {
+        let value = serde_json::to_value(BuffListenerKind::SkillCountdown).unwrap();
+        let restored: BuffListenerKind = serde_json::from_value(value.clone()).unwrap();
+
+        assert_eq!(value, serde_json::json!("skillCountdown"));
+        assert_eq!(restored, BuffListenerKind::SkillCountdown);
+
+        assert_eq!(
+            serde_json::to_value(BuffListenerKind::Cycle).unwrap(),
+            serde_json::json!("cycle")
+        );
+    }
+
+    #[test]
+    fn overlay_items_default_to_the_cycle_reminder_when_kind_is_missing() {
+        let value = serde_json::json!({
+            "listenerId": "listener-1",
+            "name": "测试",
+            "mode": "waiting",
+            "expectedAtUnixMs": null
+        });
+
+        let item: BuffOverlayItem = serde_json::from_value(value).unwrap();
+
+        assert_eq!(item.kind, BuffListenerKind::Cycle);
+    }
+
+    #[test]
+    fn skill_duration_defaults_to_ten_seconds_when_missing() {
+        let mut value = serde_json::to_value(BuffListenerSettings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("skillDurationMs");
+
+        let settings: BuffListenerSettings = serde_json::from_value(value).unwrap();
+
+        assert_eq!(settings.skill_duration_ms, 10_000);
+    }
+
+    #[test]
+    fn skill_duration_is_clamped_to_supported_bounds() {
+        let mut settings = BuffListenerSettings {
+            skill_duration_ms: 10,
+            ..BuffListenerSettings::default()
+        };
+        settings.sanitize();
+        assert_eq!(settings.skill_duration_ms, MIN_SKILL_DURATION_MS);
+
+        let mut settings = BuffListenerSettings {
+            skill_duration_ms: u64::MAX,
+            ..BuffListenerSettings::default()
+        };
+        settings.sanitize();
+        assert_eq!(settings.skill_duration_ms, MAX_SKILL_DURATION_MS);
+    }
+
+    #[test]
+    fn legacy_configs_keep_their_listeners_on_the_cycle_reminder() {
+        let config = legacy_config(11, BuffAssistantSettings::default()).migrate();
+
+        assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
+        assert_eq!(config.listeners[0].kind, BuffListenerKind::Cycle);
+        assert_eq!(
+            config.listeners[0].settings.skill_duration_ms,
+            DEFAULT_SKILL_DURATION_MS
+        );
     }
 
     #[test]
