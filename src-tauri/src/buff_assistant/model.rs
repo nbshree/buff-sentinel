@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-pub const CONFIG_SCHEMA_VERSION: u32 = 12;
+pub const CONFIG_SCHEMA_VERSION: u32 = 13;
+/// The schema version that introduced a dedicated skill icon search region.
+/// Older configs inherit their Buff search region so existing listeners keep
+/// watching exactly the same pixels.
+pub const SKILL_SEARCH_REGION_SCHEMA_VERSION: u32 = 13;
 pub const MAX_LISTENERS: usize = 8;
 pub const DEFAULT_CYCLE_MS: u64 = 20_000;
 pub const DEFAULT_DEADLINE_GRACE_MS: u64 = 1_500;
@@ -518,6 +522,8 @@ pub struct BuffAssistantConfig {
     pub target: Option<BuffTarget>,
     pub search_region: Option<NormalizedRect>,
     #[serde(default)]
+    pub skill_search_region: Option<NormalizedRect>,
+    #[serde(default)]
     pub listeners: Vec<BuffListenerConfig>,
     #[serde(default)]
     pub settings: BuffGlobalSettings,
@@ -566,6 +572,7 @@ impl Default for BuffAssistantConfig {
             schema_version: CONFIG_SCHEMA_VERSION,
             target: None,
             search_region: None,
+            skill_search_region: None,
             listeners: Vec::new(),
             settings: BuffGlobalSettings::default(),
         }
@@ -576,6 +583,7 @@ impl BuffAssistantConfig {
     pub fn sanitize(&mut self) {
         self.schema_version = CONFIG_SCHEMA_VERSION;
         self.search_region = self.search_region.map(NormalizedRect::sanitized);
+        self.skill_search_region = self.skill_search_region.map(NormalizedRect::sanitized);
         self.settings.sanitize();
         self.listeners.truncate(MAX_LISTENERS);
         for listener in &mut self.listeners {
@@ -619,6 +627,7 @@ impl LegacyBuffAssistantConfig {
             schema_version: CONFIG_SCHEMA_VERSION,
             target: self.target,
             search_region: self.search_region,
+            skill_search_region: self.search_region,
             listeners,
             settings: BuffGlobalSettings::from(&self.settings),
         };
@@ -920,6 +929,83 @@ mod tests {
             config.listeners[0].settings.skill_duration_ms,
             DEFAULT_SKILL_DURATION_MS
         );
+    }
+
+    #[test]
+    fn skill_search_region_defaults_to_none_when_missing() {
+        let mut value = serde_json::to_value(BuffAssistantConfig::default()).unwrap();
+        value.as_object_mut().unwrap().remove("skillSearchRegion");
+
+        let config: BuffAssistantConfig = serde_json::from_value(value).unwrap();
+
+        assert_eq!(config.skill_search_region, None);
+    }
+
+    #[test]
+    fn skill_search_region_uses_the_frontend_field_shape() {
+        let config = BuffAssistantConfig {
+            skill_search_region: Some(NormalizedRect {
+                x: 0.1,
+                y: 0.7,
+                width: 0.12,
+                height: 0.12,
+            }),
+            ..BuffAssistantConfig::default()
+        };
+
+        let value = serde_json::to_value(config).unwrap();
+
+        assert_eq!(value["skillSearchRegion"]["x"], 0.1);
+        assert_eq!(value["skillSearchRegion"]["y"], 0.7);
+        assert_eq!(value["skillSearchRegion"]["height"], 0.12);
+    }
+
+    #[test]
+    fn skill_search_region_is_clamped_inside_the_frame() {
+        let mut config = BuffAssistantConfig {
+            search_region: Some(NormalizedRect {
+                x: 0.0,
+                y: 0.0,
+                width: 1.5,
+                height: 1.0,
+            }),
+            skill_search_region: Some(NormalizedRect {
+                x: 0.9,
+                y: 0.95,
+                width: 0.5,
+                height: 0.5,
+            }),
+            ..BuffAssistantConfig::default()
+        };
+
+        config.sanitize();
+
+        let buff = config.search_region.unwrap();
+        assert!((buff.width - 1.0).abs() < 1e-9);
+
+        let skill = config.skill_search_region.unwrap();
+        assert!((skill.x - 0.9).abs() < 1e-9);
+        assert!((skill.y - 0.95).abs() < 1e-9);
+        assert!((skill.width - 0.1).abs() < 1e-9);
+        assert!((skill.height - 0.05).abs() < 1e-9);
+    }
+
+    #[test]
+    fn legacy_configs_inherit_the_skill_search_region() {
+        let region = NormalizedRect {
+            x: 0.5,
+            y: 0.0,
+            width: 0.4,
+            height: 0.2,
+        };
+        let mut legacy = legacy_config(12, BuffAssistantSettings::default());
+        legacy.search_region = Some(region);
+
+        let migrated = legacy.migrate();
+
+        assert_eq!(migrated.schema_version, CONFIG_SCHEMA_VERSION);
+        assert_eq!(migrated.search_region, Some(region));
+        assert_eq!(migrated.skill_search_region, Some(region));
     }
 
     #[test]

@@ -8,7 +8,7 @@ BuffFlow 是基于 Tauri 2、React、TypeScript 和 Rust 开发的 Windows Buff 
 ## 当前功能
 
 - 使用 Windows Graphics Capture 监听指定窗口，不读取游戏内存、不注入游戏进程
-- 框选 Buff 搜索区域并裁剪图标模板
+- 分别框选 Buff 栏与技能图标搜索区域，在各自区域内裁剪图标模板
 - 支持动态数字、层数和闪光区域遮罩
 - 连续帧模板匹配，减少单帧误判
 - 可配置检测阈值、确认帧数、消失帧数、周期和触发宽限期

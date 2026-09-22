@@ -129,6 +129,7 @@ export type BuffAssistantConfig = {
   schemaVersion: number
   target: BuffTarget | null
   searchRegion: NormalizedRect | null
+  skillSearchRegion?: NormalizedRect | null
   listeners: BuffListenerConfig[]
   settings: BuffGlobalSettings
 }
@@ -259,7 +260,10 @@ export type BuffSentinelAPI = {
   listBuffSoundTemplates: () => Promise<BuffSoundTemplateSummary[]>
   listBuffAudioOutputDevices: () => Promise<BuffAudioOutputDevice[]>
   captureBuffPreview: (windowId: string) => Promise<BuffCapturePreview>
-  updateBuffSearchRegion: (searchRegion: NormalizedRect) => Promise<BuffAssistantState>
+  updateBuffSearchRegion: (
+    kind: BuffListenerKind,
+    searchRegion: NormalizedRect
+  ) => Promise<BuffAssistantState>
   getBuffListenerTemplate: (listenerId: string) => Promise<BuffTemplatePreview>
   saveBuffListener: (
     listenerId: string | null,
@@ -384,8 +388,10 @@ export const buffSentinelApi: BuffSentinelAPI = {
     callTauri(() => invoke<BuffAudioOutputDevice[]>('list_buff_audio_output_devices')),
   captureBuffPreview: (windowId) =>
     callTauri(() => invoke<BuffCapturePreview>('capture_buff_preview', { windowId })),
-  updateBuffSearchRegion: (searchRegion) =>
-    callTauri(() => invoke<BuffAssistantState>('update_buff_search_region', { searchRegion })),
+  updateBuffSearchRegion: (kind, searchRegion) =>
+    callTauri(() =>
+      invoke<BuffAssistantState>('update_buff_search_region', { kind, searchRegion })
+    ),
   getBuffListenerTemplate: (listenerId) =>
     callTauri(() => invoke<BuffTemplatePreview>('get_buff_listener_template', { listenerId })),
   saveBuffListener: (

@@ -402,6 +402,7 @@ fn persist_capture_target(
 pub fn update_buff_search_region(
     app: AppHandle,
     state: State<'_, BuffAssistant>,
+    kind: BuffListenerKind,
     search_region: NormalizedRect,
 ) -> Result<BuffAssistantState, String> {
     ensure_configuration_unlocked(&state)?;
@@ -414,7 +415,7 @@ pub fn update_buff_search_region(
             .or_else(|| inner.config.target.clone())
             .ok_or_else(|| "请先捕获游戏窗口预览".to_string())?;
         inner.config.target = Some(target);
-        inner.config.search_region = Some(search_region.sanitized());
+        set_search_region(&mut inner.config, kind, search_region.sanitized());
         inner.config.sanitize();
         inner.listeners = listener_runtime_map(&inner.config);
         storage::save_config(&inner.storage_directory, &inner.config)?;
@@ -532,7 +533,7 @@ pub fn save_buff_listener(
             reference_height: target.reference_height,
             ..target
         });
-        inner.config.search_region = Some(region);
+        set_search_region(&mut inner.config, kind, region);
         let id = listener_id.unwrap_or_else(|| format!("listener-{}", now_millis()));
         if let Some(listener) = inner.config.listeners.iter_mut().find(|item| item.id == id) {
             // The mechanism is fixed when a listener is created, so an edit
@@ -796,8 +797,8 @@ pub fn start_buff_monitor_internal(app: &AppHandle) -> Result<(), String> {
         if inner.overlay_editing {
             return Err("请先保存悬浮窗位置再开始监控".into());
         }
-        if inner.config.target.is_none() || inner.config.search_region.is_none() {
-            return Err("请先选择游戏窗口并设置 Buff 搜索区域".into());
+        if inner.config.target.is_none() {
+            return Err("请先选择游戏窗口".into());
         }
         let enabled = inner
             .config
@@ -814,6 +815,12 @@ pub fn start_buff_monitor_internal(app: &AppHandle) -> Result<(), String> {
             .collect::<Vec<_>>();
         if enabled.is_empty() {
             return Err("请至少启用一个已配置模板的监听项".into());
+        }
+        if let Some((_, kind, _)) = enabled
+            .iter()
+            .find(|(_, kind, _)| listener_search_region(&inner.config, *kind).is_none())
+        {
+            return Err(missing_search_region_message(*kind).into());
         }
         inner.monitor_requested = true;
         inner.reconnect_generation = inner.reconnect_generation.wrapping_add(1);
@@ -1497,10 +1504,6 @@ fn capture_flags(
         .target
         .clone()
         .ok_or_else(|| "尚未选择游戏窗口".to_string())?;
-    let region = inner
-        .config
-        .search_region
-        .ok_or_else(|| "尚未设置 Buff 搜索区域".to_string())?;
     let listeners = inner
         .config
         .listeners
@@ -1510,10 +1513,26 @@ fn capture_flags(
                 && (purpose == CapturePurpose::Test || listener.enabled)
                 && listener_id.is_none_or(|id| listener.id == id)
         })
+        .collect::<Vec<_>>();
+    if listeners.is_empty() {
+        return Err("没有可用的监听图标模板".into());
+    }
+    let regions = listeners
+        .iter()
         .map(|listener| {
+            listener_search_region(&inner.config, listener.kind)
+                .ok_or_else(|| missing_search_region_message(listener.kind).to_string())
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let (regions, region_indexes) = capture::group_regions(regions);
+    let listeners = listeners
+        .iter()
+        .zip(region_indexes)
+        .map(|(listener, region_index)| {
             let summary = listener.template.as_ref().unwrap();
             Ok(RuntimeListenerFlags {
                 id: listener.id.clone(),
+                region_index,
                 template: storage::load_template(&inner.storage_directory, summary)?,
                 match_mode: listener.settings.match_mode,
                 threshold: listener.settings.threshold,
@@ -1522,14 +1541,11 @@ fn capture_flags(
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
-    if listeners.is_empty() {
-        return Err("没有可用的监听图标模板".into());
-    }
     Ok((
         RuntimeCaptureFlags {
             app: app.clone(),
             purpose,
-            region,
+            regions,
             listeners,
             reference_width: target.reference_width,
             reference_height: target.reference_height,
@@ -2254,6 +2270,35 @@ fn ensure_overlay_visible(app: &AppHandle) {
 
 fn listener_runs(listener: &BuffListenerConfig) -> bool {
     listener.enabled && listener.template.is_some()
+}
+
+/// Each listener mechanism watches its own search region.
+fn listener_search_region(
+    config: &BuffAssistantConfig,
+    kind: BuffListenerKind,
+) -> Option<NormalizedRect> {
+    match kind {
+        BuffListenerKind::Cycle => config.search_region,
+        BuffListenerKind::SkillCountdown => config.skill_search_region,
+    }
+}
+
+fn set_search_region(
+    config: &mut BuffAssistantConfig,
+    kind: BuffListenerKind,
+    region: NormalizedRect,
+) {
+    match kind {
+        BuffListenerKind::Cycle => config.search_region = Some(region),
+        BuffListenerKind::SkillCountdown => config.skill_search_region = Some(region),
+    }
+}
+
+fn missing_search_region_message(kind: BuffListenerKind) -> &'static str {
+    match kind {
+        BuffListenerKind::Cycle => "尚未设置 Buff 搜索区域",
+        BuffListenerKind::SkillCountdown => "尚未设置技能图标搜索区域",
+    }
 }
 
 fn listener_shows_in_overlay(listener: &BuffListenerConfig) -> bool {

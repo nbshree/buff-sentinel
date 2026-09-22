@@ -15,9 +15,10 @@ import type {
 
 const defaultState: BuffAssistantState = {
   config: {
-    schemaVersion: 12,
+    schemaVersion: 13,
     target: null,
     searchRegion: null,
+    skillSearchRegion: null,
     listeners: [],
     settings: {
       overlay: {
@@ -154,8 +155,8 @@ export function useBuffAssistantController() {
   )
 
   const updateBuffSearchRegion = useCallback(
-    async (searchRegion: NormalizedRect) => {
-      const result = await run(() => window.api.updateBuffSearchRegion(searchRegion))
+    async (kind: BuffListenerKind, searchRegion: NormalizedRect) => {
+      const result = await run(() => window.api.updateBuffSearchRegion(kind, searchRegion))
       stateRef.current = result
       setState(result)
       return result

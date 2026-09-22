@@ -144,7 +144,9 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     setOverlayPreview
   } = controller
   const [selectedWindowId, setSelectedWindowId] = useState('')
-  const [searchRegion, setSearchRegion] = useState<NormalizedRect | null>(null)
+  const [searchRegions, setSearchRegions] = useState<
+    Record<BuffListenerKind, NormalizedRect | null>
+  >({ cycle: null, skillCountdown: null })
   const [templateSource, setTemplateSource] = useState<string | null>(null)
   const [savedTemplateSource, setSavedTemplateSource] = useState<string | null>(null)
   const [usingSavedTemplate, setUsingSavedTemplate] = useState(false)
@@ -152,7 +154,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const [loadingListenerTemplate, setLoadingListenerTemplate] = useState(false)
   const [templateCrop, setTemplateCrop] = useState<NormalizedRect | null>(null)
   const [maskHistory, setMaskHistory] = useState<MaskHistory>(() => createMaskHistory())
-  const [searchRegionEditorOpen, setSearchRegionEditorOpen] = useState(false)
+  const [searchRegionEditor, setSearchRegionEditor] = useState<BuffListenerKind | null>(null)
   const [templateCropEditorOpen, setTemplateCropEditorOpen] = useState(false)
   const [maskEditorOpen, setMaskEditorOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
@@ -180,6 +182,8 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const [logsCollapsed, setLogsCollapsed] = useState(false)
   const maskRef = useRef<MaskEditorHandle>(null)
   const listenerTemplateRequestRef = useRef(0)
+  const listenerSearchRegion = searchRegions[listenerKind]
+  const listenerRegionLabel = listenerKind === 'skillCountdown' ? '技能' : 'Buff'
 
   useEffect(() => {
     if (!settingsDialogOpen) setSettings(state.config.settings)
@@ -282,20 +286,20 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   useEffect(() => {
     let disposed = false
     setTemplateSource(null)
-    if (!preview || !searchRegion) return
+    if (!preview || !listenerSearchRegion) return
 
-    void cropImageDataUrl(preview.dataUrl, searchRegion)
+    void cropImageDataUrl(preview.dataUrl, listenerSearchRegion)
       .then((dataUrl) => {
         if (!disposed) setTemplateSource(dataUrl)
       })
       .catch((reason: unknown) => {
-        if (!disposed) console.error('裁剪 Buff 搜索区域失败', reason)
+        if (!disposed) console.error('裁剪监听项搜索区域失败', reason)
       })
 
     return () => {
       disposed = true
     }
-  }, [preview, searchRegion])
+  }, [preview, listenerSearchRegion])
 
   const configurationLocked = state.isMonitoring || state.activity === 'testing'
   const selectedAudioOutputUnavailable = Boolean(
@@ -309,11 +313,20 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
       ? state.hotkeyRegistrationError
       : null
   const displayedHotkeyError = hotkeyInputError ?? savedHotkeyError
+  const configuredEnabledListeners = state.config.listeners.filter(
+    (listener) => listener.enabled && listener.template
+  )
+  const missingSearchRegion = configuredEnabledListeners.some(
+    (listener) =>
+      !((listener.kind ?? 'cycle') === 'skillCountdown'
+        ? state.config.skillSearchRegion
+        : state.config.searchRegion)
+  )
   const canStart = Boolean(
     preview &&
     state.config.target &&
-    state.config.searchRegion &&
-    state.config.listeners.some((listener) => listener.enabled && listener.template)
+    !missingSearchRegion &&
+    configuredEnabledListeners.length > 0
   )
   const enabledListenerCount = state.config.listeners.filter((listener) => listener.enabled).length
   const monitoringStatus = state.isMonitoring
@@ -328,18 +341,27 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   async function handlePreview(): Promise<void> {
     if (!selectedWindowId) return
     const result = await capturePreview(selectedWindowId)
-    setSearchRegion(state.config.searchRegion ?? defaultRegion)
+    setSearchRegions(
+      result.width < 1
+        ? { cycle: null, skillCountdown: null }
+        : {
+            cycle: state.config.searchRegion ?? defaultRegion,
+            skillCountdown: state.config.skillSearchRegion ?? defaultRegion
+          }
+    )
     setTemplateCrop(null)
     setMaskHistory(createMaskHistory())
-    if (result.width < 1) setSearchRegion(null)
   }
 
-  function handleSearchRegionChange(region: NormalizedRect): void {
-    setSearchRegion(region)
+  function handleSearchRegionChange(kind: BuffListenerKind, region: NormalizedRect): void {
+    setSearchRegions((current) => ({ ...current, [kind]: region }))
     setTemplateCrop(null)
     setMaskHistory(createMaskHistory())
-    if (state.config.listeners.some((listener) => listener.template)) {
-      void updateBuffSearchRegion(region).catch(() => undefined)
+    const hasConfiguredListener = state.config.listeners.some(
+      (listener) => (listener.kind ?? 'cycle') === kind && listener.template
+    )
+    if (hasConfiguredListener) {
+      void updateBuffSearchRegion(kind, region).catch(() => undefined)
     }
   }
 
@@ -434,7 +456,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           listenerSettings,
           maskRef.current?.getMaskDataUrl()
         )
-      } else if (templateCrop && searchRegion) {
+      } else if (templateCrop && listenerSearchRegion) {
         await saveListener(
           editingListenerId,
           listenerKind,
@@ -442,7 +464,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           listenerEnabled,
           listenerHiddenInOverlay,
           listenerSettings,
-          searchRegion,
+          listenerSearchRegion,
           templateCrop,
           maskRef.current?.getMaskDataUrl()
         )
@@ -565,7 +587,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                 <div>
                   <span className="buff-section-kicker">CAPTURE SOURCE</span>
                   <h3>共享捕获区域</h3>
-                  <p>所有监听图标共用同一个游戏窗口与搜索区域。</p>
+                  <p>共用同一个游戏窗口；周期提醒用 Buff 栏区域，技能倒计时用技能图标区域。</p>
                 </div>
               </div>
               <Button
@@ -614,22 +636,40 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
             </Button>
 
             {preview ? (
-              <div className="buff-wizard-step">
-                <div className="buff-wizard-step__title">
-                  <span>1</span>
-                  <div>
-                    <strong>框选 Buff 栏搜索区域</strong>
-                    <p>区域越小识别越快，请覆盖全部图标可能出现的位置。</p>
+              <>
+                <div className="buff-wizard-step">
+                  <div className="buff-wizard-step__title">
+                    <span>1</span>
+                    <div>
+                      <strong>框选 Buff 栏搜索区域</strong>
+                      <p>周期提醒专用。区域越小识别越快，请覆盖全部 Buff 图标可能出现的位置。</p>
+                    </div>
                   </div>
+                  <RegionSelector
+                    imageUrl={preview.dataUrl}
+                    label="Buff 搜索区域"
+                    value={searchRegions.cycle}
+                    onChange={(region) => handleSearchRegionChange('cycle', region)}
+                    onRequestExpand={() => setSearchRegionEditor('cycle')}
+                  />
                 </div>
-                <RegionSelector
-                  imageUrl={preview.dataUrl}
-                  label="Buff 搜索区域"
-                  value={searchRegion}
-                  onChange={handleSearchRegionChange}
-                  onRequestExpand={() => setSearchRegionEditorOpen(true)}
-                />
-              </div>
+                <div className="buff-wizard-step">
+                  <div className="buff-wizard-step__title">
+                    <span>2</span>
+                    <div>
+                      <strong>框选技能图标搜索区域</strong>
+                      <p>技能倒计时专用。请框住技能图标可能出现的位置，不必和 Buff 栏重合。</p>
+                    </div>
+                  </div>
+                  <RegionSelector
+                    imageUrl={preview.dataUrl}
+                    label="技能搜索区域"
+                    value={searchRegions.skillCountdown}
+                    onChange={(region) => handleSearchRegionChange('skillCountdown', region)}
+                    onRequestExpand={() => setSearchRegionEditor('skillCountdown')}
+                  />
+                </div>
+              </>
             ) : (
               <div className="buff-capture-empty">
                 <div className="buff-capture-empty__icon">
@@ -1324,7 +1364,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                   {usingSavedTemplate && templateSource ? (
                     <Button type="button" variant="outline" onClick={startListenerRecrop}>
                       <ImagePlus aria-hidden="true" />
-                      从当前 Buff 区域刷新监听图标
+                      从当前{listenerRegionLabel}区域刷新监听图标
                     </Button>
                   ) : null}
                   <div className="buff-wizard-step__title">
@@ -1333,10 +1373,10 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                       <strong>裁剪图标主体</strong>
                       <p>
                         {usingSavedTemplate
-                        ? editingFromSharedSource
-                          ? '当前正在使用最新 Buff 区域，可重新框选并保存为新的监听图标。'
-                          : '当前显示已保存的监听图标；如需更新，请点击下方刷新按钮。'
-                        : '只框选当前图标，不要包含相邻 Buff.'}
+                          ? editingFromSharedSource
+                            ? `当前正在使用最新${listenerRegionLabel}区域，可重新框选并保存为新的监听图标。`
+                            : '当前显示已保存的监听图标；如需更新，请点击下方刷新按钮。'
+                          : '只框选当前图标，不要包含相邻 Buff.'}
                       </p>
                     </div>
                   </div>
@@ -1396,12 +1436,21 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
           <RegionEditorDialog
             description="框内拖动可整体移动，拖动四边或四角可精确调整搜索范围。"
             imageUrl={preview.dataUrl}
-            label="Buff 搜索区域"
-            open={searchRegionEditorOpen}
-            title="精调 Buff 栏搜索区域"
-            value={searchRegion}
-            onApply={handleSearchRegionChange}
-            onOpenChange={setSearchRegionEditorOpen}
+            label={searchRegionEditor === 'skillCountdown' ? '技能搜索区域' : 'Buff 搜索区域'}
+            open={searchRegionEditor !== null}
+            title={
+              searchRegionEditor === 'skillCountdown'
+                ? '精调技能图标搜索区域'
+                : '精调 Buff 栏搜索区域'
+            }
+            value={searchRegionEditor === null ? null : searchRegions[searchRegionEditor]}
+            onApply={(region) => {
+              if (searchRegionEditor === null) return
+              handleSearchRegionChange(searchRegionEditor, region)
+            }}
+            onOpenChange={(open) => {
+              if (!open) setSearchRegionEditor(null)
+            }}
           />
         ) : null}
 
