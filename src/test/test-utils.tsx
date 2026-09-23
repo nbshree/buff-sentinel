@@ -2,7 +2,7 @@ import { render, type RenderOptions } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { vi } from 'vitest'
 
-import type { BuffAssistantState, BuffSentinelAPI } from '@/lib/buff-sentinel-api'
+import type { BuffAssistantState, BuffOverlayState, BuffSentinelAPI } from '@/lib/buff-sentinel-api'
 
 export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
   const buffState: BuffAssistantState = buffStateOverride ?? {
@@ -45,6 +45,17 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
     checkForUpdate: vi.fn(async () => ({ currentVersion: '0.1.0', update: null })),
     installUpdate: vi.fn(async () => undefined),
     getBuffAssistantState: vi.fn(async () => buffState),
+    getBuffOverlayState: vi.fn<BuffSentinelAPI['getBuffOverlayState']>(
+      async () =>
+        ({
+          mode: 'hidden',
+          message: '',
+          items: [],
+          emittedAtUnixMs: 0,
+          editable: false,
+          colorScheme: 'blackWhite'
+        }) satisfies BuffOverlayState
+    ),
     listBuffCaptureWindows: vi.fn<BuffSentinelAPI['listBuffCaptureWindows']>(async () => []),
     listBuffSoundTemplates: vi.fn(async () => [{ id: 'template-1', name: '模板一' }]),
     listBuffAudioOutputDevices: vi.fn(async () => [

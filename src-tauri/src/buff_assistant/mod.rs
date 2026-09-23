@@ -39,7 +39,7 @@ pub use model::{
 };
 use serde::{Deserialize, Serialize};
 use tauri::{
-    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
 };
 use tauri_plugin_dialog::DialogExt;
@@ -96,6 +96,7 @@ struct RuntimeData {
     /// The overlay window currently in position-editing mode, if any.
     overlay_editing: Option<BuffListenerKind>,
     overlay_windows: [OverlayWindowCache; 2],
+    overlay_states: [Option<BuffOverlayState>; 2],
 }
 
 impl RuntimeData {
@@ -299,6 +300,7 @@ impl BuffAssistant {
                     overlay_generations: [0; 2],
                     overlay_editing: None,
                     overlay_windows: [OverlayWindowCache::default(), OverlayWindowCache::default()],
+                    overlay_states: [None, None],
                 }),
                 audio,
             },
@@ -356,6 +358,28 @@ pub fn create_overlay(app: &AppHandle) -> tauri::Result<()> {
 #[tauri::command]
 pub fn get_buff_assistant_state(state: State<'_, BuffAssistant>) -> BuffAssistantState {
     state.snapshot()
+}
+
+#[tauri::command]
+pub fn get_buff_overlay_state(
+    window: WebviewWindow,
+    state: State<'_, BuffAssistant>,
+) -> Result<BuffOverlayState, String> {
+    let kind = match window.label() {
+        OVERLAY_LABEL => BuffListenerKind::Cycle,
+        SKILL_OVERLAY_LABEL => BuffListenerKind::SkillCountdown,
+        _ => return Err("仅浮窗可读取浮窗状态".into()),
+    };
+    let current = state.lock().overlay_states[overlay_index(kind)].clone();
+    Ok(current.unwrap_or_else(|| {
+        overlay_state(
+            window.app_handle(),
+            BuffOverlayMode::Hidden,
+            String::new(),
+            Vec::new(),
+            false,
+        )
+    }))
 }
 
 #[tauri::command]
@@ -2084,6 +2108,7 @@ fn overlay_state(
 }
 
 fn emit_overlay(app: &AppHandle, kind: BuffListenerKind, state: BuffOverlayState) {
+    app.state::<BuffAssistant>().lock().overlay_states[overlay_index(kind)] = Some(state.clone());
     let _ = app.emit_to(overlay_label(kind), "buff-overlay-state", state);
 }
 

@@ -58,6 +58,7 @@ pub fn run() {
             updater::check_for_update,
             updater::install_update,
             buff_assistant::get_buff_assistant_state,
+            buff_assistant::get_buff_overlay_state,
             buff_assistant::list_buff_capture_windows,
             buff_assistant::list_buff_sound_templates,
             buff_assistant::list_buff_audio_output_devices,

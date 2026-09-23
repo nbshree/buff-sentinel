@@ -264,6 +264,7 @@ export type BuffSentinelAPI = {
   checkForUpdate: () => Promise<AppUpdateCheckResult>
   installUpdate: (onEvent: (event: AppUpdateDownloadEvent) => void) => Promise<void>
   getBuffAssistantState: () => Promise<BuffAssistantState>
+  getBuffOverlayState: () => Promise<BuffOverlayState>
   listBuffCaptureWindows: () => Promise<CaptureWindowCandidate[]>
   listBuffSoundTemplates: () => Promise<BuffSoundTemplateSummary[]>
   listBuffAudioOutputDevices: () => Promise<BuffAudioOutputDevice[]>
@@ -349,6 +350,42 @@ function createEventListener<T>(eventName: string, callback: (payload: T) => voi
   }
 }
 
+function subscribeOverlayState(callback: (state: BuffOverlayState) => void): () => void {
+  let disposed = false
+  let receivedEvent = false
+  let unlisten: UnlistenFn | undefined
+
+  void callTauri(() =>
+    listen<BuffOverlayState>(
+      'buff-overlay-state',
+      (event) => {
+        if (disposed) return
+        receivedEvent = true
+        callback(event.payload)
+      },
+      { target: getCurrentWindow().label }
+    )
+  )
+    .then(async (nextUnlisten) => {
+      if (disposed) {
+        nextUnlisten()
+        return
+      }
+      unlisten = nextUnlisten
+      const snapshot = await buffSentinelApi.getBuffOverlayState()
+      if (!disposed && !receivedEvent) callback(snapshot)
+    })
+    .catch((error: unknown) => {
+      if (!disposed) console.error('同步浮窗状态失败', error)
+    })
+
+  return () => {
+    disposed = true
+    unlisten?.()
+    unlisten = undefined
+  }
+}
+
 const windowControls: WindowControlsAPI = {
   minimize: () => callTauri(() => getCurrentWindow().minimize()),
   toggleMaximize: () => callTauri(() => getCurrentWindow().toggleMaximize()),
@@ -388,6 +425,7 @@ export const buffSentinelApi: BuffSentinelAPI = {
   },
   getBuffAssistantState: () =>
     callTauri(() => invoke<BuffAssistantState>('get_buff_assistant_state')),
+  getBuffOverlayState: () => callTauri(() => invoke<BuffOverlayState>('get_buff_overlay_state')),
   listBuffCaptureWindows: () =>
     callTauri(() => invoke<CaptureWindowCandidate[]>('list_buff_capture_windows')),
   listBuffSoundTemplates: () =>
@@ -472,7 +510,7 @@ export const buffSentinelApi: BuffSentinelAPI = {
   onBuffAssistantState: (callback) => createEventListener('buff-assistant-state', callback),
   onBuffMetric: (callback) => createEventListener('buff-assistant-metric', callback),
   onBuffExecutionLog: (callback) => createEventListener('buff-assistant-execution-log', callback),
-  onBuffOverlayState: (callback) => createEventListener('buff-overlay-state', callback),
+  onBuffOverlayState: subscribeOverlayState,
   window: windowControls
 }
 
