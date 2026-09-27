@@ -1,9 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { useBuffAssistantController } from '@/hooks/useBuffAssistantController'
-import type { BuffListenerConfig, NormalizedRect } from '@/lib/buff-sentinel-api'
 import { createBuffSentinelApi, installBuffSentinelApi } from '@/test/test-utils'
 
 import { BuffAssistantPage } from './BuffAssistantPage'
@@ -106,136 +105,6 @@ async function openGlobalSettings(user: ReturnType<typeof userEvent.setup>) {
 async function openListenerEditor(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole('button', { name: '编辑' }))
   return screen.findByRole('dialog', { name: '编辑监听图标' })
-}
-
-/**
- * jsdom has neither image loading nor a canvas implementation, so the capture
- * preview would never be cropped into a template source. Both are stubbed so
- * the add-listener menu becomes reachable in tests.
- */
-function stubCroppedPreview(): () => void {
-  const canvasPrototype = HTMLCanvasElement.prototype as unknown as {
-    getContext: (...args: unknown[]) => unknown
-    toDataURL: (...args: unknown[]) => string
-  }
-  const originalImage = globalThis.Image
-  const originalGetContext = canvasPrototype.getContext
-  const originalToDataURL = canvasPrototype.toDataURL
-
-  class ImmediateImage {
-    decoding = 'async'
-    naturalWidth = 1920
-    naturalHeight = 1080
-    onload: (() => void) | null = null
-    onerror: (() => void) | null = null
-
-    set src(_value: string) {
-      this.onload?.()
-    }
-  }
-
-  Object.defineProperty(globalThis, 'Image', { configurable: true, value: ImmediateImage })
-  canvasPrototype.getContext = () => ({ drawImage() {} })
-  canvasPrototype.toDataURL = () => 'data:image/png;base64,Y3V0'
-
-  return () => {
-    Object.defineProperty(globalThis, 'Image', { configurable: true, value: originalImage })
-    canvasPrototype.getContext = originalGetContext
-    canvasPrototype.toDataURL = originalToDataURL
-  }
-}
-
-function listenerFixture(
-  id: string,
-  name: string,
-  kind: BuffListenerConfig['kind']
-): BuffListenerConfig {
-  return {
-    id,
-    name,
-    enabled: true,
-    hideInOverlay: false,
-    kind,
-    template: { id: `template-${id}`, width: 32, height: 32 },
-    settings: {
-      cycleMs: 20_000,
-      deadlineGraceMs: 1500,
-      skillDurationMs: 10_000,
-      matchMode: 'pixel',
-      threshold: 0.95,
-      confirmFrames: 3,
-      missingFrames: 5,
-      sound: {
-        triggerEnabled: true,
-        prewarnThreeEnabled: true,
-        prewarnTwoEnabled: true,
-        prewarnOneEnabled: true,
-        triggerSource: { type: 'sine' },
-        prewarnThreeSource: { type: 'sine' },
-        prewarnTwoSource: { type: 'sine' },
-        prewarnOneSource: { type: 'sine' },
-        volume: 0.45
-      }
-    }
-  }
-}
-
-async function createTwoKindApi(skillSearchRegion: NormalizedRect | null) {
-  const baseApi = createBuffSentinelApi()
-  const baseState = await baseApi.getBuffAssistantState()
-  const target = {
-    processName: 'game.exe',
-    windowTitle: 'Game',
-    className: 'GameWindow',
-    referenceWidth: 1920,
-    referenceHeight: 1080
-  }
-  const api = createBuffSentinelApi({
-    ...baseState,
-    config: {
-      ...baseState.config,
-      target,
-      searchRegion: { x: 0.5, y: 0, width: 0.4, height: 0.2 },
-      skillSearchRegion,
-      listeners: [
-        listenerFixture('jinzhoutian', '金周天', 'cycle'),
-        listenerFixture('skill-1', '疾风步', 'skillCountdown')
-      ]
-    },
-    listeners: [
-      {
-        id: 'jinzhoutian',
-        activity: 'stopped',
-        expectedAtUnixMs: null,
-        lastConfidence: 0,
-        lastError: null
-      },
-      {
-        id: 'skill-1',
-        activity: 'stopped',
-        expectedAtUnixMs: null,
-        lastConfidence: 0,
-        lastError: null
-      }
-    ]
-  })
-  api.listBuffCaptureWindows.mockResolvedValue([
-    {
-      id: '1',
-      processName: 'game.exe',
-      windowTitle: 'Game',
-      className: 'GameWindow',
-      width: 1920,
-      height: 1080
-    }
-  ])
-  api.captureBuffPreview.mockResolvedValue({
-    dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
-    width: 1920,
-    height: 1080,
-    target
-  })
-  return api
 }
 
 describe('BuffAssistantPage', () => {
@@ -542,10 +411,10 @@ describe('BuffAssistantPage', () => {
     render(<BuffAssistantHarness />)
 
     expect(await screen.findByRole('button', { name: '开始监控' })).toBeVisible()
-    expect(screen.getByRole('button', { name: '调整周期浮窗' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '调整悬浮位置' })).toBeVisible()
     const dialog = await openGlobalSettings(user)
     expect(within(dialog).queryByRole('button', { name: '开始监控' })).toBeNull()
-    expect(within(dialog).queryByRole('button', { name: '调整周期浮窗' })).toBeNull()
+    expect(within(dialog).queryByRole('button', { name: '调整悬浮位置' })).toBeNull()
   })
 
   it('switches the live overlay preview while adjusting its position', async () => {
@@ -554,8 +423,8 @@ describe('BuffAssistantPage', () => {
     installBuffSentinelApi(api)
     render(<BuffAssistantHarness />)
 
-    await user.click(await screen.findByRole('button', { name: '调整周期浮窗' }))
-    expect(api.setBuffOverlayEditMode).toHaveBeenCalledWith('cycle', true)
+    await user.click(await screen.findByRole('button', { name: '调整悬浮位置' }))
+    expect(api.setBuffOverlayEditMode).toHaveBeenCalledWith(true)
 
     const previewSelect = await screen.findByRole('combobox', { name: '悬浮窗预览状态' })
     expect(previewSelect).toHaveTextContent('倒计时')
@@ -563,7 +432,7 @@ describe('BuffAssistantPage', () => {
     await user.click(await screen.findByRole('option', { name: '等待确认' }))
 
     await waitFor(() =>
-      expect(api.setBuffOverlayPreviewMode).toHaveBeenCalledWith('cycle', 'confirming')
+      expect(api.setBuffOverlayPreviewMode).toHaveBeenCalledWith('confirming')
     )
   })
 
@@ -573,7 +442,7 @@ describe('BuffAssistantPage', () => {
     installBuffSentinelApi(api)
     render(<BuffAssistantHarness />)
 
-    const editButton = await screen.findByRole('button', { name: '调整周期浮窗' })
+    const editButton = await screen.findByRole('button', { name: '调整悬浮位置' })
     const startButton = screen.getByRole('button', { name: '开始监控' })
     expect(startButton).toBeDisabled()
     await captureConfiguredPreview(user)
@@ -583,7 +452,7 @@ describe('BuffAssistantPage', () => {
     expect(startButton).toBeDisabled()
     expect(startButton).toHaveAttribute('title', '请先保存悬浮位置')
 
-    await user.click(screen.getByRole('button', { name: '保存周期浮窗' }))
+    await user.click(screen.getByRole('button', { name: '保存悬浮位置' }))
     expect(startButton).toBeEnabled()
   })
 
@@ -596,189 +465,5 @@ describe('BuffAssistantPage', () => {
     const dialog = await openListenerEditor(user)
     await user.click(within(dialog).getByRole('button', { name: '前往 TTS Online' }))
     expect(api.openTtsOnline).toHaveBeenCalledOnce()
-  })
-
-  it('offers both listener mechanisms from the add button menu', async () => {
-    const user = userEvent.setup()
-    const api = await createListenerApi()
-    installBuffSentinelApi(api)
-    const restorePreview = stubCroppedPreview()
-
-    try {
-      render(<BuffAssistantHarness />)
-      await captureConfiguredPreview(user)
-
-      const addButton = await screen.findByRole('button', { name: '添加监听图标' })
-      await waitFor(() => expect(addButton).toBeEnabled())
-      await user.click(addButton)
-
-      expect(await screen.findByRole('menuitem', { name: /周期提醒/ })).toBeVisible()
-      expect(screen.getByRole('menuitem', { name: /技能倒计时/ })).toBeVisible()
-    } finally {
-      restorePreview()
-    }
-  })
-
-  it('adds a skill countdown listener without any sound settings', async () => {
-    const user = userEvent.setup()
-    const api = await createListenerApi()
-    installBuffSentinelApi(api)
-    const restorePreview = stubCroppedPreview()
-
-    try {
-      render(<BuffAssistantHarness />)
-      await captureConfiguredPreview(user)
-
-      const addButton = await screen.findByRole('button', { name: '添加监听图标' })
-      await waitFor(() => expect(addButton).toBeEnabled())
-      await user.click(addButton)
-      await user.click(await screen.findByRole('menuitem', { name: /技能倒计时/ }))
-
-      const dialog = await screen.findByRole('dialog', { name: '添加技能倒计时' })
-      expect(within(dialog).getByRole('textbox', { name: '类型' })).toHaveValue('技能倒计时')
-      expect(within(dialog).getByRole('spinbutton', { name: '技能持续时间（秒）' })).toHaveValue(10)
-      expect(within(dialog).getByRole('spinbutton', { name: '匹配阈值' })).toBeVisible()
-      expect(within(dialog).queryByRole('spinbutton', { name: '周期（秒）' })).toBeNull()
-      expect(within(dialog).queryByRole('spinbutton', { name: /触发宽限期/ })).toBeNull()
-      expect(within(dialog).queryByRole('checkbox', { name: '真实触发确认音' })).toBeNull()
-      expect(within(dialog).queryByRole('button', { name: '前往 TTS Online' })).toBeNull()
-      expect(
-        within(dialog).getByText('名称、模板与识别参数仅作用于当前项；技能倒计时不会播放提示音。')
-      ).toBeVisible()
-    } finally {
-      restorePreview()
-    }
-  })
-
-  it('keeps the listener mechanism read-only while editing', async () => {
-    const user = userEvent.setup()
-    const api = await createListenerApi()
-    installBuffSentinelApi(api)
-    render(<BuffAssistantHarness />)
-
-    const dialog = await openListenerEditor(user)
-    const kind = within(dialog).getByRole('textbox', { name: '类型' })
-
-    expect(kind).toHaveValue('周期提醒')
-    expect(kind).toHaveAttribute('readonly')
-    expect(within(dialog).getByRole('spinbutton', { name: '周期（秒）' })).toBeVisible()
-  })
-
-  it('offers one search region block per listener mechanism', async () => {
-    const user = userEvent.setup()
-    const api = await createTwoKindApi(null)
-    installBuffSentinelApi(api)
-    render(<BuffAssistantHarness />)
-
-    await captureConfiguredPreview(user)
-
-    expect(await screen.findByText('框选 Buff 栏搜索区域')).toBeVisible()
-    expect(screen.getByText('框选技能图标搜索区域')).toBeVisible()
-    expect(screen.getByRole('application', { name: 'Buff 搜索区域' })).toBeVisible()
-    expect(screen.getByRole('application', { name: '技能搜索区域' })).toBeVisible()
-  })
-
-  it('persists the search region of the mechanism that was framed', async () => {
-    const user = userEvent.setup()
-    const api = await createTwoKindApi(null)
-    installBuffSentinelApi(api)
-    render(<BuffAssistantHarness />)
-    await captureConfiguredPreview(user)
-
-    const skillCanvas = await screen.findByRole('application', { name: '技能搜索区域' })
-    vi.spyOn(skillCanvas, 'getBoundingClientRect').mockReturnValue({
-      x: 0,
-      y: 0,
-      top: 0,
-      left: 0,
-      right: 1000,
-      bottom: 500,
-      width: 1000,
-      height: 500,
-      toJSON: () => ({})
-    })
-    fireEvent.pointerDown(skillCanvas, { button: 0, clientX: 100, clientY: 50, detail: 1 })
-    fireEvent.pointerMove(skillCanvas, { clientX: 400, clientY: 250 })
-    fireEvent.pointerUp(skillCanvas, { clientX: 400, clientY: 250, detail: 1 })
-
-    await waitFor(() =>
-      expect(api.updateBuffSearchRegion).toHaveBeenCalledWith('skillCountdown', {
-        x: 0.1,
-        y: 0.1,
-        width: 0.3,
-        height: 0.4
-      })
-    )
-  })
-
-  it('does not require the skill search region for cycle reminders', async () => {
-    const user = userEvent.setup()
-    const api = await createListenerApi()
-    installBuffSentinelApi(api)
-    render(<BuffAssistantHarness />)
-
-    const start = await screen.findByRole('button', { name: '开始监控' })
-    await captureConfiguredPreview(user)
-
-    expect(start).toBeEnabled()
-  })
-
-  it('requires the skill search region once a skill countdown listener is enabled', async () => {
-    const user = userEvent.setup()
-    const api = await createTwoKindApi(null)
-    installBuffSentinelApi(api)
-    render(<BuffAssistantHarness />)
-
-    const start = await screen.findByRole('button', { name: '开始监控' })
-    await captureConfiguredPreview(user)
-
-    expect(start).toBeDisabled()
-  })
-
-  it('enables monitoring when the skill search region is saved', async () => {
-    const user = userEvent.setup()
-    const api = await createTwoKindApi({ x: 0.1, y: 0.7, width: 0.12, height: 0.12 })
-    installBuffSentinelApi(api)
-    render(<BuffAssistantHarness />)
-
-    const start = await screen.findByRole('button', { name: '开始监控' })
-    await captureConfiguredPreview(user)
-
-    expect(start).toBeEnabled()
-  })
-
-  it('offers an independent position editor for every overlay window', async () => {
-    const user = userEvent.setup()
-    const api = await createListenerApi()
-    installBuffSentinelApi(api)
-    render(<BuffAssistantHarness />)
-
-    const cycleButton = await screen.findByRole('button', { name: '调整周期浮窗' })
-    const skillButton = screen.getByRole('button', { name: '调整技能浮窗' })
-    expect(cycleButton).toBeEnabled()
-    expect(skillButton).toBeEnabled()
-
-    await user.click(skillButton)
-
-    expect(api.setBuffOverlayEditMode).toHaveBeenCalledWith('skillCountdown', true)
-    expect(await screen.findByRole('button', { name: '保存技能浮窗' })).toBeVisible()
-    expect(screen.getByRole('button', { name: '调整周期浮窗' })).toBeDisabled()
-  })
-
-  it('previews the overlay window that is being adjusted', async () => {
-    const user = userEvent.setup()
-    const api = await createListenerApi()
-    installBuffSentinelApi(api)
-    render(<BuffAssistantHarness />)
-
-    await user.click(await screen.findByRole('button', { name: '调整技能浮窗' }))
-
-    const previewSelect = await screen.findByRole('combobox', { name: '悬浮窗预览状态' })
-    await user.click(previewSelect)
-    await user.click(await screen.findByRole('option', { name: '等待确认' }))
-
-    await waitFor(() =>
-      expect(api.setBuffOverlayPreviewMode).toHaveBeenCalledWith('skillCountdown', 'confirming')
-    )
   })
 })

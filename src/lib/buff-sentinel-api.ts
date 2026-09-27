@@ -89,25 +89,15 @@ export type BuffOverlaySettings = {
   customTextColor?: string
 }
 
-export type BuffOverlayGeometry = {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
 export type BuffCaptureSettings = {
   showSystemBorder: boolean
 }
 
 export type BuffMatchMode = 'pixel' | 'brightText'
 
-export type BuffListenerKind = 'cycle' | 'skillCountdown'
-
 export type BuffListenerSettings = {
   cycleMs: number
   deadlineGraceMs: number
-  skillDurationMs?: number
   matchMode: BuffMatchMode
   threshold: number
   confirmFrames: number
@@ -117,7 +107,6 @@ export type BuffListenerSettings = {
 
 export type BuffGlobalSettings = {
   overlay: BuffOverlaySettings
-  skillOverlay?: BuffOverlayGeometry
   capture: BuffCaptureSettings
   monitorHotkey: string | null
   audioOutputDeviceId: string | null
@@ -128,7 +117,6 @@ export type BuffListenerConfig = {
   name: string
   enabled: boolean
   hideInOverlay: boolean
-  kind?: BuffListenerKind
   template: BuffTemplateSummary | null
   settings: BuffListenerSettings
 }
@@ -137,7 +125,6 @@ export type BuffAssistantConfig = {
   schemaVersion: number
   target: BuffTarget | null
   searchRegion: NormalizedRect | null
-  skillSearchRegion?: NormalizedRect | null
   listeners: BuffListenerConfig[]
   settings: BuffGlobalSettings
 }
@@ -211,7 +198,6 @@ export type BuffOverlayState = {
 export type BuffOverlayItem = {
   listenerId: string
   name: string
-  kind?: BuffListenerKind
   mode: BuffOverlayMode
   expectedAtUnixMs: number | null
 }
@@ -264,19 +250,14 @@ export type BuffSentinelAPI = {
   checkForUpdate: () => Promise<AppUpdateCheckResult>
   installUpdate: (onEvent: (event: AppUpdateDownloadEvent) => void) => Promise<void>
   getBuffAssistantState: () => Promise<BuffAssistantState>
-  getBuffOverlayState: () => Promise<BuffOverlayState>
   listBuffCaptureWindows: () => Promise<CaptureWindowCandidate[]>
   listBuffSoundTemplates: () => Promise<BuffSoundTemplateSummary[]>
   listBuffAudioOutputDevices: () => Promise<BuffAudioOutputDevice[]>
   captureBuffPreview: (windowId: string) => Promise<BuffCapturePreview>
-  updateBuffSearchRegion: (
-    kind: BuffListenerKind,
-    searchRegion: NormalizedRect
-  ) => Promise<BuffAssistantState>
+  updateBuffSearchRegion: (searchRegion: NormalizedRect) => Promise<BuffAssistantState>
   getBuffListenerTemplate: (listenerId: string) => Promise<BuffTemplatePreview>
   saveBuffListener: (
     listenerId: string | null,
-    kind: BuffListenerKind,
     name: string,
     enabled: boolean,
     hideInOverlay: boolean,
@@ -309,8 +290,8 @@ export type BuffSentinelAPI = {
   ) => Promise<void>
   testBuffAudioOutput: (outputDeviceId: string | null) => Promise<void>
   openTtsOnline: () => Promise<void>
-  setBuffOverlayEditMode: (kind: BuffListenerKind, enabled: boolean) => Promise<BuffAssistantState>
-  setBuffOverlayPreviewMode: (kind: BuffListenerKind, mode: BuffOverlayPreviewMode) => Promise<void>
+  setBuffOverlayEditMode: (enabled: boolean) => Promise<BuffAssistantState>
+  setBuffOverlayPreviewMode: (mode: BuffOverlayPreviewMode) => Promise<void>
   onBuffAssistantState: (callback: (state: BuffAssistantState) => void) => () => void
   onBuffMetric: (callback: (metric: BuffMetricBatch) => void) => () => void
   onBuffExecutionLog: (callback: (message: string) => void) => () => void
@@ -341,42 +322,6 @@ function createEventListener<T>(eventName: string, callback: (payload: T) => voi
     })
     .catch((error: unknown) => {
       if (!disposed) console.error(`监听 ${eventName} 事件失败`, error)
-    })
-
-  return () => {
-    disposed = true
-    unlisten?.()
-    unlisten = undefined
-  }
-}
-
-function subscribeOverlayState(callback: (state: BuffOverlayState) => void): () => void {
-  let disposed = false
-  let receivedEvent = false
-  let unlisten: UnlistenFn | undefined
-
-  void callTauri(() =>
-    listen<BuffOverlayState>(
-      'buff-overlay-state',
-      (event) => {
-        if (disposed) return
-        receivedEvent = true
-        callback(event.payload)
-      },
-      { target: getCurrentWindow().label }
-    )
-  )
-    .then(async (nextUnlisten) => {
-      if (disposed) {
-        nextUnlisten()
-        return
-      }
-      unlisten = nextUnlisten
-      const snapshot = await buffSentinelApi.getBuffOverlayState()
-      if (!disposed && !receivedEvent) callback(snapshot)
-    })
-    .catch((error: unknown) => {
-      if (!disposed) console.error('同步浮窗状态失败', error)
     })
 
   return () => {
@@ -425,7 +370,6 @@ export const buffSentinelApi: BuffSentinelAPI = {
   },
   getBuffAssistantState: () =>
     callTauri(() => invoke<BuffAssistantState>('get_buff_assistant_state')),
-  getBuffOverlayState: () => callTauri(() => invoke<BuffOverlayState>('get_buff_overlay_state')),
   listBuffCaptureWindows: () =>
     callTauri(() => invoke<CaptureWindowCandidate[]>('list_buff_capture_windows')),
   listBuffSoundTemplates: () =>
@@ -434,15 +378,12 @@ export const buffSentinelApi: BuffSentinelAPI = {
     callTauri(() => invoke<BuffAudioOutputDevice[]>('list_buff_audio_output_devices')),
   captureBuffPreview: (windowId) =>
     callTauri(() => invoke<BuffCapturePreview>('capture_buff_preview', { windowId })),
-  updateBuffSearchRegion: (kind, searchRegion) =>
-    callTauri(() =>
-      invoke<BuffAssistantState>('update_buff_search_region', { kind, searchRegion })
-    ),
+  updateBuffSearchRegion: (searchRegion) =>
+    callTauri(() => invoke<BuffAssistantState>('update_buff_search_region', { searchRegion })),
   getBuffListenerTemplate: (listenerId) =>
     callTauri(() => invoke<BuffTemplatePreview>('get_buff_listener_template', { listenerId })),
   saveBuffListener: (
     listenerId,
-    kind,
     name,
     enabled,
     hideInOverlay,
@@ -455,7 +396,6 @@ export const buffSentinelApi: BuffSentinelAPI = {
       invoke<BuffAssistantState>('save_buff_listener', {
         request: {
           listenerId,
-          kind,
           name,
           enabled,
           hideInOverlay,
@@ -503,14 +443,14 @@ export const buffSentinelApi: BuffSentinelAPI = {
   testBuffAudioOutput: (outputDeviceId) =>
     callTauri(() => invoke<void>('test_buff_audio_output', { outputDeviceId })),
   openTtsOnline: () => callTauri(() => invoke<void>('open_tts_online')),
-  setBuffOverlayEditMode: (kind, enabled) =>
-    callTauri(() => invoke<BuffAssistantState>('set_buff_overlay_edit_mode', { kind, enabled })),
-  setBuffOverlayPreviewMode: (kind, mode) =>
-    callTauri(() => invoke<void>('set_buff_overlay_preview_mode', { kind, mode })),
+  setBuffOverlayEditMode: (enabled) =>
+    callTauri(() => invoke<BuffAssistantState>('set_buff_overlay_edit_mode', { enabled })),
+  setBuffOverlayPreviewMode: (mode) =>
+    callTauri(() => invoke<void>('set_buff_overlay_preview_mode', { mode })),
   onBuffAssistantState: (callback) => createEventListener('buff-assistant-state', callback),
   onBuffMetric: (callback) => createEventListener('buff-assistant-metric', callback),
   onBuffExecutionLog: (callback) => createEventListener('buff-assistant-execution-log', callback),
-  onBuffOverlayState: subscribeOverlayState,
+  onBuffOverlayState: (callback) => createEventListener('buff-overlay-state', callback),
   window: windowControls
 }
 

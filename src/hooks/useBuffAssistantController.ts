@@ -5,7 +5,6 @@ import type {
   BuffAssistantState,
   BuffCapturePreview,
   BuffGlobalSettings,
-  BuffListenerKind,
   BuffListenerSettings,
   BuffMetric,
   BuffOverlayPreviewMode,
@@ -15,10 +14,9 @@ import type {
 
 const defaultState: BuffAssistantState = {
   config: {
-    schemaVersion: 13,
+    schemaVersion: 11,
     target: null,
     searchRegion: null,
-    skillSearchRegion: null,
     listeners: [],
     settings: {
       overlay: {
@@ -30,7 +28,6 @@ const defaultState: BuffAssistantState = {
         height: 92,
         colorScheme: 'blackWhite'
       },
-      skillOverlay: { x: 8, y: 8, width: 330, height: 92 },
       capture: {
         showSystemBorder: true
       },
@@ -156,8 +153,8 @@ export function useBuffAssistantController() {
   )
 
   const updateBuffSearchRegion = useCallback(
-    async (kind: BuffListenerKind, searchRegion: NormalizedRect) => {
-      const result = await run(() => window.api.updateBuffSearchRegion(kind, searchRegion))
+    async (searchRegion: NormalizedRect) => {
+      const result = await run(() => window.api.updateBuffSearchRegion(searchRegion))
       stateRef.current = result
       setState(result)
       return result
@@ -173,7 +170,6 @@ export function useBuffAssistantController() {
   const saveListener = useCallback(
     async (
       listenerId: string | null,
-      kind: BuffListenerKind,
       name: string,
       enabled: boolean,
       hideInOverlay: boolean,
@@ -185,7 +181,6 @@ export function useBuffAssistantController() {
       const result = await run(() =>
         window.api.saveBuffListener(
           listenerId,
-          kind,
           name,
           enabled,
           hideInOverlay,
@@ -295,8 +290,8 @@ export function useBuffAssistantController() {
   const clearLogs = useCallback(() => setLogs([]), [])
 
   const setOverlayEditing = useCallback(
-    async (kind: BuffListenerKind, enabled: boolean) => {
-      const result = await run(() => window.api.setBuffOverlayEditMode(kind, enabled))
+    async (enabled: boolean) => {
+      const result = await run(() => window.api.setBuffOverlayEditMode(enabled))
       setState(result)
       return result
     },
@@ -304,8 +299,7 @@ export function useBuffAssistantController() {
   )
 
   const setOverlayPreview = useCallback(
-    (kind: BuffListenerKind, mode: BuffOverlayPreviewMode) =>
-      run(() => window.api.setBuffOverlayPreviewMode(kind, mode)),
+    (mode: BuffOverlayPreviewMode) => run(() => window.api.setBuffOverlayPreviewMode(mode)),
     [run]
   )
 

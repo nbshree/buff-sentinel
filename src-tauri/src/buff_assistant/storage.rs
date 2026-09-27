@@ -13,7 +13,7 @@ use super::{
     model::{
         BuffAssistantConfig, BuffCustomSoundAsset, BuffSoundCue, BuffSoundSource,
         BuffSoundTemplateSummary, BuffTemplateSummary, CONFIG_SCHEMA_VERSION,
-        LegacyBuffAssistantConfig, SKILL_SEARCH_REGION_SCHEMA_VERSION,
+        LegacyBuffAssistantConfig,
     },
 };
 
@@ -88,14 +88,6 @@ pub fn load_config(directory: &Path) -> (BuffAssistantConfig, Vec<String>) {
     } else {
         BuffAssistantConfig::default()
     };
-    if config.skill_search_region.is_none()
-        && config.schema_version < SKILL_SEARCH_REGION_SCHEMA_VERSION
-    {
-        // Listeners configured before the dedicated skill region existed were
-        // cropped inside the Buff search region, so inheriting it keeps them
-        // watching exactly the same pixels.
-        config.skill_search_region = config.search_region;
-    }
     config.sanitize();
     for listener in &mut config.listeners {
         if listener
@@ -531,7 +523,6 @@ mod tests {
                 name: "测试".into(),
                 enabled: true,
                 hide_in_overlay: false,
-                kind: crate::buff_assistant::model::BuffListenerKind::Cycle,
                 template: None,
                 settings: crate::buff_assistant::model::BuffListenerSettings::default(),
             });
@@ -611,7 +602,6 @@ mod tests {
                 name: "已有监听项".into(),
                 enabled: true,
                 hide_in_overlay: false,
-                kind: crate::buff_assistant::model::BuffListenerKind::Cycle,
                 template: None,
                 settings: crate::buff_assistant::model::BuffListenerSettings::default(),
             });
@@ -633,112 +623,6 @@ mod tests {
         assert_eq!(config.listeners[0].id, "existing-listener");
         assert_eq!(config.settings.audio_output_device_id, None);
         assert!(notices.iter().any(|notice| notice.contains("已迁移")));
-        let _ = fs::remove_dir_all(directory);
-    }
-
-    #[test]
-    fn version_twelve_config_inherits_the_skill_search_region() {
-        let directory = std::env::temp_dir().join(format!(
-            "buff-sentinel-v12-config-migration-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&directory);
-        fs::create_dir_all(&directory).unwrap();
-        let region = crate::buff_assistant::model::NormalizedRect {
-            x: 0.5,
-            y: 0.0,
-            width: 0.4,
-            height: 0.2,
-        };
-        let mut config = BuffAssistantConfig::default();
-        config.schema_version = 12;
-        config.search_region = Some(region);
-        let mut value = serde_json::to_value(config).unwrap();
-        value.as_object_mut().unwrap().remove("skillSearchRegion");
-        fs::write(
-            directory.join(CONFIG_FILE),
-            serde_json::to_string_pretty(&value).unwrap(),
-        )
-        .unwrap();
-
-        let (config, notices) = load_config(&directory);
-
-        assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
-        assert_eq!(config.search_region, Some(region));
-        assert_eq!(config.skill_search_region, Some(region));
-        assert!(notices.iter().any(|notice| notice.contains("已迁移")));
-        let persisted = fs::read_to_string(directory.join(CONFIG_FILE)).unwrap();
-        assert!(persisted.contains("\"skillSearchRegion\""));
-        let _ = fs::remove_dir_all(directory);
-    }
-
-    #[test]
-    fn current_config_keeps_an_empty_skill_search_region() {
-        let directory = std::env::temp_dir().join(format!(
-            "buff-sentinel-current-config-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&directory);
-        fs::create_dir_all(&directory).unwrap();
-        let config = BuffAssistantConfig {
-            search_region: Some(crate::buff_assistant::model::NormalizedRect {
-                x: 0.5,
-                y: 0.0,
-                width: 0.4,
-                height: 0.2,
-            }),
-            skill_search_region: None,
-            ..BuffAssistantConfig::default()
-        };
-        fs::write(
-            directory.join(CONFIG_FILE),
-            serde_json::to_string_pretty(&config).unwrap(),
-        )
-        .unwrap();
-
-        let (config, notices) = load_config(&directory);
-
-        assert!(config.search_region.is_some());
-        assert_eq!(config.skill_search_region, None);
-        assert!(!notices.iter().any(|notice| notice.contains("已迁移")));
-        let _ = fs::remove_dir_all(directory);
-    }
-
-    #[test]
-    fn version_thirteen_config_gains_the_skill_overlay_geometry() {
-        let directory = std::env::temp_dir().join(format!(
-            "buff-sentinel-v13-config-migration-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&directory);
-        fs::create_dir_all(&directory).unwrap();
-        let mut config = BuffAssistantConfig::default();
-        config.schema_version = 13;
-        config.settings.overlay.x = 120;
-        config.settings.overlay.y = 240;
-        let mut value = serde_json::to_value(config).unwrap();
-        value["settings"]
-            .as_object_mut()
-            .unwrap()
-            .remove("skillOverlay");
-        fs::write(
-            directory.join(CONFIG_FILE),
-            serde_json::to_string_pretty(&value).unwrap(),
-        )
-        .unwrap();
-
-        let (config, notices) = load_config(&directory);
-
-        assert_eq!(config.schema_version, CONFIG_SCHEMA_VERSION);
-        assert_eq!(config.settings.overlay.x, 120);
-        assert_eq!(config.settings.overlay.y, 240);
-        assert_eq!(config.settings.skill_overlay.x, 8);
-        assert_eq!(config.settings.skill_overlay.y, 8);
-        assert_eq!(config.settings.skill_overlay.width, 330);
-        assert_eq!(config.settings.skill_overlay.height, 92);
-        assert!(notices.iter().any(|notice| notice.contains("已迁移")));
-        let persisted = fs::read_to_string(directory.join(CONFIG_FILE)).unwrap();
-        assert!(persisted.contains("\"skillOverlay\""));
         let _ = fs::remove_dir_all(directory);
     }
 }

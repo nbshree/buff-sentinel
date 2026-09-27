@@ -86,9 +86,7 @@ impl GraphicsCaptureApiHandler for SnapshotHandler {
 pub struct RuntimeCaptureFlags {
     pub app: AppHandle,
     pub purpose: CapturePurpose,
-    /// Deduplicated search regions cropped out of every captured frame, in
-    /// capture order. Each listener references one of these by index.
-    pub regions: Vec<NormalizedRect>,
+    pub region: NormalizedRect,
     pub listeners: Vec<RuntimeListenerFlags>,
     pub reference_width: u32,
     pub reference_height: u32,
@@ -98,33 +96,11 @@ pub struct RuntimeCaptureFlags {
 #[derive(Clone)]
 pub struct RuntimeListenerFlags {
     pub id: String,
-    pub region_index: usize,
     pub template: TemplateData,
     pub match_mode: BuffMatchMode,
     pub threshold: f32,
     pub confirm_frames: u32,
     pub missing_frames: u32,
-}
-
-/// Groups the search regions watched by one capture session so that listeners
-/// sharing a region are cropped and converted to gray only once per frame.
-///
-/// Returns the deduplicated regions in first-seen order plus the index of each
-/// input region inside that list; the input order is preserved.
-pub fn group_regions(regions: Vec<NormalizedRect>) -> (Vec<NormalizedRect>, Vec<usize>) {
-    let mut unique: Vec<NormalizedRect> = Vec::new();
-    let mut indexes = Vec::with_capacity(regions.len());
-    for region in regions {
-        let index = match unique.iter().position(|existing| *existing == region) {
-            Some(index) => index,
-            None => {
-                unique.push(region);
-                unique.len() - 1
-            }
-        };
-        indexes.push(index);
-    }
-    (unique, indexes)
 }
 
 pub struct RuntimeDetection {
@@ -138,10 +114,10 @@ pub struct RuntimeDetection {
 pub struct RuntimeCaptureHandler {
     sender: FrameSender<RuntimeFrame>,
     discard_receiver: Receiver<RuntimeFrame>,
-    recycle_sender: FrameSender<Vec<CapturedImage>>,
-    recycle_receiver: Receiver<Vec<CapturedImage>>,
+    recycle_sender: FrameSender<CapturedImage>,
+    recycle_receiver: Receiver<CapturedImage>,
     padding_buffer: Vec<u8>,
-    regions: Vec<NormalizedRect>,
+    region: NormalizedRect,
     app: AppHandle,
     purpose: CapturePurpose,
     minimum_frame_interval: Duration,
@@ -152,15 +128,14 @@ struct RuntimeFrame {
     frame_width: u32,
     frame_height: u32,
     captured_at: Instant,
-    /// One cropped image per entry in `RuntimeCaptureFlags::regions`.
-    images: Vec<CapturedImage>,
+    image: CapturedImage,
 }
 
 struct RuntimeCaptureProcessor {
     flags: RuntimeCaptureFlags,
     listeners: Vec<RuntimeListenerProcessor>,
     detections: Vec<RuntimeDetection>,
-    gray_buffers: Vec<Vec<u8>>,
+    gray_buffer: Vec<u8>,
     last_metric_at: Instant,
 }
 
@@ -180,7 +155,7 @@ impl GraphicsCaptureApiHandler for RuntimeCaptureHandler {
         let discard_receiver = receiver.clone();
         let (recycle_sender, recycle_receiver) = bounded(2);
         let processor_recycle_sender = recycle_sender.clone();
-        let regions = ctx.flags.regions.clone();
+        let region = ctx.flags.region;
         let app = ctx.flags.app.clone();
         let purpose = ctx.flags.purpose;
         let minimum_frame_interval = Duration::from_millis(83);
@@ -188,7 +163,7 @@ impl GraphicsCaptureApiHandler for RuntimeCaptureHandler {
         thread::spawn(move || {
             while let Ok(frame) = receiver.recv() {
                 let result = processor.process(&frame);
-                let _ = processor_recycle_sender.try_send(frame.images);
+                let _ = processor_recycle_sender.try_send(frame.image);
                 if let Err(error) = result {
                     super::handle_capture_error(
                         &processor.flags.app,
@@ -205,7 +180,7 @@ impl GraphicsCaptureApiHandler for RuntimeCaptureHandler {
             recycle_sender,
             recycle_receiver,
             padding_buffer: Vec::new(),
-            regions,
+            region,
             app,
             purpose,
             minimum_frame_interval,
@@ -222,22 +197,24 @@ impl GraphicsCaptureApiHandler for RuntimeCaptureHandler {
             return Ok(());
         }
         self.last_enqueued_at = Instant::now();
-        let mut images = self.recycle_receiver.try_recv().unwrap_or_default();
-        images.resize_with(self.regions.len(), CapturedImage::default);
-        for (image, region) in images.iter_mut().zip(&self.regions) {
-            copy_frame_into(frame, Some(*region), &mut self.padding_buffer, image)?;
-        }
+        let mut image = self.recycle_receiver.try_recv().unwrap_or_default();
+        copy_frame_into(
+            frame,
+            Some(self.region),
+            &mut self.padding_buffer,
+            &mut image,
+        )?;
         let runtime_frame = RuntimeFrame {
             frame_width: frame.width(),
             frame_height: frame.height(),
             captured_at: Instant::now(),
-            images,
+            image,
         };
         match self.sender.try_send(runtime_frame) {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(latest_frame)) => {
                 if let Ok(discarded) = self.discard_receiver.try_recv() {
-                    let _ = self.recycle_sender.try_send(discarded.images);
+                    let _ = self.recycle_sender.try_send(discarded.image);
                 }
                 match self.sender.try_send(latest_frame) {
                     Ok(()) | Err(TrySendError::Full(_)) => Ok(()),
@@ -283,70 +260,58 @@ impl RuntimeCaptureProcessor {
                 match_started_at: None,
             })
             .collect();
-        let region_count = flags.regions.len();
         Self {
             flags,
             listeners,
             detections,
-            gray_buffers: vec![Vec::new(); region_count],
+            gray_buffer: Vec::new(),
             last_metric_at: Instant::now() - Duration::from_secs(1),
         }
     }
 
     fn process(&mut self, frame: &RuntimeFrame) -> Result<(), String> {
         super::handle_capture_frame(&self.flags.app, self.flags.purpose);
-        let region_count = self.flags.regions.len();
-        for region_index in 0..region_count {
-            let region = self.flags.regions[region_index];
-            let image = frame
-                .images
-                .get(region_index)
-                .ok_or_else(|| "游戏画面搜索区域数据缺失，请重新开始监控".to_string())?;
-            let scale = reference_scale(
-                frame.frame_width,
-                frame.frame_height,
-                self.flags.reference_width,
-                self.flags.reference_height,
-                region,
-            )?;
-            let gray_buffer = std::mem::take(&mut self.gray_buffers[region_index]);
-            let gray =
-                rgba_to_gray_with_buffer(image.width, image.height, &image.rgba, gray_buffer)?;
-            let bright_text = self
-                .listeners
-                .iter()
-                .any(|listener| {
-                    listener.flags.region_index == region_index
-                        && listener.flags.match_mode == BuffMatchMode::BrightText
-                })
-                .then(|| bright_text_feature(&gray, bright_text_radius(scale)));
-            for (listener, detection) in self.listeners.iter_mut().zip(&mut self.detections) {
-                if listener.flags.region_index != region_index {
-                    continue;
-                }
-                let threshold = listener.flags.threshold;
-                let match_mode = listener.flags.match_mode;
-                let template = listener.template_for_scale(scale)?;
-                let search = match match_mode {
-                    BuffMatchMode::Pixel => &gray,
-                    BuffMatchMode::BrightText => bright_text
-                        .as_ref()
-                        .expect("bright-text listeners create a shared feature image"),
-                };
-                let confidence = match_template(search, template);
-                let matched = confidence >= threshold;
-                if matched {
-                    listener.match_started_at.get_or_insert(frame.captured_at);
-                } else {
-                    listener.match_started_at = None;
-                }
-                let present = listener.detector.update(matched);
-                detection.confidence = confidence;
-                detection.present = present;
-                detection.absence_confirmed = listener.detector.absence_confirmed();
-                detection.detected_at = present.then_some(listener.match_started_at).flatten();
+        let scale = reference_scale(
+            frame.frame_width,
+            frame.frame_height,
+            self.flags.reference_width,
+            self.flags.reference_height,
+            self.flags.region,
+        )?;
+        let gray_buffer = std::mem::take(&mut self.gray_buffer);
+        let gray = rgba_to_gray_with_buffer(
+            frame.image.width,
+            frame.image.height,
+            &frame.image.rgba,
+            gray_buffer,
+        )?;
+        let bright_text = self
+            .listeners
+            .iter()
+            .any(|listener| listener.flags.match_mode == BuffMatchMode::BrightText)
+            .then(|| bright_text_feature(&gray, bright_text_radius(scale)));
+        for (listener, detection) in self.listeners.iter_mut().zip(&mut self.detections) {
+            let threshold = listener.flags.threshold;
+            let match_mode = listener.flags.match_mode;
+            let template = listener.template_for_scale(scale)?;
+            let search = match match_mode {
+                BuffMatchMode::Pixel => &gray,
+                BuffMatchMode::BrightText => bright_text
+                    .as_ref()
+                    .expect("bright-text listeners create a shared feature image"),
+            };
+            let confidence = match_template(search, template);
+            let matched = confidence >= threshold;
+            if matched {
+                listener.match_started_at.get_or_insert(frame.captured_at);
+            } else {
+                listener.match_started_at = None;
             }
-            self.gray_buffers[region_index] = gray.into_raw();
+            let present = listener.detector.update(matched);
+            detection.confidence = confidence;
+            detection.present = present;
+            detection.absence_confirmed = listener.detector.absence_confirmed();
+            detection.detected_at = present.then_some(listener.match_started_at).flatten();
         }
         let should_emit_metric = self.last_metric_at.elapsed() >= Duration::from_millis(200);
         if should_emit_metric {
@@ -358,6 +323,7 @@ impl RuntimeCaptureProcessor {
             &self.detections,
             should_emit_metric,
         );
+        self.gray_buffer = gray.into_raw();
         Ok(())
     }
 }
@@ -614,43 +580,5 @@ mod tests {
     #[test]
     fn reference_scale_rejects_a_real_aspect_ratio_change() {
         assert!(reference_scale(1280, 1024, 1920, 1080, TEST_REGION).is_err());
-    }
-
-    #[test]
-    fn identical_search_regions_are_cropped_once() {
-        let (regions, indexes) = group_regions(vec![TEST_REGION, TEST_REGION]);
-
-        assert_eq!(regions, vec![TEST_REGION]);
-        assert_eq!(indexes, vec![0, 0]);
-    }
-
-    #[test]
-    fn separate_search_regions_produce_one_crop_each() {
-        let skill_region = NormalizedRect {
-            x: 0.1,
-            y: 0.7,
-            width: 0.12,
-            height: 0.12,
-        };
-
-        let (regions, indexes) = group_regions(vec![TEST_REGION, skill_region]);
-
-        assert_eq!(regions, vec![TEST_REGION, skill_region]);
-        assert_eq!(indexes, vec![0, 1]);
-    }
-
-    #[test]
-    fn repeated_search_regions_reuse_the_first_index() {
-        let skill_region = NormalizedRect {
-            x: 0.1,
-            y: 0.7,
-            width: 0.12,
-            height: 0.12,
-        };
-
-        let (regions, indexes) = group_regions(vec![TEST_REGION, skill_region, TEST_REGION]);
-
-        assert_eq!(regions, vec![TEST_REGION, skill_region]);
-        assert_eq!(indexes, vec![0, 1, 0]);
     }
 }

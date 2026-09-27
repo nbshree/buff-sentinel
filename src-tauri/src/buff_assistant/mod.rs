@@ -31,44 +31,24 @@ use image::{DynamicImage, GrayImage, Luma, RgbaImage};
 pub use model::{
     BorderlessCaptureAccessResult, BuffAssistantActivity, BuffAssistantConfig, BuffAssistantState,
     BuffAudioOutputDevice, BuffCustomSoundAsset, BuffGlobalSettings, BuffListenerConfig,
-    BuffListenerKind, BuffListenerRuntimeState, BuffListenerSettings, BuffOverlayColorScheme,
-    BuffOverlayItem, BuffOverlayMode, BuffOverlayState, BuffSoundCue, BuffSoundSource,
-    BuffSoundTemplateSummary, BuffTarget, BuffTemplatePreview, CapturePreview,
-    CaptureWindowCandidate, DEFAULT_OVERLAY_HEIGHT, MAX_LISTENERS, MAX_OVERLAY_HEIGHT,
-    MAX_OVERLAY_WIDTH, MIN_OVERLAY_HEIGHT, MIN_OVERLAY_WIDTH, NormalizedRect,
+    BuffListenerRuntimeState, BuffListenerSettings, BuffOverlayColorScheme, BuffOverlayItem,
+    BuffOverlayMode, BuffOverlayState, BuffSoundCue, BuffSoundSource, BuffSoundTemplateSummary,
+    BuffTarget, BuffTemplatePreview, CapturePreview, CaptureWindowCandidate,
+    DEFAULT_OVERLAY_HEIGHT, MAX_LISTENERS, MAX_OVERLAY_HEIGHT, MAX_OVERLAY_WIDTH,
+    MIN_OVERLAY_HEIGHT, MIN_OVERLAY_WIDTH, NormalizedRect,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{
-    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl,
     WebviewWindowBuilder,
 };
 use tauri_plugin_dialog::DialogExt;
-use timeline::{BuffTimeline, SkillCountdownTimeline, TimelineAction, TimelinePhase};
+use timeline::{BuffTimeline, TimelineAction, TimelinePhase};
 
 const MONITOR_FRAME_TIMEOUT: Duration = Duration::from_secs(3);
 const OVERLAY_LABEL: &str = "buff-overlay";
-const SKILL_OVERLAY_LABEL: &str = "buff-overlay-skill";
 const TTS_ONLINE_URL: &str = "https://www.ttsonline.cn/";
 const CAPTURE_BORDER_FALLBACK_NOTICE: &str = "无法隐藏系统捕获黄色边框，已保留边框并继续捕获";
-
-/// Every listener mechanism renders into its own overlay window.
-const fn overlay_kinds() -> [BuffListenerKind; 2] {
-    [BuffListenerKind::Cycle, BuffListenerKind::SkillCountdown]
-}
-
-const fn overlay_label(kind: BuffListenerKind) -> &'static str {
-    match kind {
-        BuffListenerKind::Cycle => OVERLAY_LABEL,
-        BuffListenerKind::SkillCountdown => SKILL_OVERLAY_LABEL,
-    }
-}
-
-const fn overlay_index(kind: BuffListenerKind) -> usize {
-    match kind {
-        BuffListenerKind::Cycle => 0,
-        BuffListenerKind::SkillCountdown => 1,
-    }
-}
 
 struct StoredPreview {
     png: Vec<u8>,
@@ -92,27 +72,9 @@ struct RuntimeData {
     template_preview: Option<StoredPreview>,
     last_frame_at: Option<Instant>,
     reconnect_generation: u64,
-    overlay_generations: [u64; 2],
-    /// The overlay window currently in position-editing mode, if any.
-    overlay_editing: Option<BuffListenerKind>,
-    overlay_windows: [OverlayWindowCache; 2],
-    overlay_states: [Option<BuffOverlayState>; 2],
-}
-
-impl RuntimeData {
-    fn overlay_window(&mut self, kind: BuffListenerKind) -> &mut OverlayWindowCache {
-        &mut self.overlay_windows[overlay_index(kind)]
-    }
-
-    fn next_overlay_generation(&mut self, kind: BuffListenerKind) -> u64 {
-        let generation = &mut self.overlay_generations[overlay_index(kind)];
-        *generation = generation.wrapping_add(1);
-        *generation
-    }
-
-    fn overlay_generation(&self, kind: BuffListenerKind) -> u64 {
-        self.overlay_generations[overlay_index(kind)]
-    }
+    overlay_generation: u64,
+    overlay_editing: bool,
+    overlay_window: OverlayWindowCache,
 }
 
 #[derive(Default)]
@@ -159,100 +121,19 @@ struct ListenerRuntime {
     expected_at_unix_ms: Option<i64>,
     last_confidence: f32,
     last_error: Option<String>,
-    timeline: ListenerTimeline,
+    timeline: BuffTimeline,
 }
 
 impl ListenerRuntime {
-    fn new(kind: BuffListenerKind, settings: &BuffListenerSettings) -> Self {
+    fn new(settings: &BuffListenerSettings) -> Self {
         Self {
             activity: BuffAssistantActivity::Stopped,
             expected_at_unix_ms: None,
             last_confidence: 0.0,
             last_error: None,
-            timeline: ListenerTimeline::new(kind, settings),
+            timeline: BuffTimeline::new(settings.cycle_ms),
         }
     }
-}
-
-/// Dispatches between the two listener mechanisms so the monitoring loop does
-/// not have to know which one a listener uses.
-enum ListenerTimeline {
-    Cycle(BuffTimeline),
-    Skill(SkillCountdownTimeline),
-}
-
-impl ListenerTimeline {
-    fn new(kind: BuffListenerKind, settings: &BuffListenerSettings) -> Self {
-        match kind {
-            BuffListenerKind::Cycle => Self::Cycle(BuffTimeline::new(settings.cycle_ms)),
-            BuffListenerKind::SkillCountdown => {
-                Self::Skill(SkillCountdownTimeline::new(settings.skill_duration_ms))
-            }
-        }
-    }
-
-    fn start_waiting(&mut self, settings: &BuffListenerSettings) {
-        match self {
-            Self::Cycle(timeline) => {
-                timeline.start_waiting_with_grace(settings.cycle_ms, settings.deadline_grace_ms);
-            }
-            Self::Skill(timeline) => timeline.start_waiting(settings.skill_duration_ms),
-        }
-    }
-
-    fn reset_waiting(&mut self) {
-        match self {
-            Self::Cycle(timeline) => timeline.reset_waiting(),
-            Self::Skill(timeline) => timeline.reset_waiting(),
-        }
-    }
-
-    fn stop(&mut self) {
-        match self {
-            Self::Cycle(timeline) => timeline.stop(),
-            Self::Skill(timeline) => timeline.stop(),
-        }
-    }
-
-    fn phase(&self) -> TimelinePhase {
-        match self {
-            Self::Cycle(timeline) => timeline.phase(),
-            Self::Skill(timeline) => timeline.phase(),
-        }
-    }
-
-    fn expected_at(&self) -> Option<Instant> {
-        match self {
-            Self::Cycle(timeline) => timeline.expected_at(),
-            Self::Skill(timeline) => timeline.expected_at(),
-        }
-    }
-
-    fn update(
-        &mut self,
-        now: Instant,
-        icon_present: bool,
-        absence_confirmed: bool,
-        detected_at: Option<Instant>,
-    ) -> Vec<TimelineAction> {
-        match self {
-            Self::Cycle(timeline) => {
-                timeline.update_with_detected_at(now, icon_present, absence_confirmed, detected_at)
-            }
-            Self::Skill(timeline) => {
-                timeline.update(now, icon_present, absence_confirmed, detected_at)
-            }
-        }
-    }
-}
-
-/// A timeline action captured while the runtime lock is held, so logging and
-/// sound playback happen after the lock is released.
-struct PendingListenerAction {
-    name: String,
-    sound: model::BuffSoundSettings,
-    skill_duration_ms: u64,
-    action: TimelineAction,
 }
 
 pub struct BuffAssistant {
@@ -297,10 +178,9 @@ impl BuffAssistant {
                     template_preview: None,
                     last_frame_at: None,
                     reconnect_generation: 0,
-                    overlay_generations: [0; 2],
-                    overlay_editing: None,
-                    overlay_windows: [OverlayWindowCache::default(), OverlayWindowCache::default()],
-                    overlay_states: [None, None],
+                    overlay_generation: 0,
+                    overlay_editing: false,
+                    overlay_window: OverlayWindowCache::default(),
                 }),
                 audio,
             },
@@ -320,66 +200,43 @@ impl BuffAssistant {
 }
 
 pub fn create_overlay(app: &AppHandle) -> tauri::Result<()> {
-    let config = app.state::<BuffAssistant>().lock().config.clone();
-    for kind in overlay_kinds() {
-        let label = overlay_label(kind);
-        if app.get_webview_window(label).is_some() {
-            continue;
-        }
-        let geometry = overlay_geometry(&config, kind);
-        let overlay = WebviewWindowBuilder::new(
-            app,
-            label,
-            WebviewUrl::App("index.html?window=buff-overlay".into()),
-        )
-        .title(match kind {
-            BuffListenerKind::Cycle => "BuffFlow 提醒",
-            BuffListenerKind::SkillCountdown => "BuffFlow 技能提醒",
-        })
-        .inner_size(f64::from(geometry.width), f64::from(geometry.height))
-        .min_inner_size(f64::from(MIN_OVERLAY_WIDTH), f64::from(MIN_OVERLAY_HEIGHT))
-        .max_inner_size(f64::from(MAX_OVERLAY_WIDTH), f64::from(MAX_OVERLAY_HEIGHT))
-        .resizable(false)
-        .decorations(false)
-        .transparent(true)
-        .shadow(false)
-        .always_on_top(true)
-        .content_protected(config.settings.overlay.exclude_from_capture)
-        .skip_taskbar(true)
-        .focusable(false)
-        .visible(false)
-        .build()?;
-        overlay.set_position(PhysicalPosition::new(geometry.x, geometry.y))?;
-        overlay.set_ignore_cursor_events(true)?;
+    if app.get_webview_window(OVERLAY_LABEL).is_some() {
+        return Ok(());
     }
+    let config = app.state::<BuffAssistant>().lock().config.clone();
+    let overlay = WebviewWindowBuilder::new(
+        app,
+        OVERLAY_LABEL,
+        WebviewUrl::App("index.html?window=buff-overlay".into()),
+    )
+    .title("BuffFlow 提醒")
+    .inner_size(
+        f64::from(config.settings.overlay.width),
+        f64::from(config.settings.overlay.height),
+    )
+    .min_inner_size(f64::from(MIN_OVERLAY_WIDTH), f64::from(MIN_OVERLAY_HEIGHT))
+    .max_inner_size(f64::from(MAX_OVERLAY_WIDTH), f64::from(MAX_OVERLAY_HEIGHT))
+    .resizable(false)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .always_on_top(true)
+    .content_protected(config.settings.overlay.exclude_from_capture)
+    .skip_taskbar(true)
+    .focusable(false)
+    .visible(false)
+    .build()?;
+    overlay.set_position(PhysicalPosition::new(
+        config.settings.overlay.x,
+        config.settings.overlay.y,
+    ))?;
+    overlay.set_ignore_cursor_events(true)?;
     Ok(())
 }
 
 #[tauri::command]
 pub fn get_buff_assistant_state(state: State<'_, BuffAssistant>) -> BuffAssistantState {
     state.snapshot()
-}
-
-#[tauri::command]
-pub fn get_buff_overlay_state(
-    window: WebviewWindow,
-    state: State<'_, BuffAssistant>,
-) -> Result<BuffOverlayState, String> {
-    let kind = match window.label() {
-        OVERLAY_LABEL => BuffListenerKind::Cycle,
-        SKILL_OVERLAY_LABEL => BuffListenerKind::SkillCountdown,
-        _ => return Err("仅浮窗可读取浮窗状态".into()),
-    };
-    let current = state.lock().overlay_states[overlay_index(kind)].clone();
-    Ok(current.unwrap_or_else(|| {
-        overlay_state(
-            window.app_handle(),
-            BuffOverlayMode::Hidden,
-            String::new(),
-            Vec::new(),
-            false,
-        )
-    }))
 }
 
 #[tauri::command]
@@ -464,7 +321,6 @@ fn persist_capture_target(
 pub fn update_buff_search_region(
     app: AppHandle,
     state: State<'_, BuffAssistant>,
-    kind: BuffListenerKind,
     search_region: NormalizedRect,
 ) -> Result<BuffAssistantState, String> {
     ensure_configuration_unlocked(&state)?;
@@ -477,7 +333,7 @@ pub fn update_buff_search_region(
             .or_else(|| inner.config.target.clone())
             .ok_or_else(|| "请先捕获游戏窗口预览".to_string())?;
         inner.config.target = Some(target);
-        set_search_region(&mut inner.config, kind, search_region.sanitized());
+        inner.config.search_region = Some(search_region.sanitized());
         inner.config.sanitize();
         inner.listeners = listener_runtime_map(&inner.config);
         storage::save_config(&inner.storage_directory, &inner.config)?;
@@ -539,7 +395,6 @@ pub fn save_buff_listener(
         name,
         enabled,
         hide_in_overlay,
-        kind,
         mut settings,
         search_region,
         crop,
@@ -595,11 +450,9 @@ pub fn save_buff_listener(
             reference_height: target.reference_height,
             ..target
         });
-        set_search_region(&mut inner.config, kind, region);
+        inner.config.search_region = Some(region);
         let id = listener_id.unwrap_or_else(|| format!("listener-{}", now_millis()));
         if let Some(listener) = inner.config.listeners.iter_mut().find(|item| item.id == id) {
-            // The mechanism is fixed when a listener is created, so an edit
-            // never rewrites `kind`.
             if let Some(previous) = listener.template.replace(summary) {
                 storage::delete_template(&directory, &previous)?;
             }
@@ -613,7 +466,6 @@ pub fn save_buff_listener(
                 name,
                 enabled,
                 hide_in_overlay,
-                kind,
                 template: Some(summary),
                 settings,
             });
@@ -636,8 +488,6 @@ pub struct SaveBuffListenerRequest {
     enabled: bool,
     #[serde(default)]
     hide_in_overlay: bool,
-    #[serde(default)]
-    kind: BuffListenerKind,
     settings: BuffListenerSettings,
     search_region: NormalizedRect,
     crop: NormalizedRect,
@@ -856,42 +706,32 @@ pub fn start_buff_monitor_internal(app: &AppHandle) -> Result<(), String> {
     stop_current_capture(&state);
     let (target, generation) = {
         let mut inner = state.lock();
-        if inner.overlay_editing.is_some() {
+        if inner.overlay_editing {
             return Err("请先保存悬浮窗位置再开始监控".into());
         }
-        if inner.config.target.is_none() {
-            return Err("请先选择游戏窗口".into());
+        if inner.config.target.is_none() || inner.config.search_region.is_none() {
+            return Err("请先选择游戏窗口并设置 Buff 搜索区域".into());
         }
         let enabled = inner
             .config
             .listeners
             .iter()
             .filter(|listener| listener.enabled && listener.template.is_some())
-            .map(|listener| {
-                (
-                    listener.id.clone(),
-                    listener.kind,
-                    listener.settings.clone(),
-                )
-            })
+            .map(|listener| (listener.id.clone(), listener.settings.clone()))
             .collect::<Vec<_>>();
         if enabled.is_empty() {
             return Err("请至少启用一个已配置模板的监听项".into());
         }
-        if let Some((_, kind, _)) = enabled
-            .iter()
-            .find(|(_, kind, _)| listener_search_region(&inner.config, *kind).is_none())
-        {
-            return Err(missing_search_region_message(*kind).into());
-        }
         inner.monitor_requested = true;
         inner.reconnect_generation = inner.reconnect_generation.wrapping_add(1);
-        for (id, kind, settings) in enabled {
+        for (id, settings) in enabled {
             let runtime = inner
                 .listeners
                 .entry(id)
-                .or_insert_with(|| ListenerRuntime::new(kind, &settings));
-            runtime.timeline.start_waiting(&settings);
+                .or_insert_with(|| ListenerRuntime::new(&settings));
+            runtime
+                .timeline
+                .start_waiting_with_grace(settings.cycle_ms, settings.deadline_grace_ms);
             runtime.activity = BuffAssistantActivity::Waiting;
             runtime.expected_at_unix_ms = None;
             runtime.last_error = None;
@@ -1078,33 +918,26 @@ pub fn open_tts_online() -> Result<(), String> {
 pub fn set_buff_overlay_edit_mode(
     app: AppHandle,
     state: State<'_, BuffAssistant>,
-    kind: BuffListenerKind,
     enabled: bool,
 ) -> Result<BuffAssistantState, String> {
-    set_buff_overlay_edit_mode_internal(&app, kind, enabled)?;
+    set_buff_overlay_edit_mode_internal(&app, enabled)?;
     Ok(state.snapshot())
 }
 
 fn set_buff_overlay_edit_mode_internal(
     app: &AppHandle,
-    kind: BuffListenerKind,
     enabled: bool,
 ) -> Result<BuffAssistantState, String> {
     let state = app.state::<BuffAssistant>();
     let overlay = app
-        .get_webview_window(overlay_label(kind))
+        .get_webview_window(OVERLAY_LABEL)
         .ok_or_else(|| "Buff 悬浮窗口尚未创建".to_string())?;
     if enabled {
         {
             let mut inner = state.lock();
-            if let Some(editing) = inner.overlay_editing
-                && editing != kind
-            {
-                return Err("请先保存当前浮窗位置，再调整另一个浮窗".into());
-            }
-            inner.overlay_editing = Some(kind);
-            inner.next_overlay_generation(kind);
-            inner.overlay_window(kind).invalidate_size();
+            inner.overlay_editing = true;
+            inner.overlay_generation = inner.overlay_generation.wrapping_add(1);
+            inner.overlay_window.invalidate_size();
         }
         overlay
             .set_resizable(true)
@@ -1116,8 +949,8 @@ fn set_buff_overlay_edit_mode_internal(
             .set_ignore_cursor_events(false)
             .map_err(|error| error.to_string())?;
         overlay.show().map_err(|error| error.to_string())?;
-        state.lock().overlay_window(kind).visible = true;
-        show_overlay_preview(app, kind, BuffOverlayMode::Countdown)?;
+        state.lock().overlay_window.visible = true;
+        show_overlay_preview(app, BuffOverlayMode::Countdown)?;
     } else {
         let position = overlay
             .outer_position()
@@ -1126,20 +959,16 @@ fn set_buff_overlay_edit_mode_internal(
         let scale_factor = overlay.scale_factor().map_err(|error| error.to_string())?;
         {
             let mut inner = state.lock();
-            inner.overlay_editing = None;
-            set_overlay_geometry(
-                &mut inner.config,
-                kind,
-                model::BuffOverlayGeometry {
-                    x: position.x,
-                    y: position.y,
-                    width: (f64::from(size.width) / scale_factor).round() as u32,
-                    height: (f64::from(size.height) / scale_factor).round() as u32,
-                },
-            );
+            inner.overlay_editing = false;
+            inner.config.settings.overlay.x = position.x;
+            inner.config.settings.overlay.y = position.y;
+            inner.config.settings.overlay.width =
+                (f64::from(size.width) / scale_factor).round() as u32;
+            inner.config.settings.overlay.height =
+                (f64::from(size.height) / scale_factor).round() as u32;
             inner.config.settings.sanitize();
-            inner.overlay_window(kind).visible = true;
-            inner.overlay_window(kind).invalidate_size();
+            inner.overlay_window.visible = true;
+            inner.overlay_window.invalidate_size();
             storage::save_config(&inner.storage_directory, &inner.config)?;
         }
         overlay
@@ -1161,44 +990,33 @@ fn set_buff_overlay_edit_mode_internal(
 }
 
 #[tauri::command]
-pub fn set_buff_overlay_preview_mode(
-    app: AppHandle,
-    kind: BuffListenerKind,
-    mode: BuffOverlayMode,
-) -> Result<(), String> {
-    show_overlay_preview(&app, kind, mode)
+pub fn set_buff_overlay_preview_mode(app: AppHandle, mode: BuffOverlayMode) -> Result<(), String> {
+    show_overlay_preview(&app, mode)
 }
 
-fn show_overlay_preview(
-    app: &AppHandle,
-    kind: BuffListenerKind,
-    mode: BuffOverlayMode,
-) -> Result<(), String> {
+fn show_overlay_preview(app: &AppHandle, mode: BuffOverlayMode) -> Result<(), String> {
     let state = app.state::<BuffAssistant>();
     let listeners = {
         let mut inner = state.lock();
-        if inner.overlay_editing != Some(kind) {
+        if !inner.overlay_editing {
             return Err("请先进入悬浮窗调整模式".into());
         }
-        inner.next_overlay_generation(kind);
-        let kind_listeners = inner
+        inner.overlay_generation = inner.overlay_generation.wrapping_add(1);
+        let has_hidden_running_listeners = inner
             .config
             .listeners
             .iter()
-            .filter(|listener| listener.kind == kind && listener_runs(listener))
-            .collect::<Vec<_>>();
-        let has_hidden_running_listeners = kind_listeners
-            .iter()
-            .any(|listener| listener.hide_in_overlay);
-        let listeners = kind_listeners
+            .any(|listener| listener_runs(listener) && listener.hide_in_overlay);
+        let listeners = inner
+            .config
+            .listeners
             .iter()
             .filter(|listener| listener_shows_in_overlay(listener))
             .map(|listener| {
                 (
                     listener.id.clone(),
                     listener.name.clone(),
-                    listener.kind,
-                    preview_countdown_ms(listener),
+                    listener.settings.cycle_ms,
                 )
             })
             .collect::<Vec<_>>();
@@ -1208,12 +1026,8 @@ fn show_overlay_preview(
                 if has_hidden_running_listeners {
                     "所有监听项已隐藏".into()
                 } else {
-                    match kind {
-                        BuffListenerKind::Cycle => "监听图标".into(),
-                        BuffListenerKind::SkillCountdown => "技能图标".into(),
-                    }
+                    "监听图标".into()
                 },
-                kind,
                 20_000,
             )]
         } else {
@@ -1225,10 +1039,9 @@ fn show_overlay_preview(
         BuffOverlayMode::Waiting => {
             let items = listeners
                 .iter()
-                .map(|(id, name, kind, _)| BuffOverlayItem {
+                .map(|(id, name, _)| BuffOverlayItem {
                     listener_id: id.clone(),
                     name: name.clone(),
-                    kind: *kind,
                     mode: BuffOverlayMode::Waiting,
                     expected_at_unix_ms: None,
                 })
@@ -1239,14 +1052,13 @@ fn show_overlay_preview(
             let items = listeners
                 .iter()
                 .enumerate()
-                .map(|(index, (id, name, kind, countdown_ms))| BuffOverlayItem {
+                .map(|(index, (id, name, cycle_ms))| BuffOverlayItem {
                     listener_id: id.clone(),
                     name: name.clone(),
-                    kind: *kind,
                     mode: BuffOverlayMode::Countdown,
                     expected_at_unix_ms: Some(
                         emitted_at_unix_ms
-                            + i64::try_from((*countdown_ms).min(60_000)).unwrap_or(60_000)
+                            + i64::try_from((*cycle_ms).min(60_000)).unwrap_or(60_000)
                             + i64::try_from(index).unwrap_or_default() * 1_500,
                     ),
                 })
@@ -1256,10 +1068,9 @@ fn show_overlay_preview(
         BuffOverlayMode::Confirming => {
             let items = listeners
                 .iter()
-                .map(|(id, name, kind, _)| BuffOverlayItem {
+                .map(|(id, name, _)| BuffOverlayItem {
                     listener_id: id.clone(),
                     name: name.clone(),
-                    kind: *kind,
                     mode: BuffOverlayMode::Confirming,
                     expected_at_unix_ms: None,
                 })
@@ -1269,11 +1080,10 @@ fn show_overlay_preview(
         BuffOverlayMode::TargetUnavailable => ("等待游戏窗口".into(), Vec::new(), 1),
         _ => return Err("不支持的悬浮窗预览状态".into()),
     };
-    resize_overlay_for_rows(app, kind, rows);
-    ensure_kind_overlay_visible(app, kind);
+    resize_overlay_for_rows(app, rows);
+    ensure_overlay_visible(app);
     emit_overlay(
         app,
-        kind,
         BuffOverlayState {
             mode,
             message,
@@ -1304,8 +1114,8 @@ fn restore_overlay_after_edit(app: &AppHandle, snapshot: &BuffAssistantState) {
 pub(crate) fn stop_buff_workspace_activity_internal(app: &AppHandle) -> Result<(), String> {
     stop_buff_monitor_internal(app);
     let editing = app.state::<BuffAssistant>().lock().overlay_editing;
-    if let Some(kind) = editing {
-        set_buff_overlay_edit_mode_internal(app, kind, false)?;
+    if editing {
+        set_buff_overlay_edit_mode_internal(app, false)?;
     }
     Ok(())
 }
@@ -1370,7 +1180,7 @@ pub(crate) fn handle_detection_batch(
                 continue;
             };
             runtime.last_confidence = detection.confidence;
-            let next_actions = runtime.timeline.update(
+            let next_actions = runtime.timeline.update_with_detected_at(
                 now,
                 detection.present,
                 detection.absence_confirmed,
@@ -1382,13 +1192,10 @@ pub(crate) fn handle_detection_batch(
             });
             if !next_actions.is_empty() {
                 let listener = &inner.config.listeners[listener_index];
+                let name = listener.name.clone();
+                let sound = listener.settings.sound.clone();
                 for action in next_actions {
-                    actions.push(PendingListenerAction {
-                        name: listener.name.clone(),
-                        sound: listener.settings.sound.clone(),
-                        skill_duration_ms: listener.settings.skill_duration_ms,
-                        action,
-                    });
+                    actions.push((name.clone(), sound.clone(), action));
                 }
             }
         }
@@ -1406,13 +1213,7 @@ pub(crate) fn handle_detection_batch(
         return;
     }
     emit_state(app, snapshot.as_ref().unwrap());
-    for pending in actions {
-        let PendingListenerAction {
-            name: listener_name,
-            sound,
-            skill_duration_ms,
-            action,
-        } = pending;
+    for (listener_name, sound, action) in actions {
         match action {
             TimelineAction::Triggered => {
                 if sound.trigger_enabled {
@@ -1449,21 +1250,6 @@ pub(crate) fn handle_detection_batch(
             }
             TimelineAction::Reset => {
                 emit_execution_log(app, &format!("{listener_name}：截止点未确认，时间轴已重置"));
-            }
-            TimelineAction::SkillStarted => {
-                emit_execution_log(
-                    app,
-                    &format!(
-                        "{listener_name}：图标出现，开始 {} 秒倒计时",
-                        format_seconds(skill_duration_ms)
-                    ),
-                );
-            }
-            TimelineAction::SkillUsed => {
-                emit_execution_log(app, &format!("{listener_name}：图标提前消失，技能已使用"));
-            }
-            TimelineAction::SkillEnded => {
-                emit_execution_log(app, &format!("{listener_name}：倒计时结束，回到等待"));
             }
         }
     }
@@ -1559,7 +1345,9 @@ fn attach_monitor_capture(
                 .collect::<Vec<_>>();
             for (id, settings) in enabled {
                 if let Some(runtime) = inner.listeners.get_mut(&id) {
-                    runtime.timeline.start_waiting(&settings);
+                    runtime
+                        .timeline
+                        .start_waiting_with_grace(settings.cycle_ms, settings.deadline_grace_ms);
                     runtime.activity = BuffAssistantActivity::Waiting;
                     runtime.expected_at_unix_ms = None;
                 }
@@ -1591,6 +1379,10 @@ fn capture_flags(
         .target
         .clone()
         .ok_or_else(|| "尚未选择游戏窗口".to_string())?;
+    let region = inner
+        .config
+        .search_region
+        .ok_or_else(|| "尚未设置 Buff 搜索区域".to_string())?;
     let listeners = inner
         .config
         .listeners
@@ -1600,26 +1392,10 @@ fn capture_flags(
                 && (purpose == CapturePurpose::Test || listener.enabled)
                 && listener_id.is_none_or(|id| listener.id == id)
         })
-        .collect::<Vec<_>>();
-    if listeners.is_empty() {
-        return Err("没有可用的监听图标模板".into());
-    }
-    let regions = listeners
-        .iter()
         .map(|listener| {
-            listener_search_region(&inner.config, listener.kind)
-                .ok_or_else(|| missing_search_region_message(listener.kind).to_string())
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    let (regions, region_indexes) = capture::group_regions(regions);
-    let listeners = listeners
-        .iter()
-        .zip(region_indexes)
-        .map(|(listener, region_index)| {
             let summary = listener.template.as_ref().unwrap();
             Ok(RuntimeListenerFlags {
                 id: listener.id.clone(),
-                region_index,
                 template: storage::load_template(&inner.storage_directory, summary)?,
                 match_mode: listener.settings.match_mode,
                 threshold: listener.settings.threshold,
@@ -1628,11 +1404,14 @@ fn capture_flags(
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
+    if listeners.is_empty() {
+        return Err("没有可用的监听图标模板".into());
+    }
     Ok((
         RuntimeCaptureFlags {
             app: app.clone(),
             purpose,
-            regions,
+            region,
             listeners,
             reference_width: target.reference_width,
             reference_height: target.reference_height,
@@ -1773,11 +1552,7 @@ fn preload_monitor_sounds(state: &BuffAssistant) {
             .config
             .listeners
             .iter()
-            .filter(|listener| {
-                listener.kind == BuffListenerKind::Cycle
-                    && listener.enabled
-                    && listener.template.is_some()
-            })
+            .filter(|listener| listener.enabled && listener.template.is_some())
             .flat_map(|listener| {
                 let sound = &listener.settings.sound;
                 [
@@ -1962,7 +1737,7 @@ fn listener_runtime_map(config: &BuffAssistantConfig) -> HashMap<String, Listene
         .map(|listener| {
             (
                 listener.id.clone(),
-                ListenerRuntime::new(listener.kind, &listener.settings),
+                ListenerRuntime::new(&listener.settings),
             )
         })
         .collect()
@@ -2027,14 +1802,6 @@ fn timeline_activity(phase: TimelinePhase) -> BuffAssistantActivity {
     }
 }
 
-fn format_seconds(milliseconds: u64) -> String {
-    if milliseconds.is_multiple_of(1_000) {
-        format!("{}", milliseconds / 1_000)
-    } else {
-        format!("{:.1}", milliseconds as f64 / 1_000.0)
-    }
-}
-
 fn aggregate_activity(inner: &RuntimeData) -> BuffAssistantActivity {
     for activity in [
         BuffAssistantActivity::Error,
@@ -2087,47 +1854,24 @@ fn emit_execution_log(app: &AppHandle, message: &str) {
     let _ = app.emit("buff-assistant-execution-log", message);
 }
 
-fn overlay_state(
-    app: &AppHandle,
-    mode: BuffOverlayMode,
-    message: String,
-    items: Vec<BuffOverlayItem>,
-    editable: bool,
-) -> BuffOverlayState {
-    BuffOverlayState {
-        mode,
-        message,
-        items,
-        emitted_at_unix_ms: now_millis(),
-        editable,
-        color_scheme: overlay_color_scheme(app),
-        custom_background_color: overlay_custom_background_color(app),
-        custom_background_opacity: overlay_custom_background_opacity(app),
-        custom_text_color: overlay_custom_text_color(app),
-    }
+fn emit_overlay(app: &AppHandle, state: BuffOverlayState) {
+    let _ = app.emit_to(OVERLAY_LABEL, "buff-overlay-state", state);
 }
 
-fn emit_overlay(app: &AppHandle, kind: BuffListenerKind, state: BuffOverlayState) {
-    app.state::<BuffAssistant>().lock().overlay_states[overlay_index(kind)] = Some(state.clone());
-    let _ = app.emit_to(overlay_label(kind), "buff-overlay-state", state);
-}
-
-/// Refreshes the rows of one overlay window. The overlay being edited keeps its
-/// preview content, while the other window keeps updating live.
-fn refresh_kind_overlay(app: &AppHandle, kind: BuffListenerKind) {
+fn refresh_active_overlay(app: &AppHandle) {
     let state = app.state::<BuffAssistant>();
     let items = {
         let mut inner = state.lock();
-        if inner.overlay_editing == Some(kind) {
+        if inner.overlay_editing {
             return;
         }
-        inner.next_overlay_generation(kind);
+        inner.overlay_generation = inner.overlay_generation.wrapping_add(1);
         inner
             .config
             .listeners
             .iter()
             .filter_map(|listener| {
-                if listener.kind != kind || !listener_shows_in_overlay(listener) {
+                if !listener_shows_in_overlay(listener) {
                     return None;
                 }
                 let runtime = inner.listeners.get(&listener.id)?;
@@ -2142,7 +1886,6 @@ fn refresh_kind_overlay(app: &AppHandle, kind: BuffListenerKind) {
                 Some(BuffOverlayItem {
                     listener_id: listener.id.clone(),
                     name: listener.name.clone(),
-                    kind: listener.kind,
                     mode,
                     expected_at_unix_ms: runtime.expected_at_unix_ms,
                 })
@@ -2150,7 +1893,7 @@ fn refresh_kind_overlay(app: &AppHandle, kind: BuffListenerKind) {
             .collect::<Vec<_>>()
     };
     if items.is_empty() {
-        show_waiting_kind_overlay(app, kind);
+        show_waiting_overlay(app);
         return;
     }
     let mode = if items
@@ -2166,19 +1909,22 @@ fn refresh_kind_overlay(app: &AppHandle, kind: BuffListenerKind) {
     } else {
         BuffOverlayMode::Waiting
     };
-    resize_overlay_for_rows(app, kind, items.len());
-    ensure_kind_overlay_visible(app, kind);
+    resize_overlay_for_rows(app, items.len());
+    ensure_overlay_visible(app);
     emit_overlay(
         app,
-        kind,
-        overlay_state(app, mode, String::new(), items, false),
+        BuffOverlayState {
+            mode,
+            message: String::new(),
+            items,
+            emitted_at_unix_ms: now_millis(),
+            editable: false,
+            color_scheme: overlay_color_scheme(app),
+            custom_background_color: overlay_custom_background_color(app),
+            custom_background_opacity: overlay_custom_background_opacity(app),
+            custom_text_color: overlay_custom_text_color(app),
+        },
     );
-}
-
-fn refresh_active_overlay(app: &AppHandle) {
-    for kind in overlay_kinds() {
-        refresh_kind_overlay(app, kind);
-    }
 }
 
 fn show_transient_overlay(
@@ -2188,56 +1934,46 @@ fn show_transient_overlay(
     expected_at_unix_ms: Option<i64>,
     duration: Duration,
 ) {
-    for kind in overlay_kinds() {
-        show_transient_kind_overlay(app, kind, mode, message, expected_at_unix_ms, duration);
-    }
-}
-
-fn show_transient_kind_overlay(
-    app: &AppHandle,
-    kind: BuffListenerKind,
-    mode: BuffOverlayMode,
-    message: &str,
-    expected_at_unix_ms: Option<i64>,
-    duration: Duration,
-) {
     let state = app.state::<BuffAssistant>();
     let generation = {
         let mut inner = state.lock();
-        if inner.overlay_editing == Some(kind) {
+        if inner.overlay_editing {
             return;
         }
-        if !inner
-            .config
-            .listeners
-            .iter()
-            .any(|listener| listener.kind == kind && listener_shows_in_overlay(listener))
-        {
+        if !inner.config.listeners.iter().any(listener_shows_in_overlay) {
             drop(inner);
-            hide_kind_overlay(app, kind);
+            hide_overlay(app);
             return;
         }
-        inner.next_overlay_generation(kind)
+        inner.overlay_generation = inner.overlay_generation.wrapping_add(1);
+        inner.overlay_generation
     };
-    if let Some(overlay) = app.get_webview_window(overlay_label(kind)) {
+    if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = overlay.set_ignore_cursor_events(true);
         let _ = overlay.set_focusable(false);
     }
-    ensure_kind_overlay_visible(app, kind);
-    let items = expected_at_unix_ms
-        .map(|expected_at_unix_ms| BuffOverlayItem {
-            listener_id: "transient".into(),
-            name: message.into(),
-            kind,
-            mode,
-            expected_at_unix_ms: Some(expected_at_unix_ms),
-        })
-        .into_iter()
-        .collect::<Vec<_>>();
+    ensure_overlay_visible(app);
     emit_overlay(
         app,
-        kind,
-        overlay_state(app, mode, message.into(), items, false),
+        BuffOverlayState {
+            mode,
+            message: message.into(),
+            items: expected_at_unix_ms
+                .map(|expected_at_unix_ms| BuffOverlayItem {
+                    listener_id: "transient".into(),
+                    name: message.into(),
+                    mode,
+                    expected_at_unix_ms: Some(expected_at_unix_ms),
+                })
+                .into_iter()
+                .collect(),
+            emitted_at_unix_ms: now_millis(),
+            editable: false,
+            color_scheme: overlay_color_scheme(app),
+            custom_background_color: overlay_custom_background_color(app),
+            custom_background_opacity: overlay_custom_background_opacity(app),
+            custom_text_color: overlay_custom_text_color(app),
+        },
     );
     let app_handle = app.clone();
     thread::spawn(move || {
@@ -2246,7 +1982,7 @@ fn show_transient_kind_overlay(
         let (should_hide, show_waiting) = {
             let inner = state.lock();
             (
-                inner.overlay_editing != Some(kind) && inner.overlay_generation(kind) == generation,
+                !inner.overlay_editing && inner.overlay_generation == generation,
                 inner.monitor_requested && inner.activity == BuffAssistantActivity::Waiting,
             )
         };
@@ -2254,24 +1990,18 @@ fn show_transient_kind_overlay(
             return;
         }
         if show_waiting {
-            show_waiting_kind_overlay(&app_handle, kind);
+            show_waiting_overlay(&app_handle);
         } else {
-            hide_kind_overlay(&app_handle, kind);
+            hide_overlay(&app_handle);
         }
     });
 }
 
 fn show_waiting_overlay(app: &AppHandle) {
-    for kind in overlay_kinds() {
-        show_waiting_kind_overlay(app, kind);
-    }
-}
-
-fn show_waiting_kind_overlay(app: &AppHandle, kind: BuffListenerKind) {
     let state = app.state::<BuffAssistant>();
     let items = {
         let inner = state.lock();
-        if !inner.monitor_requested || inner.overlay_editing == Some(kind) {
+        if !inner.monitor_requested || inner.overlay_editing {
             None
         } else {
             Some(
@@ -2279,11 +2009,10 @@ fn show_waiting_kind_overlay(app: &AppHandle, kind: BuffListenerKind) {
                     .config
                     .listeners
                     .iter()
-                    .filter(|listener| listener.kind == kind && listener_shows_in_overlay(listener))
+                    .filter(|listener| listener_shows_in_overlay(listener))
                     .map(|listener| BuffOverlayItem {
                         listener_id: listener.id.clone(),
                         name: listener.name.clone(),
-                        kind: listener.kind,
                         mode: BuffOverlayMode::Waiting,
                         expected_at_unix_ms: None,
                     })
@@ -2292,101 +2021,100 @@ fn show_waiting_kind_overlay(app: &AppHandle, kind: BuffListenerKind) {
         }
     };
     let Some(items) = items else {
-        hide_kind_overlay(app, kind);
+        hide_overlay(app);
         return;
     };
     if items.is_empty() {
-        hide_kind_overlay(app, kind);
+        hide_overlay(app);
         return;
     }
     let rows = items.len();
-    resize_overlay_for_rows(app, kind, rows);
-    ensure_kind_overlay_visible(app, kind);
+    resize_overlay_for_rows(app, rows);
+    ensure_overlay_visible(app);
     emit_overlay(
         app,
-        kind,
-        overlay_state(app, BuffOverlayMode::Waiting, String::new(), items, false),
+        BuffOverlayState {
+            mode: BuffOverlayMode::Waiting,
+            message: String::new(),
+            items,
+            emitted_at_unix_ms: now_millis(),
+            editable: false,
+            color_scheme: overlay_color_scheme(app),
+            custom_background_color: overlay_custom_background_color(app),
+            custom_background_opacity: overlay_custom_background_opacity(app),
+            custom_text_color: overlay_custom_text_color(app),
+        },
     );
 }
 
 fn show_target_unavailable_overlay(app: &AppHandle) {
-    for kind in overlay_kinds() {
-        show_target_unavailable_kind_overlay(app, kind);
-    }
-}
-
-fn show_target_unavailable_kind_overlay(app: &AppHandle, kind: BuffListenerKind) {
     let state = app.state::<BuffAssistant>();
     let should_show = {
         let mut inner = state.lock();
-        if inner.overlay_editing == Some(kind) {
+        if inner.overlay_editing {
             return;
         }
-        inner.next_overlay_generation(kind);
-        inner
-            .config
-            .listeners
-            .iter()
-            .any(|listener| listener.kind == kind && listener_shows_in_overlay(listener))
+        inner.overlay_generation = inner.overlay_generation.wrapping_add(1);
+        inner.config.listeners.iter().any(listener_shows_in_overlay)
     };
     if !should_show {
-        hide_kind_overlay(app, kind);
+        hide_overlay(app);
         return;
     }
-    resize_overlay_for_rows(app, kind, 1);
-    if let Some(overlay) = app.get_webview_window(overlay_label(kind)) {
+    resize_overlay_for_rows(app, 1);
+    if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = overlay.set_ignore_cursor_events(true);
         let _ = overlay.set_focusable(false);
     }
-    ensure_kind_overlay_visible(app, kind);
+    ensure_overlay_visible(app);
     emit_overlay(
         app,
-        kind,
-        overlay_state(
-            app,
-            BuffOverlayMode::TargetUnavailable,
-            "等待游戏窗口".into(),
-            Vec::new(),
-            false,
-        ),
+        BuffOverlayState {
+            mode: BuffOverlayMode::TargetUnavailable,
+            message: "等待游戏窗口".into(),
+            items: Vec::new(),
+            emitted_at_unix_ms: now_millis(),
+            editable: false,
+            color_scheme: overlay_color_scheme(app),
+            custom_background_color: overlay_custom_background_color(app),
+            custom_background_opacity: overlay_custom_background_opacity(app),
+            custom_text_color: overlay_custom_text_color(app),
+        },
     );
 }
 
 fn hide_overlay(app: &AppHandle) {
-    for kind in overlay_kinds() {
-        hide_kind_overlay(app, kind);
-    }
-}
-
-fn hide_kind_overlay(app: &AppHandle, kind: BuffListenerKind) {
     emit_overlay(
         app,
-        kind,
-        overlay_state(
-            app,
-            BuffOverlayMode::Hidden,
-            String::new(),
-            Vec::new(),
-            false,
-        ),
+        BuffOverlayState {
+            mode: BuffOverlayMode::Hidden,
+            message: String::new(),
+            items: Vec::new(),
+            emitted_at_unix_ms: now_millis(),
+            editable: false,
+            color_scheme: overlay_color_scheme(app),
+            custom_background_color: overlay_custom_background_color(app),
+            custom_background_opacity: overlay_custom_background_opacity(app),
+            custom_text_color: overlay_custom_text_color(app),
+        },
     );
     let should_hide = {
         let state = app.state::<BuffAssistant>();
         let mut inner = state.lock();
-        inner.overlay_window(kind).mark_hidden()
+        inner.overlay_window.mark_hidden()
     };
-    if should_hide && let Some(overlay) = app.get_webview_window(overlay_label(kind)) {
+    if should_hide && let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = overlay.hide();
     }
 }
 
-fn ensure_kind_overlay_visible(app: &AppHandle, kind: BuffListenerKind) {
+fn ensure_overlay_visible(app: &AppHandle) {
     let should_show = {
         let state = app.state::<BuffAssistant>();
         let mut inner = state.lock();
-        inner.overlay_window(kind).mark_visible()
+        inner.overlay_window.mark_visible()
     };
-    if should_show && let Some(overlay) = app.get_webview_window(overlay_label(kind)) {
+    if should_show && let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = overlay.show();
     }
 }
@@ -2395,118 +2123,50 @@ fn listener_runs(listener: &BuffListenerConfig) -> bool {
     listener.enabled && listener.template.is_some()
 }
 
-/// Each listener mechanism watches its own search region.
-fn listener_search_region(
-    config: &BuffAssistantConfig,
-    kind: BuffListenerKind,
-) -> Option<NormalizedRect> {
-    match kind {
-        BuffListenerKind::Cycle => config.search_region,
-        BuffListenerKind::SkillCountdown => config.skill_search_region,
-    }
-}
-
-fn set_search_region(
-    config: &mut BuffAssistantConfig,
-    kind: BuffListenerKind,
-    region: NormalizedRect,
-) {
-    match kind {
-        BuffListenerKind::Cycle => config.search_region = Some(region),
-        BuffListenerKind::SkillCountdown => config.skill_search_region = Some(region),
-    }
-}
-
-fn missing_search_region_message(kind: BuffListenerKind) -> &'static str {
-    match kind {
-        BuffListenerKind::Cycle => "尚未设置 Buff 搜索区域",
-        BuffListenerKind::SkillCountdown => "尚未设置技能图标搜索区域",
-    }
-}
-
-/// Each overlay window keeps its own position and size; the color scheme and
-/// capture exclusion in `settings.overlay` are shared by both windows.
-fn overlay_geometry(
-    config: &BuffAssistantConfig,
-    kind: BuffListenerKind,
-) -> model::BuffOverlayGeometry {
-    match kind {
-        BuffListenerKind::Cycle => model::BuffOverlayGeometry {
-            x: config.settings.overlay.x,
-            y: config.settings.overlay.y,
-            width: config.settings.overlay.width,
-            height: config.settings.overlay.height,
-        },
-        BuffListenerKind::SkillCountdown => config.settings.skill_overlay,
-    }
-}
-
-fn set_overlay_geometry(
-    config: &mut BuffAssistantConfig,
-    kind: BuffListenerKind,
-    geometry: model::BuffOverlayGeometry,
-) {
-    match kind {
-        BuffListenerKind::Cycle => {
-            config.settings.overlay.x = geometry.x;
-            config.settings.overlay.y = geometry.y;
-            config.settings.overlay.width = geometry.width;
-            config.settings.overlay.height = geometry.height;
-        }
-        BuffListenerKind::SkillCountdown => config.settings.skill_overlay = geometry,
-    }
-}
-
 fn listener_shows_in_overlay(listener: &BuffListenerConfig) -> bool {
     listener_runs(listener) && !listener.hide_in_overlay
 }
 
-fn preview_countdown_ms(listener: &BuffListenerConfig) -> u64 {
-    match listener.kind {
-        BuffListenerKind::Cycle => listener.settings.cycle_ms,
-        BuffListenerKind::SkillCountdown => listener.settings.skill_duration_ms,
-    }
-}
-
 fn apply_overlay_geometry(app: &AppHandle) {
-    for kind in overlay_kinds() {
-        let state = app.state::<BuffAssistant>();
-        let geometry = {
-            let mut inner = state.lock();
-            let geometry = overlay_geometry(&inner.config, kind);
-            inner
-                .overlay_window(kind)
-                .update_size((geometry.width, geometry.height), None);
-            geometry
-        };
-        if let Some(overlay) = app.get_webview_window(overlay_label(kind)) {
-            let _ = overlay.set_position(PhysicalPosition::new(geometry.x, geometry.y));
-            let _ = overlay.set_size(LogicalSize::new(
-                f64::from(geometry.width),
-                f64::from(geometry.height),
-            ));
-        }
+    let state = app.state::<BuffAssistant>();
+    let settings = {
+        let mut inner = state.lock();
+        let size = (
+            inner.config.settings.overlay.width,
+            inner.config.settings.overlay.height,
+        );
+        inner.overlay_window.update_size(size, None);
+        inner.config.settings.overlay.clone()
+    };
+    if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
+        let _ = overlay.set_position(PhysicalPosition::new(settings.x, settings.y));
+        let _ = overlay.set_size(LogicalSize::new(
+            f64::from(settings.width),
+            f64::from(settings.height),
+        ));
     }
 }
 
-fn resize_overlay_for_rows(app: &AppHandle, kind: BuffListenerKind, rows: usize) {
+fn resize_overlay_for_rows(app: &AppHandle, rows: usize) {
     let state = app.state::<BuffAssistant>();
     let desired = {
         let mut inner = state.lock();
-        if inner.overlay_editing == Some(kind) {
+        if inner.overlay_editing {
             return;
         }
-        let geometry = overlay_geometry(&inner.config, kind);
-        let height = configured_overlay_height(geometry.height, rows) as u32;
+        let width = inner.config.settings.overlay.width;
+        let height = configured_overlay_height(inner.config.settings.overlay.height, rows) as u32;
         if !inner
-            .overlay_window(kind)
-            .update_size((geometry.width, height), Some(rows))
+            .overlay_window
+            .update_size((width, height), Some(rows))
         {
             return;
         }
-        (geometry.width, height)
+        inner.overlay_window.size = Some((width, height));
+        inner.overlay_window.rows = Some(rows);
+        (width, height)
     };
-    if let Some(overlay) = app.get_webview_window(overlay_label(kind)) {
+    if let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) {
         let _ = overlay.set_size(LogicalSize::new(f64::from(desired.0), f64::from(desired.1)));
     }
 }
@@ -2532,15 +2192,12 @@ fn apply_overlay_capture_protection(app: &AppHandle) -> Result<(), String> {
         .settings
         .overlay
         .exclude_from_capture;
-    for kind in overlay_kinds() {
-        let Some(overlay) = app.get_webview_window(overlay_label(kind)) else {
-            continue;
-        };
-        overlay
-            .set_content_protected(exclude_from_capture)
-            .map_err(|error| format!("设置已保存，但无法应用悬浮窗录屏排除：{error}"))?;
-    }
-    Ok(())
+    let Some(overlay) = app.get_webview_window(OVERLAY_LABEL) else {
+        return Ok(());
+    };
+    overlay
+        .set_content_protected(exclude_from_capture)
+        .map_err(|error| format!("设置已保存，但无法应用悬浮窗录屏排除：{error}"))
 }
 
 fn overlay_color_scheme(app: &AppHandle) -> BuffOverlayColorScheme {
@@ -2700,10 +2357,9 @@ mod tests {
     use super::model::BuffTemplateSummary;
 
     use super::{
-        BuffAssistantConfig, BuffListenerConfig, BuffListenerKind, BuffListenerSettings,
-        BuffTarget, DEFAULT_OVERLAY_HEIGHT, NormalizedRect, OverlayWindowCache,
-        SaveBuffListenerRequest, configured_overlay_height, crop_saved_template,
-        crop_template_from_preview, listener_runs, listener_shows_in_overlay,
+        BuffAssistantConfig, BuffListenerConfig, BuffListenerSettings, BuffTarget,
+        DEFAULT_OVERLAY_HEIGHT, NormalizedRect, OverlayWindowCache, configured_overlay_height,
+        crop_saved_template, crop_template_from_preview, listener_runs, listener_shows_in_overlay,
         overlay_height_for_rows, persist_capture_target, storage,
     };
 
@@ -2767,26 +2423,6 @@ mod tests {
     }
 
     #[test]
-    fn save_listener_request_defaults_to_the_cycle_reminder() {
-        let mut value = serde_json::json!({
-            "listenerId": null,
-            "name": "测试",
-            "enabled": true,
-            "hideInOverlay": false,
-            "settings": serde_json::to_value(BuffListenerSettings::default()).unwrap(),
-            "searchRegion": { "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 },
-            "crop": { "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0 }
-        });
-
-        let request: SaveBuffListenerRequest = serde_json::from_value(value.clone()).unwrap();
-        assert_eq!(request.kind, BuffListenerKind::Cycle);
-
-        value["kind"] = serde_json::json!("skillCountdown");
-        let request: SaveBuffListenerRequest = serde_json::from_value(value).unwrap();
-        assert_eq!(request.kind, BuffListenerKind::SkillCountdown);
-    }
-
-    #[test]
     fn overlay_visibility_only_includes_running_non_hidden_listeners() {
         let listener =
             |enabled: bool, configured: bool, hide_in_overlay: bool| BuffListenerConfig {
@@ -2794,7 +2430,6 @@ mod tests {
                 name: "测试".into(),
                 enabled,
                 hide_in_overlay,
-                kind: BuffListenerKind::Cycle,
                 template: configured.then(|| BuffTemplateSummary {
                     id: "template-1".into(),
                     width: 32,
