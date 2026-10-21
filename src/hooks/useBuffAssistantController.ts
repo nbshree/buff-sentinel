@@ -56,6 +56,7 @@ export function useBuffAssistantController() {
   const [error, setError] = useState<string | null>(null)
   const stateRef = useRef(state)
   const lastMetricLogRef = useRef({ at: 0, present: false })
+  const restorePreviewPromiseRef = useRef<Promise<BuffCapturePreview> | null>(null)
 
   const appendLog = useCallback((message: string) => {
     setLogs((current) => [`${formatLogTime(new Date())} ${message}`, ...current].slice(0, 150))
@@ -66,7 +67,32 @@ export function useBuffAssistantController() {
     void window.api
       .getBuffAssistantState()
       .then((nextState) => {
-        if (!disposed) updateRuntimeState(nextState)
+        if (disposed) return
+        updateRuntimeState(nextState)
+        if (
+          !nextState.config.target ||
+          nextState.isMonitoring ||
+          nextState.activity === 'testing'
+        ) {
+          return
+        }
+        const restorePromise =
+          restorePreviewPromiseRef.current ?? window.api.captureBuffPreviewForSavedTarget()
+        if (!restorePreviewPromiseRef.current) {
+          restorePreviewPromiseRef.current = restorePromise
+          setBusy(true)
+          setError(null)
+        }
+        void restorePromise
+          .then((result) => {
+            if (!disposed) setPreview(result)
+          })
+          .catch((reason: unknown) => {
+            if (!disposed) setError(toMessage(reason))
+          })
+          .finally(() => {
+            if (!disposed) setBusy(false)
+          })
       })
       .catch((reason: unknown) => {
         if (!disposed) setError(toMessage(reason))

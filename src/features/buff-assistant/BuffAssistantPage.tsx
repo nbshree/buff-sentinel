@@ -166,6 +166,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const [logsCollapsed, setLogsCollapsed] = useState(false)
   const maskRef = useRef<MaskEditorHandle>(null)
   const listenerTemplateRequestRef = useRef(0)
+  const appliedPreviewWindowIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!settingsDialogOpen) setSettings(state.config.settings)
@@ -253,6 +254,15 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   }
 
   useEffect(() => {
+    if (
+      preview &&
+      appliedPreviewWindowIdRef.current !== preview.windowId &&
+      windows.some((candidate) => candidate.id === preview.windowId)
+    ) {
+      appliedPreviewWindowIdRef.current = preview.windowId
+      if (selectedWindowId !== preview.windowId) setSelectedWindowId(preview.windowId)
+      return
+    }
     if (selectedWindowId || windows.length === 0) return
     const configured = state.config.target
       ? windows.find(
@@ -263,7 +273,12 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
         )
       : undefined
     setSelectedWindowId((configured ?? windows[0]).id)
-  }, [selectedWindowId, state.config.target, windows])
+  }, [preview, selectedWindowId, state.config.target, windows])
+
+  useEffect(() => {
+    if (!preview || searchRegion) return
+    setSearchRegion(state.config.searchRegion ?? defaultRegion)
+  }, [preview, searchRegion, state.config.searchRegion])
 
   useEffect(() => {
     let disposed = false
@@ -314,6 +329,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   async function handlePreview(): Promise<void> {
     if (!selectedWindowId) return
     const result = await capturePreview(selectedWindowId)
+    setSelectedWindowId(result.windowId)
     setSearchRegion(state.config.searchRegion ?? defaultRegion)
     setTemplateCrop(null)
     setMaskHistory(createMaskHistory())

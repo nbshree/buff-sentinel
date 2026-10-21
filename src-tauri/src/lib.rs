@@ -62,6 +62,7 @@ pub fn run() {
             buff_assistant::list_buff_sound_templates,
             buff_assistant::list_buff_audio_output_devices,
             buff_assistant::capture_buff_preview,
+            buff_assistant::capture_buff_preview_for_saved_target,
             buff_assistant::update_buff_search_region,
             buff_assistant::get_buff_listener_template,
             buff_assistant::request_buff_borderless_capture_access,

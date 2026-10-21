@@ -161,6 +161,7 @@ export type CaptureWindowCandidate = {
 }
 
 export type BuffCapturePreview = {
+  windowId: string
   dataUrl: string
   width: number
   height: number
@@ -254,6 +255,7 @@ export type BuffSentinelAPI = {
   listBuffSoundTemplates: () => Promise<BuffSoundTemplateSummary[]>
   listBuffAudioOutputDevices: () => Promise<BuffAudioOutputDevice[]>
   captureBuffPreview: (windowId: string) => Promise<BuffCapturePreview>
+  captureBuffPreviewForSavedTarget: () => Promise<BuffCapturePreview>
   updateBuffSearchRegion: (searchRegion: NormalizedRect) => Promise<BuffAssistantState>
   getBuffListenerTemplate: (listenerId: string) => Promise<BuffTemplatePreview>
   saveBuffListener: (
@@ -378,6 +380,10 @@ export const buffSentinelApi: BuffSentinelAPI = {
     callTauri(() => invoke<BuffAudioOutputDevice[]>('list_buff_audio_output_devices')),
   captureBuffPreview: (windowId) =>
     callTauri(() => invoke<BuffCapturePreview>('capture_buff_preview', { windowId })),
+  captureBuffPreviewForSavedTarget: () =>
+    callTauri(() =>
+      invoke<BuffCapturePreview>('capture_buff_preview_for_saved_target')
+    ),
   updateBuffSearchRegion: (searchRegion) =>
     callTauri(() => invoke<BuffAssistantState>('update_buff_search_region', { searchRegion })),
   getBuffListenerTemplate: (listenerId) =>

@@ -275,6 +275,32 @@ pub fn capture_buff_preview(
     window_id: String,
 ) -> Result<CapturePreview, String> {
     let (window, candidate) = windows::resolve_window(&window_id)?;
+    capture_preview_for_window(&app, state.inner(), window, candidate)
+}
+
+#[tauri::command]
+pub fn capture_buff_preview_for_saved_target(
+    app: AppHandle,
+    state: State<'_, BuffAssistant>,
+) -> Result<CapturePreview, String> {
+    let target = state
+        .lock()
+        .config
+        .target
+        .clone()
+        .ok_or_else(|| "尚未选择目标游戏窗口".to_string())?;
+    let (window, candidate) = windows::resolve_target(&target)?.ok_or_else(|| {
+        "上次选择的游戏窗口当前不可用，请启动游戏后刷新窗口并手动捕获预览".to_string()
+    })?;
+    capture_preview_for_window(&app, state.inner(), window, candidate)
+}
+
+fn capture_preview_for_window(
+    app: &AppHandle,
+    state: &BuffAssistant,
+    window: ::windows_capture::window::Window,
+    candidate: CaptureWindowCandidate,
+) -> Result<CapturePreview, String> {
     let show_system_border = state.lock().config.settings.capture.show_system_border;
     let outcome = capture_snapshot(window, show_system_border)?;
     let image = outcome.value;
@@ -298,8 +324,9 @@ pub fn capture_buff_preview(
         persist_capture_target(&mut inner.config, &storage_directory, target.clone())?;
         update_capture_border_notice(&mut inner, outcome.used_border_fallback);
     }
-    emit_state(&app, &state.snapshot());
+    emit_state(app, &state.snapshot());
     Ok(CapturePreview {
+        window_id: candidate.id,
         data_url,
         width: image.width,
         height: image.height,

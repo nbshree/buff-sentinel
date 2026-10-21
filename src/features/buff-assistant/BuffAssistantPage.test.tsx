@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { StrictMode } from 'react'
 import { describe, expect, it } from 'vitest'
 
 import { useBuffAssistantController } from '@/hooks/useBuffAssistantController'
@@ -77,6 +78,20 @@ async function createListenerApi(hideInOverlay = false) {
     }
   ])
   api.captureBuffPreview.mockResolvedValue({
+    windowId: '1',
+    dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+    width: 1920,
+    height: 1080,
+    target: {
+      processName: 'game.exe',
+      windowTitle: 'Game',
+      className: 'GameWindow',
+      referenceWidth: 1920,
+      referenceHeight: 1080
+    }
+  })
+  api.captureBuffPreviewForSavedTarget.mockResolvedValue({
+    windowId: '1',
     dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
     width: 1920,
     height: 1080,
@@ -91,12 +106,6 @@ async function createListenerApi(hideInOverlay = false) {
   return api
 }
 
-async function captureConfiguredPreview(user: ReturnType<typeof userEvent.setup>) {
-  const previewButton = await screen.findByRole('button', { name: '捕获预览' })
-  await waitFor(() => expect(previewButton).toBeEnabled())
-  await user.click(previewButton)
-}
-
 async function openGlobalSettings(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole('button', { name: '设置' }))
   return screen.findByRole('dialog', { name: '设置' })
@@ -108,6 +117,147 @@ async function openListenerEditor(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('BuffAssistantPage', () => {
+  it('restores the saved target preview once on startup', async () => {
+    const api = await createListenerApi()
+    api.listBuffCaptureWindows.mockResolvedValue([
+      {
+        id: 'old',
+        processName: 'game.exe',
+        windowTitle: 'Game',
+        className: 'GameWindow',
+        width: 1920,
+        height: 1080
+      },
+      {
+        id: 'recovered',
+        processName: 'renamed-game.exe',
+        windowTitle: 'Game',
+        className: 'GameWindow',
+        width: 1920,
+        height: 1080
+      }
+    ])
+    api.captureBuffPreviewForSavedTarget.mockResolvedValue({
+      windowId: 'recovered',
+      dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+      width: 1920,
+      height: 1080,
+      target: {
+        processName: 'renamed-game.exe',
+        windowTitle: 'Game',
+        className: 'GameWindow',
+        referenceWidth: 1920,
+        referenceHeight: 1080
+      }
+    })
+    installBuffSentinelApi(api)
+    render(
+      <StrictMode>
+        <BuffAssistantHarness />
+      </StrictMode>
+    )
+
+    expect(await screen.findByAltText('游戏窗口捕获预览')).toBeVisible()
+    await waitFor(() =>
+      expect(api.captureBuffPreviewForSavedTarget).toHaveBeenCalledOnce()
+    )
+    expect(screen.getByRole('combobox', { name: '目标游戏窗口' })).toHaveTextContent(
+      'renamed-game.exe · Game · 1920×1080'
+    )
+    expect(api.captureBuffPreview).not.toHaveBeenCalled()
+  })
+
+  it('keeps a manual window selection after startup restoration', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    api.captureBuffPreviewForSavedTarget.mockResolvedValue({
+      windowId: 'saved',
+      dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+      width: 1920,
+      height: 1080,
+      target: {
+        processName: 'game.exe',
+        windowTitle: 'Game',
+        className: 'GameWindow',
+        referenceWidth: 1920,
+        referenceHeight: 1080
+      }
+    })
+    api.listBuffCaptureWindows.mockResolvedValue([
+      {
+        id: 'saved',
+        processName: 'game.exe',
+        windowTitle: 'Game',
+        className: 'GameWindow',
+        width: 1920,
+        height: 1080
+      },
+      {
+        id: 'other',
+        processName: 'other.exe',
+        windowTitle: 'Other',
+        className: 'OtherWindow',
+        width: 1280,
+        height: 720
+      }
+    ])
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    await screen.findByAltText('游戏窗口捕获预览')
+    const windowSelect = screen.getByRole('combobox', { name: '目标游戏窗口' })
+    await user.click(windowSelect)
+    await user.click(await screen.findByRole('option', { name: /other\.exe/ }))
+
+    expect(windowSelect).toHaveTextContent('other.exe · Other · 1280×720')
+  })
+
+  it('does not restore a preview without a saved target', async () => {
+    const api = createBuffSentinelApi()
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    await waitFor(() => expect(api.listBuffCaptureWindows).toHaveBeenCalledOnce())
+    expect(await screen.findByText('等待捕获预览')).toBeVisible()
+    expect(api.captureBuffPreviewForSavedTarget).not.toHaveBeenCalled()
+  })
+
+  it('tries saved target restoration only once and reports an unavailable window', async () => {
+    const api = await createListenerApi()
+    api.captureBuffPreviewForSavedTarget.mockRejectedValue(
+      new Error('上次选择的游戏窗口当前不可用，请启动游戏后刷新窗口并手动捕获预览')
+    )
+    installBuffSentinelApi(api)
+    render(
+      <StrictMode>
+        <BuffAssistantHarness />
+      </StrictMode>
+    )
+
+    expect(
+      await screen.findByText(
+        '上次选择的游戏窗口当前不可用，请启动游戏后刷新窗口并手动捕获预览'
+      )
+    ).toBeVisible()
+    expect(api.captureBuffPreviewForSavedTarget).toHaveBeenCalledOnce()
+    expect(screen.getByText('等待捕获预览')).toBeVisible()
+  })
+
+  it('keeps manual preview bound to the selected window', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    await screen.findByAltText('游戏窗口捕获预览')
+    const previewButton = screen.getByRole('button', { name: '捕获预览' })
+    await waitFor(() => expect(previewButton).toBeEnabled())
+    await user.click(previewButton)
+
+    expect(api.captureBuffPreviewForSavedTarget).toHaveBeenCalledOnce()
+    expect(api.captureBuffPreview).toHaveBeenCalledWith('1')
+  })
+
   it('keeps global capture settings in the top-level dialog', async () => {
     const user = userEvent.setup()
     const api = await createListenerApi()
@@ -379,9 +529,7 @@ describe('BuffAssistantPage', () => {
     expect(await screen.findByText('已添加 1/8 个，启用项会同时监听。')).toBeVisible()
     expect(screen.getByText('金周天')).toBeVisible()
     const start = screen.getByRole('button', { name: '开始监控' })
-    expect(start).toBeDisabled()
-    await captureConfiguredPreview(user)
-    expect(start).toBeEnabled()
+    await waitFor(() => expect(start).toBeEnabled())
     await user.click(start)
     expect(api.startBuffMonitor).toHaveBeenCalledOnce()
   })
@@ -444,9 +592,7 @@ describe('BuffAssistantPage', () => {
 
     const editButton = await screen.findByRole('button', { name: '调整悬浮位置' })
     const startButton = screen.getByRole('button', { name: '开始监控' })
-    expect(startButton).toBeDisabled()
-    await captureConfiguredPreview(user)
-    expect(startButton).toBeEnabled()
+    await waitFor(() => expect(startButton).toBeEnabled())
 
     await user.click(editButton)
     expect(startButton).toBeDisabled()

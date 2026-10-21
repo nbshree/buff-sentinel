@@ -37,35 +37,29 @@ pub fn resolve_window(id: &str) -> Result<(Window, CaptureWindowCandidate), Stri
 }
 
 pub fn find_target(target: &BuffTarget) -> Result<Option<Window>, String> {
+    Ok(resolve_target(target)?.map(|(window, _)| window))
+}
+
+pub fn resolve_target(
+    target: &BuffTarget,
+) -> Result<Option<(Window, CaptureWindowCandidate)>, String> {
     let windows = Window::enumerate().map_err(|error| format!("枚举窗口失败：{error}"))?;
-    let mut fallback = None;
+    let mut best_match = None;
     for window in windows {
         let Ok(candidate) = candidate_from_window(window) else {
             continue;
         };
-        let process_matches = target.process_name.is_empty()
-            || candidate
-                .process_name
-                .eq_ignore_ascii_case(&target.process_name);
-        if !process_matches {
+        let Some(rank) = target_match_rank(&candidate, target) else {
             continue;
-        }
-        let class_matches = target.class_name.is_empty()
-            || candidate
-                .class_name
-                .eq_ignore_ascii_case(&target.class_name);
-        let title_matches = target.window_title.is_empty()
-            || candidate
-                .window_title
-                .eq_ignore_ascii_case(&target.window_title);
-        if class_matches && title_matches {
-            return Ok(Some(window));
-        }
-        if fallback.is_none() && class_matches {
-            fallback = Some(window);
+        };
+        if best_match
+            .as_ref()
+            .is_none_or(|(best_rank, _, _)| rank < *best_rank)
+        {
+            best_match = Some((rank, window, candidate));
         }
     }
-    Ok(fallback)
+    Ok(best_match.map(|(_, window, candidate)| (window, candidate)))
 }
 
 pub fn target_from_candidate(candidate: &CaptureWindowCandidate) -> BuffTarget {
@@ -76,6 +70,23 @@ pub fn target_from_candidate(candidate: &CaptureWindowCandidate) -> BuffTarget {
         reference_width: candidate.width,
         reference_height: candidate.height,
     }
+}
+
+fn target_match_rank(candidate: &CaptureWindowCandidate, target: &BuffTarget) -> Option<u8> {
+    let process_matches = field_matches(&candidate.process_name, &target.process_name);
+    let class_matches = field_matches(&candidate.class_name, &target.class_name);
+    let title_matches = field_matches(&candidate.window_title, &target.window_title);
+    match (process_matches, class_matches, title_matches) {
+        (true, true, true) => Some(0),
+        (true, true, false) => Some(1),
+        (true, false, true) => Some(2),
+        (false, true, true) => Some(3),
+        _ => None,
+    }
+}
+
+fn field_matches(actual: &str, expected: &str) -> bool {
+    !expected.is_empty() && actual.eq_ignore_ascii_case(expected)
 }
 
 fn candidate_from_window(window: Window) -> Result<CaptureWindowCandidate, String> {
@@ -108,5 +119,70 @@ fn class_name(window: Window) -> String {
         String::new()
     } else {
         String::from_utf16_lossy(&buffer[..length as usize])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CaptureWindowCandidate, target_match_rank};
+    use crate::buff_assistant::model::BuffTarget;
+
+    fn candidate() -> CaptureWindowCandidate {
+        CaptureWindowCandidate {
+            id: "42".into(),
+            process_name: "game.exe".into(),
+            window_title: "Game".into(),
+            class_name: "GameWindow".into(),
+            width: 1920,
+            height: 1080,
+        }
+    }
+
+    fn target() -> BuffTarget {
+        BuffTarget {
+            process_name: "game.exe".into(),
+            window_title: "Game".into(),
+            class_name: "GameWindow".into(),
+            reference_width: 1920,
+            reference_height: 1080,
+        }
+    }
+
+    #[test]
+    fn exact_identity_has_highest_priority() {
+        assert_eq!(target_match_rank(&candidate(), &target()), Some(0));
+    }
+
+    #[test]
+    fn changed_title_can_match_by_process_and_class() {
+        let mut target = target();
+        target.window_title = "Previous title".into();
+        assert_eq!(target_match_rank(&candidate(), &target), Some(1));
+    }
+
+    #[test]
+    fn changed_process_can_match_by_class_and_title() {
+        let mut target = target();
+        target.process_name = "old-game.exe".into();
+        assert_eq!(target_match_rank(&candidate(), &target), Some(3));
+    }
+
+    #[test]
+    fn changed_class_can_match_by_process_and_title() {
+        let mut target = target();
+        target.class_name = "OldWindowClass".into();
+        assert_eq!(target_match_rank(&candidate(), &target), Some(2));
+    }
+
+    #[test]
+    fn empty_target_fields_are_not_wildcards() {
+        let target = BuffTarget {
+            process_name: String::new(),
+            window_title: String::new(),
+            class_name: String::new(),
+            reference_width: 1920,
+            reference_height: 1080,
+        };
+        assert_eq!(target_match_rank(&candidate(), &target), None);
     }
 }

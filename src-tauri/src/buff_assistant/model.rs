@@ -662,6 +662,7 @@ pub struct CaptureWindowCandidate {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CapturePreview {
+    pub window_id: String,
     pub data_url: String,
     pub width: u32,
     pub height: u32,
