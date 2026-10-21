@@ -154,6 +154,7 @@ pub fn handle_pressed(app: &AppHandle) {
 }
 
 fn capture_foreground_target(app: &AppHandle, state: &BuffAssistant) {
+    super::cancel_capture_restore(state);
     let preview = match super::windows::foreground_candidate().and_then(|(window, candidate)| {
         super::capture_preview_for_window(app, state, window, candidate)
     }) {

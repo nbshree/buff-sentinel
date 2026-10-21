@@ -1,5 +1,7 @@
 use windows_capture::window::Window;
-use windows_sys::Win32::UI::WindowsAndMessaging::GetClassNameW;
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GetClassNameW, IsIconic, IsWindow, IsWindowVisible,
+};
 
 use super::model::{BuffTarget, CaptureWindowCandidate};
 
@@ -34,6 +36,15 @@ pub fn resolve_window(id: &str) -> Result<(Window, CaptureWindowCandidate), Stri
         }
     }
     Err("游戏窗口已经关闭，请刷新窗口列表".into())
+}
+
+pub fn is_window_ready(window: Window) -> bool {
+    let hwnd = window.as_raw_hwnd().cast();
+    unsafe { IsWindow(hwnd) != 0 && IsWindowVisible(hwnd) != 0 && IsIconic(hwnd) == 0 }
+}
+
+pub fn is_window_alive(window: Window) -> bool {
+    unsafe { IsWindow(window.as_raw_hwnd().cast()) != 0 }
 }
 
 pub fn foreground_candidate() -> Result<(Window, CaptureWindowCandidate), String> {

@@ -32,6 +32,7 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
       }
     },
     activity: 'stopped',
+    captureRestoreStatus: 'idle',
     isMonitoring: false,
     listeners: [],
     lastError: null,
@@ -54,11 +55,8 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
     captureBuffPreview: vi.fn<BuffSentinelAPI['captureBuffPreview']>(async () => {
       throw new Error('not configured')
     }),
-    captureBuffPreviewForSavedTarget: vi.fn<
-      BuffSentinelAPI['captureBuffPreviewForSavedTarget']
-    >(async () => {
-      throw new Error('not configured')
-    }),
+    startBuffCaptureRestore: vi.fn(async () => buffState),
+    cancelBuffCaptureRestore: vi.fn(async () => buffState),
     updateBuffSearchRegion: vi.fn(async () => buffState),
     getBuffListenerTemplate: vi.fn(async () => ({
       imageDataUrl: 'data:image/png;base64,dGVtcGxhdGU=',

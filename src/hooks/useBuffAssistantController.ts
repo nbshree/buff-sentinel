@@ -36,6 +36,7 @@ const defaultState: BuffAssistantState = {
     }
   },
   activity: 'stopped',
+  captureRestoreStatus: 'idle',
   isMonitoring: false,
   listeners: [],
   lastError: null,
@@ -56,7 +57,7 @@ export function useBuffAssistantController() {
   const [error, setError] = useState<string | null>(null)
   const stateRef = useRef(state)
   const lastMetricLogRef = useRef({ at: 0, present: false })
-  const restorePreviewPromiseRef = useRef<Promise<BuffCapturePreview> | null>(null)
+  const captureRestoreStartedRef = useRef(false)
 
   const appendLog = useCallback((message: string) => {
     setLogs((current) => [`${formatLogTime(new Date())} ${message}`, ...current].slice(0, 150))
@@ -76,23 +77,20 @@ export function useBuffAssistantController() {
         ) {
           return
         }
-        const restorePromise =
-          restorePreviewPromiseRef.current ?? window.api.captureBuffPreviewForSavedTarget()
-        if (!restorePreviewPromiseRef.current) {
-          restorePreviewPromiseRef.current = restorePromise
-          setBusy(true)
-          setError(null)
+        if (!captureRestoreStartedRef.current) {
+          captureRestoreStartedRef.current = true
+          void window.api
+            .startBuffCaptureRestore()
+            .then((result) => {
+              if (disposed) return
+              stateRef.current = result
+              setState(result)
+            })
+            .catch((reason: unknown) => {
+              captureRestoreStartedRef.current = false
+              if (!disposed) setError(toMessage(reason))
+            })
         }
-        void restorePromise
-          .then((result) => {
-            if (!disposed) setPreview(result)
-          })
-          .catch((reason: unknown) => {
-            if (!disposed) setError(toMessage(reason))
-          })
-          .finally(() => {
-            if (!disposed) setBusy(false)
-          })
       })
       .catch((reason: unknown) => {
         if (!disposed) setError(toMessage(reason))
@@ -276,7 +274,14 @@ export function useBuffAssistantController() {
     setMetrics({})
     setLogs([])
     lastMetricLogRef.current = { at: 0, present: false }
-    restorePreviewPromiseRef.current = null
+    captureRestoreStartedRef.current = false
+    return result
+  }, [run])
+
+  const cancelBuffCaptureRestore = useCallback(async () => {
+    const result = await run(() => window.api.cancelBuffCaptureRestore())
+    stateRef.current = result
+    setState(result)
     return result
   }, [run])
 
@@ -364,6 +369,7 @@ export function useBuffAssistantController() {
     deleteListener,
     updateSettings,
     resetBuffAssistantConfig,
+    cancelBuffCaptureRestore,
     requestBorderlessCaptureAccess,
     startMonitor,
     stopMonitor,

@@ -53,6 +53,9 @@ struct SnapshotFlags {
 struct SnapshotHandler {
     sender: Sender<Result<CapturedImage, String>>,
     sent: bool,
+    started_at: Instant,
+    stable_dimensions: Option<(u32, u32)>,
+    stable_frames: u8,
 }
 
 impl GraphicsCaptureApiHandler for SnapshotHandler {
@@ -63,6 +66,9 @@ impl GraphicsCaptureApiHandler for SnapshotHandler {
         Ok(Self {
             sender: ctx.flags.sender,
             sent: false,
+            started_at: Instant::now(),
+            stable_dimensions: None,
+            stable_frames: 0,
         })
     }
 
@@ -72,6 +78,19 @@ impl GraphicsCaptureApiHandler for SnapshotHandler {
         capture_control: InternalCaptureControl,
     ) -> Result<(), Self::Error> {
         if self.sent {
+            return Ok(());
+        }
+        if self.started_at.elapsed() < Duration::from_millis(250) {
+            return Ok(());
+        }
+        let dimensions = (frame.width(), frame.height());
+        if self.stable_dimensions == Some(dimensions) {
+            self.stable_frames = self.stable_frames.saturating_add(1);
+        } else {
+            self.stable_dimensions = Some(dimensions);
+            self.stable_frames = 1;
+        }
+        if self.stable_frames < 2 {
             return Ok(());
         }
         self.sent = true;

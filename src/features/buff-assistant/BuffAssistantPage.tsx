@@ -122,6 +122,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     deleteListener,
     updateSettings,
     resetBuffAssistantConfig,
+    cancelBuffCaptureRestore,
     requestBorderlessCaptureAccess,
     startMonitor,
     stopMonitor,
@@ -301,7 +302,10 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     }
   }, [preview, searchRegion])
 
-  const configurationLocked = state.isMonitoring || state.activity === 'testing'
+  const configurationLocked =
+    state.isMonitoring ||
+    state.activity === 'testing' ||
+    state.captureRestoreStatus === 'capturing'
   const selectedAudioOutputUnavailable = Boolean(
     settings.audioOutputDeviceId &&
       !loadingAudioOutputs &&
@@ -337,6 +341,13 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     setTemplateCrop(null)
     setMaskHistory(createMaskHistory())
     if (result.width < 1) setSearchRegion(null)
+  }
+
+  function handleWindowSelectionChange(windowId: string): void {
+    setSelectedWindowId(windowId)
+    if (state.captureRestoreStatus !== 'idle') {
+      void cancelBuffCaptureRestore().catch(() => undefined)
+    }
   }
 
   function handleSearchRegionChange(region: NormalizedRect): void {
@@ -621,7 +632,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               <Select
                 disabled={configurationLocked || windows.length === 0}
                 value={selectedWindowId}
-                onValueChange={setSelectedWindowId}
+                onValueChange={handleWindowSelectionChange}
               >
                 <SelectTrigger
                   aria-labelledby="buff-target-window-label"
@@ -641,7 +652,12 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
             </div>
             <Button
               className="buff-preview-button"
-              disabled={busy || configurationLocked || !selectedWindowId}
+              disabled={
+                busy ||
+                configurationLocked ||
+                !selectedWindowId ||
+                state.captureRestoreStatus !== 'idle'
+              }
               variant="outline"
               onClick={() => void handlePreview()}
             >
@@ -649,7 +665,34 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
               捕获预览
             </Button>
 
-            {preview ? (
+            {state.captureRestoreStatus !== 'idle' ? (
+              <div className="buff-capture-empty buff-capture-restoring" aria-live="polite">
+                <div className="buff-capture-empty__icon">
+                  <Eye aria-hidden="true" />
+                </div>
+                <strong>
+                  {state.captureRestoreStatus === 'capturing'
+                    ? '正在准备捕获预览'
+                    : '等待游戏窗口恢复'}
+                </strong>
+                <p>
+                  {state.captureRestoreStatus === 'capturing'
+                    ? '正在等待游戏画面稳定，请保持游戏窗口可见。'
+                    : '检测到上次目标窗口已最小化或不可见，恢复游戏后将自动准备预览。'}
+                </p>
+                {state.captureRestoreStatus === 'waitingForWindow' ? (
+                  <Button
+                    disabled={busy}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() => void cancelBuffCaptureRestore()}
+                  >
+                    取消等待
+                  </Button>
+                ) : null}
+              </div>
+            ) : preview ? (
               <div className="buff-wizard-step">
                 <div className="buff-wizard-step__title">
                   <span>1</span>

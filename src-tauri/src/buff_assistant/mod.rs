@@ -3,6 +3,7 @@ mod capture;
 mod detector;
 mod hotkey;
 mod model;
+mod restore;
 mod storage;
 mod timeline;
 mod windows;
@@ -30,12 +31,12 @@ use capture::{
 use image::{DynamicImage, GrayImage, Luma, RgbaImage};
 pub use model::{
     BorderlessCaptureAccessResult, BuffAssistantActivity, BuffAssistantConfig, BuffAssistantState,
-    BuffAudioOutputDevice, BuffCustomSoundAsset, BuffGlobalSettings, BuffListenerConfig,
-    BuffListenerRuntimeState, BuffListenerSettings, BuffOverlayColorScheme, BuffOverlayItem,
-    BuffOverlayMode, BuffOverlayState, BuffSoundCue, BuffSoundSource, BuffSoundTemplateSummary,
-    BuffTarget, BuffTemplatePreview, CapturePreview, CaptureWindowCandidate,
-    DEFAULT_OVERLAY_HEIGHT, MAX_LISTENERS, MAX_OVERLAY_HEIGHT, MAX_OVERLAY_WIDTH,
-    MIN_OVERLAY_HEIGHT, MIN_OVERLAY_WIDTH, NormalizedRect,
+    BuffAudioOutputDevice, BuffCaptureRestoreStatus, BuffCustomSoundAsset, BuffGlobalSettings,
+    BuffListenerConfig, BuffListenerRuntimeState, BuffListenerSettings, BuffOverlayColorScheme,
+    BuffOverlayItem, BuffOverlayMode, BuffOverlayState, BuffSoundCue, BuffSoundSource,
+    BuffSoundTemplateSummary, BuffTarget, BuffTemplatePreview, CapturePreview,
+    CaptureWindowCandidate, DEFAULT_OVERLAY_HEIGHT, MAX_LISTENERS, MAX_OVERLAY_HEIGHT,
+    MAX_OVERLAY_WIDTH, MIN_OVERLAY_HEIGHT, MIN_OVERLAY_WIDTH, NormalizedRect,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{
@@ -58,6 +59,8 @@ struct StoredPreview {
 struct RuntimeData {
     config: BuffAssistantConfig,
     activity: BuffAssistantActivity,
+    capture_restore_status: BuffCaptureRestoreStatus,
+    capture_restore_generation: u64,
     monitor_requested: bool,
     last_error: Option<String>,
     capture_recovery_required: bool,
@@ -166,6 +169,8 @@ impl BuffAssistant {
                     listeners: listener_runtime_map(&config),
                     config,
                     activity: BuffAssistantActivity::Stopped,
+                    capture_restore_status: BuffCaptureRestoreStatus::Idle,
+                    capture_restore_generation: 0,
                     monitor_requested: false,
                     last_error: None,
                     capture_recovery_required: false,
@@ -276,6 +281,7 @@ pub fn capture_buff_preview(
     state: State<'_, BuffAssistant>,
     window_id: String,
 ) -> Result<CapturePreview, String> {
+    cancel_capture_restore(state.inner());
     let result = windows::resolve_window(&window_id).and_then(|(window, candidate)| {
         capture_preview_for_window(&app, state.inner(), window, candidate)
     });
@@ -284,24 +290,46 @@ pub fn capture_buff_preview(
 }
 
 #[tauri::command]
-pub fn capture_buff_preview_for_saved_target(
+pub fn start_buff_capture_restore(
     app: AppHandle,
     state: State<'_, BuffAssistant>,
-) -> Result<CapturePreview, String> {
-    let result = (|| {
-        let target = state
-            .lock()
-            .config
-            .target
-            .clone()
-            .ok_or_else(|| "尚未选择目标游戏窗口".to_string())?;
-        let (window, candidate) = windows::resolve_target(&target)?.ok_or_else(|| {
-            "上次选择的游戏窗口当前不可用，请启动游戏后刷新窗口并手动捕获预览".to_string()
-        })?;
-        capture_preview_for_window(&app, state.inner(), window, candidate)
-    })();
-    record_capture_preview_result(state.inner(), &result);
-    result
+) -> Result<BuffAssistantState, String> {
+    let (target, generation, snapshot) = {
+        let mut inner = state.lock();
+        let Some(target) = inner.config.target.clone() else {
+            inner.capture_restore_status = BuffCaptureRestoreStatus::Idle;
+            return Ok(snapshot_from_runtime(&inner));
+        };
+        if inner.monitor_requested || inner.capture_purpose.is_some() {
+            return Err("请先停止监控或实时测试，再恢复捕获预览".into());
+        }
+        inner.capture_restore_generation = inner.capture_restore_generation.wrapping_add(1);
+        inner.capture_restore_status = BuffCaptureRestoreStatus::WaitingForWindow;
+        inner.capture_recovery_required = false;
+        inner.last_error = None;
+        (
+            target,
+            inner.capture_restore_generation,
+            snapshot_from_runtime(&inner),
+        )
+    };
+    emit_state(&app, &snapshot);
+    restore::start(app, target, generation);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn cancel_buff_capture_restore(
+    app: AppHandle,
+    state: State<'_, BuffAssistant>,
+) -> BuffAssistantState {
+    let snapshot = {
+        let mut inner = state.lock();
+        cancel_capture_restore_locked(&mut inner);
+        snapshot_from_runtime(&inner)
+    };
+    emit_state(&app, &snapshot);
+    snapshot
 }
 
 fn capture_preview_for_window(
@@ -347,6 +375,16 @@ fn capture_preview_for_window(
 
 fn record_capture_preview_result(state: &BuffAssistant, result: &Result<CapturePreview, String>) {
     state.lock().capture_recovery_required = result.is_err();
+}
+
+fn cancel_capture_restore(state: &BuffAssistant) {
+    let mut inner = state.lock();
+    cancel_capture_restore_locked(&mut inner);
+}
+
+fn cancel_capture_restore_locked(inner: &mut RuntimeData) {
+    inner.capture_restore_generation = inner.capture_restore_generation.wrapping_add(1);
+    inner.capture_restore_status = BuffCaptureRestoreStatus::Idle;
 }
 
 fn persist_capture_target(
@@ -767,6 +805,8 @@ pub fn reset_buff_assistant_config(
         inner.config = default_config;
         inner.listeners.clear();
         inner.activity = BuffAssistantActivity::Stopped;
+        inner.capture_restore_status = BuffCaptureRestoreStatus::Idle;
+        inner.capture_restore_generation = inner.capture_restore_generation.wrapping_add(1);
         inner.monitor_requested = false;
         inner.last_error = None;
         inner.capture_recovery_required = false;
@@ -804,6 +844,7 @@ pub fn start_buff_monitor(
 
 pub fn start_buff_monitor_internal(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<BuffAssistant>();
+    cancel_capture_restore(&state);
     stop_current_capture(&state);
     let (target, generation) = {
         let mut inner = state.lock();
@@ -902,6 +943,7 @@ pub fn start_buff_template_test(
     listener_id: String,
 ) -> Result<BuffAssistantState, String> {
     let (window, _) = windows::resolve_window(&window_id)?;
+    cancel_capture_restore(&state);
     stop_buff_monitor_internal(&app);
     let (flags, config) = capture_flags(&app, CapturePurpose::Test, Some(&listener_id))?;
     let outcome = start_runtime_capture(window, flags)?;
@@ -1814,6 +1856,7 @@ fn snapshot_from_runtime(inner: &RuntimeData) -> BuffAssistantState {
     BuffAssistantState {
         config: inner.config.clone(),
         activity: inner.activity,
+        capture_restore_status: inner.capture_restore_status,
         is_monitoring: inner.monitor_requested,
         listeners,
         last_error: inner.last_error.clone(),

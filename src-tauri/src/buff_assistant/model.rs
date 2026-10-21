@@ -615,11 +615,21 @@ pub enum BuffAssistantActivity {
     Error,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BuffCaptureRestoreStatus {
+    #[default]
+    Idle,
+    WaitingForWindow,
+    Capturing,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuffAssistantState {
     pub config: BuffAssistantConfig,
     pub activity: BuffAssistantActivity,
+    pub capture_restore_status: BuffCaptureRestoreStatus,
     pub is_monitoring: bool,
     pub listeners: Vec<BuffListenerRuntimeState>,
     pub last_error: Option<String>,
