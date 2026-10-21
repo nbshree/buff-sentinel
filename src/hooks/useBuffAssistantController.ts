@@ -50,6 +50,7 @@ export type BuffAssistantController = ReturnType<typeof useBuffAssistantControll
 export function useBuffAssistantController() {
   const [state, setState] = useState<BuffAssistantState>(defaultState)
   const [windows, setWindows] = useState<CaptureWindowCandidate[]>([])
+  const [windowsLoading, setWindowsLoading] = useState(false)
   const [preview, setPreview] = useState<BuffCapturePreview | null>(null)
   const [metrics, setMetrics] = useState<Record<string, BuffMetric>>({})
   const [logs, setLogs] = useState<string[]>([])
@@ -58,9 +59,30 @@ export function useBuffAssistantController() {
   const stateRef = useRef(state)
   const lastMetricLogRef = useRef({ at: 0, present: false })
   const captureRestoreStartedRef = useRef(false)
+  const windowsRequestGenerationRef = useRef(0)
 
   const appendLog = useCallback((message: string) => {
     setLogs((current) => [`${formatLogTime(new Date())} ${message}`, ...current].slice(0, 150))
+  }, [])
+
+  const fetchWindows = useCallback(async (showBusy: boolean) => {
+    const generation = ++windowsRequestGenerationRef.current
+    setWindowsLoading(true)
+    if (showBusy) {
+      setBusy(true)
+      setError(null)
+    }
+    try {
+      const items = await window.api.listBuffCaptureWindows()
+      if (generation === windowsRequestGenerationRef.current) setWindows(items)
+      return items
+    } catch (reason) {
+      if (generation === windowsRequestGenerationRef.current) setError(toMessage(reason))
+      throw reason
+    } finally {
+      if (generation === windowsRequestGenerationRef.current) setWindowsLoading(false)
+      if (showBusy) setBusy(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -100,6 +122,8 @@ export function useBuffAssistantController() {
     const stopCapturePreview = window.api.onBuffCapturePreview((nextPreview) => {
       setPreview(nextPreview)
       setError(null)
+      setWindows((current) => addCaptureWindow(current, nextPreview))
+      void fetchWindows(false).catch(() => undefined)
     })
     const stopMetric = window.api.onBuffMetric(({ metrics: nextMetrics }) => {
       setMetrics((current) => {
@@ -150,7 +174,7 @@ export function useBuffAssistantController() {
         appendLog(`识别停止：${nextState.lastError ?? '未知错误'}`)
       }
     }
-  }, [appendLog])
+  }, [appendLog, fetchWindows])
 
   const run = useCallback(async <T>(operation: () => Promise<T>): Promise<T> => {
     setBusy(true)
@@ -166,11 +190,7 @@ export function useBuffAssistantController() {
     }
   }, [])
 
-  const refreshWindows = useCallback(async () => {
-    const items = await run(() => window.api.listBuffCaptureWindows())
-    setWindows(items)
-    return items
-  }, [run])
+  const refreshWindows = useCallback(() => fetchWindows(true), [fetchWindows])
 
   const capturePreview = useCallback(
     async (windowId: string) => {
@@ -354,6 +374,7 @@ export function useBuffAssistantController() {
   return {
     state,
     windows,
+    windowsLoading,
     preview,
     metrics,
     logs,
@@ -379,6 +400,24 @@ export function useBuffAssistantController() {
     setOverlayEditing,
     setOverlayPreview
   }
+}
+
+function addCaptureWindow(
+  windows: CaptureWindowCandidate[],
+  preview: BuffCapturePreview
+): CaptureWindowCandidate[] {
+  if (windows.some((candidate) => candidate.id === preview.windowId)) return windows
+  return [
+    ...windows,
+    {
+      id: preview.windowId,
+      processName: preview.target.processName,
+      windowTitle: preview.target.windowTitle,
+      className: preview.target.className,
+      width: preview.width,
+      height: preview.height
+    }
+  ]
 }
 
 function formatLogTime(date: Date): string {

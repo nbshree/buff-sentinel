@@ -108,6 +108,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const {
     state,
     windows,
+    windowsLoading,
     preview,
     metrics,
     logs,
@@ -615,38 +616,43 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                   <p>所有监听图标共用同一个游戏窗口与搜索区域。</p>
                 </div>
               </div>
-              <Button
-                aria-label="刷新窗口"
-                disabled={busy || configurationLocked}
-                size="icon-sm"
-                title="刷新窗口"
-                variant="outline"
-                onClick={() => void refreshWindows()}
-              >
-                <RefreshCw aria-hidden="true" />
-              </Button>
             </header>
 
             <div className="buff-window-field">
               <span id="buff-target-window-label">目标游戏窗口</span>
               <Select
-                disabled={configurationLocked || windows.length === 0}
+                disabled={configurationLocked}
                 value={selectedWindowId}
                 onValueChange={handleWindowSelectionChange}
+                onOpenChange={(open) => {
+                  if (open) void refreshWindows().catch(() => undefined)
+                }}
               >
                 <SelectTrigger
                   aria-labelledby="buff-target-window-label"
                   className="buff-window-select"
                 >
-                  <SelectValue placeholder="没有可捕获窗口" />
+                  <SelectValue
+                    placeholder={windowsLoading ? '正在加载窗口' : '没有可捕获窗口'}
+                  />
                 </SelectTrigger>
                 <SelectContent>
+                  {windowsLoading ? (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground" role="status">
+                      正在刷新窗口列表
+                    </div>
+                  ) : null}
                   {windows.map((candidate) => (
                     <SelectItem key={candidate.id} value={candidate.id}>
                       {candidate.processName} · {candidate.windowTitle} · {candidate.width}×
                       {candidate.height}
                     </SelectItem>
                   ))}
+                  {!windowsLoading && windows.length === 0 ? (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                      没有可捕获窗口
+                    </div>
+                  ) : null}
                 </SelectContent>
               </Select>
             </div>

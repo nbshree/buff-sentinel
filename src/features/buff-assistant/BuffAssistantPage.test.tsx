@@ -204,6 +204,51 @@ describe('BuffAssistantPage', () => {
     expect(unlistenCalled).toBe(true)
   })
 
+  it('selects and refreshes a restored target that was missing from the initial window list', async () => {
+    const api = createBuffSentinelApi()
+    const targetWindow = {
+      id: 'restored',
+      processName: 'game.exe',
+      windowTitle: 'Game',
+      className: 'GameWindow',
+      width: 1920,
+      height: 1080
+    }
+    api.listBuffCaptureWindows.mockResolvedValueOnce([]).mockResolvedValueOnce([targetWindow])
+    let emitPreview: ((preview: BuffCapturePreview) => void) | null = null
+    api.onBuffCapturePreview.mockImplementation((callback) => {
+      emitPreview = callback
+      return () => undefined
+    })
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    await waitFor(() => expect(api.listBuffCaptureWindows).toHaveBeenCalledOnce())
+    act(() => {
+      emitPreview?.({
+        windowId: targetWindow.id,
+        dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+        width: targetWindow.width,
+        height: targetWindow.height,
+        target: {
+          processName: targetWindow.processName,
+          windowTitle: targetWindow.windowTitle,
+          className: targetWindow.className,
+          referenceWidth: targetWindow.width,
+          referenceHeight: targetWindow.height
+        }
+      })
+    })
+
+    await waitFor(() => expect(api.listBuffCaptureWindows).toHaveBeenCalledTimes(2))
+    expect(await screen.findByAltText('游戏窗口捕获预览')).toBeVisible()
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: '目标游戏窗口' })).toHaveTextContent(
+        'game.exe · Game · 1920×1080'
+      )
+    )
+  })
+
   it('starts background capture restoration once when a target is saved', async () => {
     const api = await createListenerApi()
     const waitingState = await api.getBuffAssistantState()
@@ -237,6 +282,37 @@ describe('BuffAssistantPage', () => {
     await waitFor(() => expect(api.listBuffCaptureWindows).toHaveBeenCalledOnce())
     expect(await screen.findByText('等待捕获预览')).toBeVisible()
     expect(api.startBuffCaptureRestore).not.toHaveBeenCalled()
+  })
+
+  it('refreshes the target window list whenever the select opens', async () => {
+    const user = userEvent.setup()
+    const api = createBuffSentinelApi()
+    api.listBuffCaptureWindows
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'game',
+          processName: 'game.exe',
+          windowTitle: 'Game',
+          className: 'GameWindow',
+          width: 1920,
+          height: 1080
+        }
+      ])
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    await waitFor(() => expect(api.listBuffCaptureWindows).toHaveBeenCalledOnce())
+    expect(screen.queryByRole('button', { name: '刷新窗口' })).not.toBeInTheDocument()
+    const targetSelect = screen.getByRole('combobox', { name: '目标游戏窗口' })
+    expect(targetSelect).toBeEnabled()
+
+    await user.click(targetSelect)
+
+    await waitFor(() => expect(api.listBuffCaptureWindows).toHaveBeenCalledTimes(2))
+    expect(
+      await screen.findByRole('option', { name: 'game.exe · Game · 1920×1080' })
+    ).toBeVisible()
   })
 
   it('keeps manual preview bound to the selected window', async () => {
