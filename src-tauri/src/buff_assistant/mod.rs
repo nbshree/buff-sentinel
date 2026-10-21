@@ -290,6 +290,26 @@ pub fn capture_buff_preview(
 }
 
 #[tauri::command]
+pub fn clear_buff_capture_target(
+    app: AppHandle,
+    state: State<'_, BuffAssistant>,
+) -> Result<BuffAssistantState, String> {
+    ensure_configuration_unlocked(&state)?;
+    let snapshot = {
+        let mut inner = state.lock();
+        let storage_directory = inner.storage_directory.clone();
+        clear_capture_target(&mut inner.config, &storage_directory)?;
+        cancel_capture_restore_locked(&mut inner);
+        inner.template_preview = None;
+        inner.capture_recovery_required = false;
+        inner.last_error = None;
+        snapshot_from_runtime(&inner)
+    };
+    emit_state(&app, &snapshot);
+    Ok(snapshot)
+}
+
+#[tauri::command]
 pub fn start_buff_capture_restore(
     app: AppHandle,
     state: State<'_, BuffAssistant>,
@@ -395,6 +415,18 @@ fn persist_capture_target(
     config.target = Some(target);
     config.sanitize();
     storage::save_config(storage_directory, config)
+}
+
+fn clear_capture_target(
+    config: &mut BuffAssistantConfig,
+    storage_directory: &std::path::Path,
+) -> Result<(), String> {
+    let mut next_config = config.clone();
+    next_config.target = None;
+    next_config.sanitize();
+    storage::save_config(storage_directory, &next_config)?;
+    *config = next_config;
+    Ok(())
 }
 
 #[tauri::command]
@@ -2506,9 +2538,9 @@ mod tests {
 
     use super::{
         BuffAssistantConfig, BuffListenerConfig, BuffListenerSettings, BuffTarget,
-        DEFAULT_OVERLAY_HEIGHT, NormalizedRect, OverlayWindowCache, configured_overlay_height,
-        crop_saved_template, crop_template_from_preview, listener_runs, listener_shows_in_overlay,
-        overlay_height_for_rows, persist_capture_target, storage,
+        DEFAULT_OVERLAY_HEIGHT, NormalizedRect, OverlayWindowCache, clear_capture_target,
+        configured_overlay_height, crop_saved_template, crop_template_from_preview, listener_runs,
+        listener_shows_in_overlay, overlay_height_for_rows, persist_capture_target, storage,
     };
 
     use std::{
@@ -2543,6 +2575,45 @@ mod tests {
 
         assert!(notices.is_empty());
         assert_eq!(loaded.target, Some(target));
+        fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn clearing_capture_target_preserves_other_configuration() {
+        let directory = unique_test_directory();
+        let mut config = BuffAssistantConfig {
+            target: Some(BuffTarget {
+                process_name: "game.exe".into(),
+                window_title: "Game".into(),
+                class_name: "GameWindow".into(),
+                reference_width: 1920,
+                reference_height: 1080,
+            }),
+            search_region: Some(NormalizedRect {
+                x: 0.5,
+                y: 0.1,
+                width: 0.4,
+                height: 0.2,
+            }),
+            ..BuffAssistantConfig::default()
+        };
+        config.listeners.push(BuffListenerConfig {
+            id: "listener-1".into(),
+            name: "金周天".into(),
+            enabled: true,
+            hide_in_overlay: false,
+            template: None,
+            settings: BuffListenerSettings::default(),
+        });
+
+        clear_capture_target(&mut config, &directory).expect("capture target should be cleared");
+        let (loaded, notices) = storage::load_config(&directory);
+
+        assert!(notices.is_empty());
+        assert_eq!(loaded.target, None);
+        assert_eq!(loaded.search_region, config.search_region);
+        assert_eq!(loaded.listeners, config.listeners);
+        assert_eq!(loaded.settings, config.settings);
         fs::remove_dir_all(directory).expect("remove test directory");
     }
 

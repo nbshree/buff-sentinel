@@ -19,7 +19,8 @@ import {
   Square,
   Trash2,
   Upload,
-  Volume2
+  Volume2,
+  X
 } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 
@@ -116,6 +117,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     error,
     refreshWindows,
     capturePreview,
+    clearCaptureTarget,
     updateBuffSearchRegion,
     getListenerTemplate,
     saveListener,
@@ -163,8 +165,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     useState<BuffListenerSettings>(defaultListenerSettings)
   const [listenerError, setListenerError] = useState<string | null>(null)
   const [overlayEditing, setOverlayEditingState] = useState(false)
-  const [overlayPreviewMode, setOverlayPreviewMode] =
-    useState<BuffOverlayPreviewMode>('countdown')
+  const [overlayPreviewMode, setOverlayPreviewMode] = useState<BuffOverlayPreviewMode>('countdown')
   const [soundTemplates, setSoundTemplates] = useState<BuffSoundTemplateSummary[]>([])
   const [soundError, setSoundError] = useState<string | null>(null)
   const [uploadingCue, setUploadingCue] = useState<BuffSoundCue | null>(null)
@@ -172,6 +173,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const maskRef = useRef<MaskEditorHandle>(null)
   const listenerTemplateRequestRef = useRef(0)
   const appliedPreviewWindowIdRef = useRef<string | null>(null)
+  const suppressWindowAutoSelectionRef = useRef(false)
 
   useEffect(() => {
     if (!settingsDialogOpen) setSettings(state.config.settings)
@@ -265,10 +267,11 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
       windows.some((candidate) => candidate.id === preview.windowId)
     ) {
       appliedPreviewWindowIdRef.current = preview.windowId
+      suppressWindowAutoSelectionRef.current = false
       if (selectedWindowId !== preview.windowId) setSelectedWindowId(preview.windowId)
       return
     }
-    if (selectedWindowId || windows.length === 0) return
+    if (selectedWindowId || windows.length === 0 || suppressWindowAutoSelectionRef.current) return
     const configured = state.config.target
       ? windows.find(
           (candidate) =>
@@ -304,14 +307,12 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   }, [preview, searchRegion])
 
   const configurationLocked =
-    state.isMonitoring ||
-    state.activity === 'testing' ||
-    state.captureRestoreStatus === 'capturing'
+    state.isMonitoring || state.activity === 'testing' || state.captureRestoreStatus === 'capturing'
   const selectedAudioOutputUnavailable = Boolean(
     settings.audioOutputDeviceId &&
-      !loadingAudioOutputs &&
-      !audioOutputError &&
-      !audioOutputDevices.some((device) => device.id === settings.audioOutputDeviceId)
+    !loadingAudioOutputs &&
+    !audioOutputError &&
+    !audioOutputDevices.some((device) => device.id === settings.audioOutputDeviceId)
   )
   const savedHotkeyError =
     settings.monitorHotkey === state.config.settings.monitorHotkey
@@ -337,6 +338,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   async function handlePreview(): Promise<void> {
     if (!selectedWindowId) return
     const result = await capturePreview(selectedWindowId)
+    suppressWindowAutoSelectionRef.current = false
     setSelectedWindowId(result.windowId)
     setSearchRegion(state.config.searchRegion ?? defaultRegion)
     setTemplateCrop(null)
@@ -345,9 +347,24 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   }
 
   function handleWindowSelectionChange(windowId: string): void {
+    suppressWindowAutoSelectionRef.current = false
     setSelectedWindowId(windowId)
     if (state.captureRestoreStatus !== 'idle') {
       void cancelBuffCaptureRestore().catch(() => undefined)
+    }
+  }
+
+  async function handleClearTargetWindow(): Promise<void> {
+    suppressWindowAutoSelectionRef.current = true
+    try {
+      await clearCaptureTarget()
+      appliedPreviewWindowIdRef.current = null
+      setSelectedWindowId('')
+      setTemplateSource(null)
+      setTemplateCrop(null)
+      setMaskHistory(createMaskHistory())
+    } catch {
+      suppressWindowAutoSelectionRef.current = false
     }
   }
 
@@ -620,41 +637,68 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
 
             <div className="buff-window-field">
               <span id="buff-target-window-label">目标游戏窗口</span>
-              <Select
-                disabled={configurationLocked}
-                value={selectedWindowId}
-                onValueChange={handleWindowSelectionChange}
-                onOpenChange={(open) => {
-                  if (open) void refreshWindows().catch(() => undefined)
-                }}
-              >
-                <SelectTrigger
-                  aria-labelledby="buff-target-window-label"
-                  className="buff-window-select"
+              <div className="buff-window-select-row">
+                <Select
+                  disabled={configurationLocked}
+                  value={selectedWindowId}
+                  onValueChange={handleWindowSelectionChange}
+                  onOpenChange={(open) => {
+                    if (open) void refreshWindows().catch(() => undefined)
+                  }}
                 >
-                  <SelectValue
-                    placeholder={windowsLoading ? '正在加载窗口' : '没有可捕获窗口'}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {windowsLoading ? (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground" role="status">
-                      正在刷新窗口列表
-                    </div>
-                  ) : null}
-                  {windows.map((candidate) => (
-                    <SelectItem key={candidate.id} value={candidate.id}>
-                      {candidate.processName} · {candidate.windowTitle} · {candidate.width}×
-                      {candidate.height}
-                    </SelectItem>
-                  ))}
-                  {!windowsLoading && windows.length === 0 ? (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                      没有可捕获窗口
-                    </div>
-                  ) : null}
-                </SelectContent>
-              </Select>
+                  <SelectTrigger
+                    aria-labelledby="buff-target-window-label"
+                    className="buff-window-select"
+                  >
+                    <SelectValue
+                      placeholder={
+                        windowsLoading
+                          ? '正在加载窗口'
+                          : windows.length > 0
+                            ? '请选择游戏窗口'
+                            : '没有可捕获窗口'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {windowsLoading ? (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground" role="status">
+                        正在刷新窗口列表
+                      </div>
+                    ) : null}
+                    {windows.map((candidate) => (
+                      <SelectItem key={candidate.id} value={candidate.id}>
+                        {candidate.processName} · {candidate.windowTitle} · {candidate.width}×
+                        {candidate.height}
+                      </SelectItem>
+                    ))}
+                    {!windowsLoading && windows.length === 0 ? (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                        没有可捕获窗口
+                      </div>
+                    ) : null}
+                  </SelectContent>
+                </Select>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      aria-label="清空目标窗口"
+                      className="buff-window-clear-button"
+                      disabled={
+                        busy || configurationLocked || (!selectedWindowId && !state.config.target)
+                      }
+                      size="icon-lg"
+                      title="清空目标窗口"
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handleClearTargetWindow()}
+                    >
+                      <X aria-hidden="true" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">清空目标窗口</TooltipContent>
+                </Tooltip>
+              </div>
             </div>
             <Button
               className="buff-preview-button"
@@ -857,7 +901,9 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                             />
                           </label>
                           <label className="buff-opacity-control">
-                            <span>底色透明度 {settings.overlay.customBackgroundOpacity ?? 95}%</span>
+                            <span>
+                              底色透明度 {settings.overlay.customBackgroundOpacity ?? 95}%
+                            </span>
                             <input
                               aria-label="底色透明度"
                               max="100"
@@ -1050,11 +1096,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                           {loadingAudioOutputs ? '刷新中' : '刷新'}
                         </Button>
                         <Button
-                          disabled={
-                            busy ||
-                            testingAudioOutput ||
-                            selectedAudioOutputUnavailable
-                          }
+                          disabled={busy || testingAudioOutput || selectedAudioOutputUnavailable}
                           type="button"
                           variant="outline"
                           onClick={() => void testAudioOutput()}
@@ -1421,10 +1463,10 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                       <strong>裁剪图标主体</strong>
                       <p>
                         {usingSavedTemplate
-                        ? editingFromSharedSource
-                          ? '当前正在使用最新 Buff 区域，可重新框选并保存为新的监听图标。'
-                          : '当前显示已保存的监听图标；如需更新，请点击下方刷新按钮。'
-                        : '只框选当前图标，不要包含相邻 Buff.'}
+                          ? editingFromSharedSource
+                            ? '当前正在使用最新 Buff 区域，可重新框选并保存为新的监听图标。'
+                            : '当前显示已保存的监听图标；如需更新，请点击下方刷新按钮。'
+                          : '只框选当前图标，不要包含相邻 Buff.'}
                       </p>
                     </div>
                   </div>
@@ -1604,11 +1646,7 @@ function ListenerSettingsEditor({
             </span>
           </label>
           <Select value={settings.matchMode} onValueChange={setMatchMode}>
-            <SelectTrigger
-              id="listener-match-mode"
-              aria-label="识别模式"
-              className="h-[35px]"
-            >
+            <SelectTrigger id="listener-match-mode" aria-label="识别模式" className="h-[35px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

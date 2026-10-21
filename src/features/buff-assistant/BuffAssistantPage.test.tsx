@@ -287,18 +287,16 @@ describe('BuffAssistantPage', () => {
   it('refreshes the target window list whenever the select opens', async () => {
     const user = userEvent.setup()
     const api = createBuffSentinelApi()
-    api.listBuffCaptureWindows
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          id: 'game',
-          processName: 'game.exe',
-          windowTitle: 'Game',
-          className: 'GameWindow',
-          width: 1920,
-          height: 1080
-        }
-      ])
+    api.listBuffCaptureWindows.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: 'game',
+        processName: 'game.exe',
+        windowTitle: 'Game',
+        className: 'GameWindow',
+        width: 1920,
+        height: 1080
+      }
+    ])
     installBuffSentinelApi(api)
     render(<BuffAssistantHarness />)
 
@@ -310,9 +308,70 @@ describe('BuffAssistantPage', () => {
     await user.click(targetSelect)
 
     await waitFor(() => expect(api.listBuffCaptureWindows).toHaveBeenCalledTimes(2))
-    expect(
-      await screen.findByRole('option', { name: 'game.exe · Game · 1920×1080' })
-    ).toBeVisible()
+    expect(await screen.findByRole('option', { name: 'game.exe · Game · 1920×1080' })).toBeVisible()
+  })
+
+  it('clears the selected target and preview without removing listener configuration', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    const configuredState = await api.getBuffAssistantState()
+    api.clearBuffCaptureTarget.mockResolvedValue({
+      ...configuredState,
+      config: {
+        ...configuredState.config,
+        target: null
+      }
+    })
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    await captureConfiguredPreview(user)
+    expect(await screen.findByAltText('游戏窗口捕获预览')).toBeVisible()
+
+    const clearButton = screen.getByRole('button', { name: '清空目标窗口' })
+    expect(clearButton).toBeEnabled()
+    await user.click(clearButton)
+
+    await waitFor(() => expect(api.clearBuffCaptureTarget).toHaveBeenCalledOnce())
+    expect(await screen.findByText('等待捕获预览')).toBeVisible()
+    expect(screen.getByRole('combobox', { name: '目标游戏窗口' })).toHaveTextContent(
+      '请选择游戏窗口'
+    )
+    expect(screen.getByText('金周天')).toBeVisible()
+
+    await user.click(screen.getByRole('combobox', { name: '目标游戏窗口' }))
+    expect(await screen.findByRole('option', { name: 'game.exe · Game · 1920×1080' })).toBeVisible()
+  })
+
+  it('keeps the target selection when clearing the target window fails', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    api.clearBuffCaptureTarget.mockRejectedValue(new Error('清空目标窗口失败'))
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    const clearButton = screen.getByRole('button', { name: '清空目标窗口' })
+    await waitFor(() => expect(clearButton).toBeEnabled())
+    await user.click(clearButton)
+
+    expect(await screen.findByText('清空目标窗口失败')).toBeVisible()
+    expect(screen.getByRole('combobox', { name: '目标游戏窗口' })).toHaveTextContent(
+      'game.exe · Game · 1920×1080'
+    )
+  })
+
+  it('disables target clearing while monitoring', async () => {
+    const api = await createListenerApi()
+    const configuredState = await api.getBuffAssistantState()
+    installBuffSentinelApi(
+      createBuffSentinelApi({
+        ...configuredState,
+        isMonitoring: true
+      })
+    )
+    render(<BuffAssistantHarness />)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '清空目标窗口' })).toBeDisabled())
   })
 
   it('keeps manual preview bound to the selected window', async () => {
@@ -650,9 +709,7 @@ describe('BuffAssistantPage', () => {
     await user.click(previewSelect)
     await user.click(await screen.findByRole('option', { name: '等待确认' }))
 
-    await waitFor(() =>
-      expect(api.setBuffOverlayPreviewMode).toHaveBeenCalledWith('confirming')
-    )
+    await waitFor(() => expect(api.setBuffOverlayPreviewMode).toHaveBeenCalledWith('confirming'))
   })
 
   it('requires saving the overlay position before monitoring can start', async () => {

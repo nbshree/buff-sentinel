@@ -55,6 +55,7 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
     captureBuffPreview: vi.fn<BuffSentinelAPI['captureBuffPreview']>(async () => {
       throw new Error('not configured')
     }),
+    clearBuffCaptureTarget: vi.fn(async () => buffState),
     startBuffCaptureRestore: vi.fn(async () => buffState),
     cancelBuffCaptureRestore: vi.fn(async () => buffState),
     updateBuffSearchRegion: vi.fn(async () => buffState),

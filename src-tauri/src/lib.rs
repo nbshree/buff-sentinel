@@ -62,6 +62,7 @@ pub fn run() {
             buff_assistant::list_buff_sound_templates,
             buff_assistant::list_buff_audio_output_devices,
             buff_assistant::capture_buff_preview,
+            buff_assistant::clear_buff_capture_target,
             buff_assistant::start_buff_capture_restore,
             buff_assistant::cancel_buff_capture_restore,
             buff_assistant::update_buff_search_region,

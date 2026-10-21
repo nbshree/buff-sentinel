@@ -181,11 +181,7 @@ export type BuffOverlayMode =
   | 'targetUnavailable'
   | 'editing'
 
-export type BuffOverlayPreviewMode =
-  | 'waiting'
-  | 'countdown'
-  | 'confirming'
-  | 'targetUnavailable'
+export type BuffOverlayPreviewMode = 'waiting' | 'countdown' | 'confirming' | 'targetUnavailable'
 
 export type BuffOverlayState = {
   mode: BuffOverlayMode
@@ -258,6 +254,7 @@ export type BuffSentinelAPI = {
   listBuffSoundTemplates: () => Promise<BuffSoundTemplateSummary[]>
   listBuffAudioOutputDevices: () => Promise<BuffAudioOutputDevice[]>
   captureBuffPreview: (windowId: string) => Promise<BuffCapturePreview>
+  clearBuffCaptureTarget: () => Promise<BuffAssistantState>
   startBuffCaptureRestore: () => Promise<BuffAssistantState>
   cancelBuffCaptureRestore: () => Promise<BuffAssistantState>
   updateBuffSearchRegion: (searchRegion: NormalizedRect) => Promise<BuffAssistantState>
@@ -386,6 +383,8 @@ export const buffSentinelApi: BuffSentinelAPI = {
     callTauri(() => invoke<BuffAudioOutputDevice[]>('list_buff_audio_output_devices')),
   captureBuffPreview: (windowId) =>
     callTauri(() => invoke<BuffCapturePreview>('capture_buff_preview', { windowId })),
+  clearBuffCaptureTarget: () =>
+    callTauri(() => invoke<BuffAssistantState>('clear_buff_capture_target')),
   startBuffCaptureRestore: () =>
     callTauri(() => invoke<BuffAssistantState>('start_buff_capture_restore')),
   cancelBuffCaptureRestore: () =>

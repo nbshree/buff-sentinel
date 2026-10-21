@@ -138,8 +138,12 @@ export function useBuffAssistantController() {
       if (statusChanged || now - lastMetricLogRef.current.at >= 1_000) {
         const runtime = stateRef.current
         const monitoring = runtime.isMonitoring && runtime.activity !== 'testing'
-        const listener = runtime.config.listeners.find((item) => item.id === primaryMetric.listenerId)
-        const listenerRuntime = runtime.listeners.find((item) => item.id === primaryMetric.listenerId)
+        const listener = runtime.config.listeners.find(
+          (item) => item.id === primaryMetric.listenerId
+        )
+        const listenerRuntime = runtime.listeners.find(
+          (item) => item.id === primaryMetric.listenerId
+        )
         const threshold = Math.round((listener?.settings.threshold ?? 0) * 100)
         const remaining = listenerRuntime?.expectedAtUnixMs
           ? Math.max(0, (listenerRuntime.expectedAtUnixMs - now) / 1000)
@@ -201,6 +205,14 @@ export function useBuffAssistantController() {
     [run]
   )
 
+  const clearCaptureTarget = useCallback(async () => {
+    const result = await run(() => window.api.clearBuffCaptureTarget())
+    stateRef.current = result
+    setState(result)
+    setPreview(null)
+    return result
+  }, [run])
+
   const updateBuffSearchRegion = useCallback(
     async (searchRegion: NormalizedRect) => {
       const result = await run(() => window.api.updateBuffSearchRegion(searchRegion))
@@ -245,37 +257,43 @@ export function useBuffAssistantController() {
     [run]
   )
 
-  const updateListener = useCallback(async (
-    listenerId: string,
-    name: string,
-    enabled: boolean,
-    hideInOverlay: boolean,
-    settings: BuffListenerSettings,
-    maskDataUrl?: string,
-    crop?: NormalizedRect
-  ) => {
-    const result = await run(() =>
-      maskDataUrl === undefined && crop === undefined
-        ? window.api.updateBuffListener(listenerId, name, enabled, hideInOverlay, settings)
-        : window.api.updateBuffListener(
-            listenerId,
-            name,
-            enabled,
-            hideInOverlay,
-            settings,
-            maskDataUrl,
-            crop
-          )
-    )
-    setState(result)
-    return result
-  }, [run])
+  const updateListener = useCallback(
+    async (
+      listenerId: string,
+      name: string,
+      enabled: boolean,
+      hideInOverlay: boolean,
+      settings: BuffListenerSettings,
+      maskDataUrl?: string,
+      crop?: NormalizedRect
+    ) => {
+      const result = await run(() =>
+        maskDataUrl === undefined && crop === undefined
+          ? window.api.updateBuffListener(listenerId, name, enabled, hideInOverlay, settings)
+          : window.api.updateBuffListener(
+              listenerId,
+              name,
+              enabled,
+              hideInOverlay,
+              settings,
+              maskDataUrl,
+              crop
+            )
+      )
+      setState(result)
+      return result
+    },
+    [run]
+  )
 
-  const deleteListener = useCallback(async (listenerId: string) => {
-    const result = await run(() => window.api.deleteBuffListener(listenerId))
-    setState(result)
-    return result
-  }, [run])
+  const deleteListener = useCallback(
+    async (listenerId: string) => {
+      const result = await run(() => window.api.deleteBuffListener(listenerId))
+      setState(result)
+      return result
+    },
+    [run]
+  )
 
   const updateSettings = useCallback(
     async (settings: BuffGlobalSettings) => {
@@ -383,6 +401,7 @@ export function useBuffAssistantController() {
     setPreview,
     refreshWindows,
     capturePreview,
+    clearCaptureTarget,
     updateBuffSearchRegion,
     getListenerTemplate,
     saveListener,
