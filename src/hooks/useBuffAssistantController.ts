@@ -268,6 +268,18 @@ export function useBuffAssistantController() {
     [run]
   )
 
+  const resetBuffAssistantConfig = useCallback(async () => {
+    const result = await run(() => window.api.resetBuffAssistantConfig())
+    stateRef.current = result
+    setState(result)
+    setPreview(null)
+    setMetrics({})
+    setLogs([])
+    lastMetricLogRef.current = { at: 0, present: false }
+    restorePreviewPromiseRef.current = null
+    return result
+  }, [run])
+
   const requestBorderlessCaptureAccess = useCallback(async () => {
     const result = await run(() => window.api.requestBuffBorderlessCaptureAccess())
     setState((current) => ({
@@ -351,6 +363,7 @@ export function useBuffAssistantController() {
     updateListener,
     deleteListener,
     updateSettings,
+    resetBuffAssistantConfig,
     requestBorderlessCaptureAccess,
     startMonitor,
     stopMonitor,

@@ -70,6 +70,7 @@ pub fn run() {
             buff_assistant::update_buff_listener,
             buff_assistant::delete_buff_listener,
             buff_assistant::update_buff_assistant_settings,
+            buff_assistant::reset_buff_assistant_config,
             buff_assistant::start_buff_monitor,
             buff_assistant::stop_buff_monitor,
             buff_assistant::start_buff_template_test,

@@ -735,6 +735,65 @@ pub fn update_buff_assistant_settings(
 }
 
 #[tauri::command]
+pub fn reset_buff_assistant_config(
+    app: AppHandle,
+    state: State<'_, BuffAssistant>,
+) -> Result<BuffAssistantState, String> {
+    ensure_configuration_unlocked(&state)?;
+    stop_buff_workspace_activity_internal(&app)?;
+    let (old_hotkey, storage_directory) = {
+        let inner = state.lock();
+        (
+            inner.config.settings.monitor_hotkey.clone(),
+            inner.storage_directory.clone(),
+        )
+    };
+    hotkey::rebind(&app, None)?;
+    let default_config = BuffAssistantConfig::default();
+    let warnings = match storage::reset_user_data(&storage_directory, &default_config) {
+        Ok(warnings) => warnings,
+        Err(error) => {
+            let rollback = hotkey::rebind(&app, old_hotkey.as_deref());
+            return Err(match rollback {
+                Ok(()) => error,
+                Err(rollback_error) => {
+                    format!("{error}；恢复旧监控热键失败：{rollback_error}")
+                }
+            });
+        }
+    };
+    {
+        let mut inner = state.lock();
+        inner.config = default_config;
+        inner.listeners.clear();
+        inner.activity = BuffAssistantActivity::Stopped;
+        inner.monitor_requested = false;
+        inner.last_error = None;
+        inner.capture_recovery_required = false;
+        inner.capture_border_notice = None;
+        inner.hotkey_registration_error = None;
+        inner.registered_monitor_hotkey = None;
+        inner.capture = None;
+        inner.capture_purpose = None;
+        inner.template_preview = None;
+        inner.last_frame_at = None;
+        inner.overlay_editing = false;
+        inner.overlay_window = OverlayWindowCache::default();
+    }
+    apply_overlay_geometry(&app);
+    hide_overlay(&app);
+    if let Err(error) = apply_overlay_capture_protection(&app) {
+        emit_execution_log(&app, &format!("恢复悬浮窗捕获保护失败：{error}"));
+    }
+    for warning in warnings {
+        emit_execution_log(&app, &warning);
+    }
+    let snapshot = state.snapshot();
+    emit_state(&app, &snapshot);
+    Ok(snapshot)
+}
+
+#[tauri::command]
 pub fn start_buff_monitor(
     app: AppHandle,
     state: State<'_, BuffAssistant>,

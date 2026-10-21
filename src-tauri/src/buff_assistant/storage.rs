@@ -18,7 +18,9 @@ use super::{
 };
 
 const CONFIG_FILE: &str = "config-v1.json";
+const TEMPLATES_DIRECTORY: &str = "templates";
 const SOUND_ASSETS_DIRECTORY: &str = "sound-assets";
+const LEGACY_MASK_CREDENTIALS_FILE: &str = "ai-mask-credentials.json";
 const MAX_SOUND_FILE_BYTES: u64 = 10 * 1024 * 1024;
 const MULTI_LISTENER_SCHEMA_VERSION: u32 = 10;
 
@@ -128,6 +130,32 @@ pub fn save_config(directory: &Path, config: &BuffAssistantConfig) -> Result<(),
     json.push('\n');
     fs::write(directory.join(CONFIG_FILE), json)
         .map_err(|error| format!("保存 Buff 助手配置失败：{error}"))
+}
+
+pub fn reset_user_data(
+    directory: &Path,
+    default_config: &BuffAssistantConfig,
+) -> Result<Vec<String>, String> {
+    save_config(directory, default_config)?;
+    let mut warnings = Vec::new();
+    for (label, path) in [
+        ("图标模板", directory.join(TEMPLATES_DIRECTORY)),
+        ("自定义声音", directory.join(SOUND_ASSETS_DIRECTORY)),
+        ("旧版 AI 凭据", directory.join(LEGACY_MASK_CREDENTIALS_FILE)),
+    ] {
+        if !path.exists() {
+            continue;
+        }
+        let result = if path.is_dir() {
+            fs::remove_dir_all(&path)
+        } else {
+            fs::remove_file(&path)
+        };
+        if let Err(error) = result {
+            warnings.push(format!("清理{label}失败：{error}"));
+        }
+    }
+    Ok(warnings)
 }
 
 pub fn load_sound_templates(directory: &Path) -> (Vec<SoundTemplate>, Vec<String>) {
@@ -426,7 +454,7 @@ fn template_directory(directory: &Path, id: &str) -> PathBuf {
         .chars()
         .filter(|character| character.is_ascii_alphanumeric() || *character == '-')
         .collect::<String>();
-    directory.join("templates").join(safe_id)
+    directory.join(TEMPLATES_DIRECTORY).join(safe_id)
 }
 
 #[cfg(test)]
@@ -536,6 +564,60 @@ mod tests {
         config.listeners[0].settings.sound.trigger_source = BuffSoundSource::Sine;
         cleanup_unused_sound_assets(&directory, &config);
         assert!(!path.exists());
+        let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn reset_user_data_clears_config_resources_and_legacy_credentials() {
+        let directory = std::env::temp_dir().join(format!(
+            "buff-sentinel-reset-storage-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&directory);
+        let image = DynamicImage::new_rgba8(8, 8);
+        let mask = GrayImage::from_pixel(8, 8, image::Luma([255]));
+        save_template(&directory, "listener-reset", &image, &mask, None).unwrap();
+        fs::create_dir_all(directory.join(SOUND_ASSETS_DIRECTORY)).unwrap();
+        fs::write(
+            directory.join(SOUND_ASSETS_DIRECTORY).join("custom.wav"),
+            b"test",
+        )
+        .unwrap();
+        fs::write(
+            directory.join(LEGACY_MASK_CREDENTIALS_FILE),
+            b"old credentials",
+        )
+        .unwrap();
+        let mut custom_config = BuffAssistantConfig::default();
+        custom_config.search_region = Some(crate::buff_assistant::model::NormalizedRect {
+            x: 0.5,
+            y: 0.0,
+            width: 0.4,
+            height: 0.2,
+        });
+        save_config(&directory, &custom_config).unwrap();
+
+        let default_config = BuffAssistantConfig::default();
+        let warnings = reset_user_data(&directory, &default_config).unwrap();
+        let (loaded, notices) = load_config(&directory);
+
+        assert!(warnings.is_empty());
+        assert!(notices.is_empty());
+        assert_eq!(loaded, default_config);
+        assert!(!directory.join(TEMPLATES_DIRECTORY).exists());
+        assert!(!directory.join(SOUND_ASSETS_DIRECTORY).exists());
+        assert!(!directory.join(LEGACY_MASK_CREDENTIALS_FILE).exists());
+        assert!(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("resources")
+                .join("buff-sounds")
+                .join("template-1")
+                .join("manifest.json")
+                .is_file()
+        );
         let _ = fs::remove_dir_all(directory);
     }
 

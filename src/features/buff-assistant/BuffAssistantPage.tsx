@@ -121,6 +121,7 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
     updateListener,
     deleteListener,
     updateSettings,
+    resetBuffAssistantConfig,
     requestBorderlessCaptureAccess,
     startMonitor,
     stopMonitor,
@@ -144,6 +145,8 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   const [maskEditorOpen, setMaskEditorOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
   const [settings, setSettings] = useState<BuffGlobalSettings>(state.config.settings)
+  const [resetConfigConfirming, setResetConfigConfirming] = useState(false)
+  const [resetConfigError, setResetConfigError] = useState<string | null>(null)
   const [hotkeyInputError, setHotkeyInputError] = useState<string | null>(null)
   const [audioOutputDevices, setAudioOutputDevices] = useState<BuffAudioOutputDevice[]>([])
   const [audioOutputError, setAudioOutputError] = useState<string | null>(null)
@@ -496,6 +499,8 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   }
 
   function handleSettingsDialogOpenChange(open: boolean): void {
+    setResetConfigConfirming(false)
+    setResetConfigError(null)
     if (open) {
       setSettings(state.config.settings)
       setSoundError(null)
@@ -507,12 +512,48 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
   }
 
   async function handleSaveSettings(): Promise<void> {
+    setResetConfigConfirming(false)
+    setResetConfigError(null)
     setHotkeyInputError(null)
     try {
       await updateSettings(settings)
       setSettingsDialogOpen(false)
     } catch (reason) {
       setHotkeyInputError(toMessage(reason))
+    }
+  }
+
+  async function handleResetAllConfig(): Promise<void> {
+    setResetConfigError(null)
+    if (!resetConfigConfirming) {
+      setResetConfigConfirming(true)
+      return
+    }
+    listenerTemplateRequestRef.current += 1
+    try {
+      const result = await resetBuffAssistantConfig()
+      setSelectedWindowId('')
+      setSearchRegion(null)
+      setTemplateSource(null)
+      setSavedTemplateSource(null)
+      setUsingSavedTemplate(false)
+      setEditingFromSharedSource(false)
+      setLoadingListenerTemplate(false)
+      setTemplateCrop(null)
+      setMaskHistory(createMaskHistory())
+      setSearchRegionEditorOpen(false)
+      setTemplateCropEditorOpen(false)
+      setMaskEditorOpen(false)
+      setListenerDialogOpen(false)
+      setOverlayEditingState(false)
+      setSettings(result.config.settings)
+      setHotkeyInputError(null)
+      setAudioOutputError(null)
+      setSoundError(null)
+      setResetConfigConfirming(false)
+      setSettingsDialogOpen(false)
+    } catch (reason) {
+      setResetConfigError(toMessage(reason))
     }
   }
 
@@ -988,6 +1029,52 @@ export function BuffAssistantPage({ controller }: BuffAssistantPageProps) {
                       {state.captureBorderNotice ? (
                         <p className="buff-setting-help buff-setting-help--warning">
                           {state.captureBorderNotice}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="buff-danger-settings">
+                      <div>
+                        <strong>清空所有配置</strong>
+                        <p>
+                          删除捕获目标、搜索区域、监听项、模板、自定义声音、全局设置和旧版凭据。
+                          内置提示音、WebView 缓存与历史安装包不会被删除。此操作无法撤销。
+                        </p>
+                      </div>
+                      {resetConfigConfirming ? (
+                        <div className="buff-danger-settings__actions">
+                          <Button
+                            disabled={busy}
+                            type="button"
+                            variant="destructive"
+                            onClick={() => void handleResetAllConfig()}
+                          >
+                            <Trash2 aria-hidden="true" />
+                            确认清空
+                          </Button>
+                          <Button
+                            aria-label="取消清空配置"
+                            disabled={busy}
+                            type="button"
+                            variant="outline"
+                            onClick={() => setResetConfigConfirming(false)}
+                          >
+                            取消
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          disabled={busy}
+                          type="button"
+                          variant="destructive"
+                          onClick={() => void handleResetAllConfig()}
+                        >
+                          <Trash2 aria-hidden="true" />
+                          清空所有配置
+                        </Button>
+                      )}
+                      {resetConfigError ? (
+                        <p className="buff-danger-settings__error" role="alert">
+                          {resetConfigError}
                         </p>
                       ) : null}
                     </div>

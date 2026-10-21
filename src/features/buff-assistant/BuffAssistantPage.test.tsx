@@ -118,6 +118,50 @@ async function openListenerEditor(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('BuffAssistantPage', () => {
+  it('requires inline confirmation before clearing all configuration', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    const emptyState = await createBuffSentinelApi().getBuffAssistantState()
+    api.resetBuffAssistantConfig.mockResolvedValue(emptyState)
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    await screen.findByAltText('游戏窗口捕获预览')
+    const dialog = await openGlobalSettings(user)
+    await user.click(within(dialog).getByRole('button', { name: '清空所有配置' }))
+
+    expect(api.resetBuffAssistantConfig).not.toHaveBeenCalled()
+    expect(within(dialog).getByRole('button', { name: '确认清空' })).toBeVisible()
+
+    await user.click(within(dialog).getByRole('button', { name: '取消清空配置' }))
+    expect(within(dialog).getByRole('button', { name: '清空所有配置' })).toBeVisible()
+    expect(api.resetBuffAssistantConfig).not.toHaveBeenCalled()
+
+    await user.click(within(dialog).getByRole('button', { name: '清空所有配置' }))
+    await user.click(within(dialog).getByRole('button', { name: '确认清空' }))
+
+    await waitFor(() => expect(api.resetBuffAssistantConfig).toHaveBeenCalledOnce())
+    await waitFor(() => expect(dialog).not.toBeVisible())
+    expect(await screen.findByText('等待捕获预览')).toBeVisible()
+    expect(screen.queryByText('金周天')).not.toBeInTheDocument()
+  })
+
+  it('keeps the settings dialog open when clearing configuration fails', async () => {
+    const user = userEvent.setup()
+    const api = await createListenerApi()
+    api.resetBuffAssistantConfig.mockRejectedValue(new Error('清理旧配置失败'))
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    const dialog = await openGlobalSettings(user)
+    await user.click(within(dialog).getByRole('button', { name: '清空所有配置' }))
+    await user.click(within(dialog).getByRole('button', { name: '确认清空' }))
+
+    expect(await within(dialog).findByText('清理旧配置失败')).toBeVisible()
+    expect(dialog).toBeVisible()
+    expect(api.resetBuffAssistantConfig).toHaveBeenCalledOnce()
+  })
+
   it('restores the saved target preview once on startup', async () => {
     const api = await createListenerApi()
     api.listBuffCaptureWindows.mockResolvedValue([

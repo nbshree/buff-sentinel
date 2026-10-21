@@ -279,6 +279,7 @@ export type BuffSentinelAPI = {
   ) => Promise<BuffAssistantState>
   deleteBuffListener: (listenerId: string) => Promise<BuffAssistantState>
   updateBuffAssistantSettings: (settings: BuffGlobalSettings) => Promise<BuffAssistantState>
+  resetBuffAssistantConfig: () => Promise<BuffAssistantState>
   requestBuffBorderlessCaptureAccess: () => Promise<BorderlessCaptureAccessResult>
   startBuffMonitor: () => Promise<BuffAssistantState>
   stopBuffMonitor: () => Promise<BuffAssistantState>
@@ -431,6 +432,8 @@ export const buffSentinelApi: BuffSentinelAPI = {
     callTauri(() => invoke<BuffAssistantState>('delete_buff_listener', { listenerId })),
   updateBuffAssistantSettings: (settings) =>
     callTauri(() => invoke<BuffAssistantState>('update_buff_assistant_settings', { settings })),
+  resetBuffAssistantConfig: () =>
+    callTauri(() => invoke<BuffAssistantState>('reset_buff_assistant_config')),
   requestBuffBorderlessCaptureAccess: () =>
     callTauri(() =>
       invoke<BorderlessCaptureAccessResult>('request_buff_borderless_capture_access')

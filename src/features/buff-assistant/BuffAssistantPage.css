@@ -1351,10 +1351,54 @@ button.buff-editor-expand-action[data-slot='button']:hover {
   color: var(--color-danger);
 }
 
+.buff-danger-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px 18px;
+  margin-top: 16px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 45%, transparent);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--surface-panel));
+}
+
+.buff-danger-settings strong {
+  color: var(--color-danger);
+  font-size: 12px;
+}
+
+.buff-danger-settings p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.buff-danger-settings__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.buff-danger-settings__error {
+  grid-column: 1 / -1;
+  color: var(--color-danger) !important;
+}
+
 @media (max-width: 760px) {
   .buff-global-settings-row {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+
+  .buff-danger-settings {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .buff-danger-settings__actions {
+    flex-wrap: wrap;
   }
 }
 

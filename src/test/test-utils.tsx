@@ -69,6 +69,7 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
     updateBuffListener: vi.fn(async () => buffState),
     deleteBuffListener: vi.fn(async () => buffState),
     updateBuffAssistantSettings: vi.fn(async () => buffState),
+    resetBuffAssistantConfig: vi.fn(async () => buffState),
     requestBuffBorderlessCaptureAccess: vi.fn<
       BuffSentinelAPI['requestBuffBorderlessCaptureAccess']
     >(async () => 'allowed'),
