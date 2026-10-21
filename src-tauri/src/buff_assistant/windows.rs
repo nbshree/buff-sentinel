@@ -36,6 +36,22 @@ pub fn resolve_window(id: &str) -> Result<(Window, CaptureWindowCandidate), Stri
     Err("游戏窗口已经关闭，请刷新窗口列表".into())
 }
 
+pub fn foreground_candidate() -> Result<(Window, CaptureWindowCandidate), String> {
+    let window =
+        Window::foreground().map_err(|_| "未找到当前激活窗口，请先切换到游戏窗口".to_string())?;
+    let process_id = window
+        .process_id()
+        .map_err(|error| format!("读取当前激活窗口进程失败：{error}"))?;
+    if process_is_current(process_id, std::process::id()) {
+        return Err("当前激活窗口是 BuffFlow，请先切换到游戏窗口".into());
+    }
+    let candidate = candidate_from_window(window)?;
+    if candidate.window_title.trim().is_empty() || candidate.width < 320 || candidate.height < 240 {
+        return Err("当前激活窗口无法作为游戏窗口，请切换到游戏画面后重试".into());
+    }
+    Ok((window, candidate))
+}
+
 pub fn find_target(target: &BuffTarget) -> Result<Option<Window>, String> {
     Ok(resolve_target(target)?.map(|(window, _)| window))
 }
@@ -89,6 +105,10 @@ fn field_matches(actual: &str, expected: &str) -> bool {
     !expected.is_empty() && actual.eq_ignore_ascii_case(expected)
 }
 
+fn process_is_current(process_id: u32, current_process_id: u32) -> bool {
+    process_id == current_process_id
+}
+
 fn candidate_from_window(window: Window) -> Result<CaptureWindowCandidate, String> {
     let width = window
         .width()
@@ -124,7 +144,7 @@ fn class_name(window: Window) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CaptureWindowCandidate, target_match_rank};
+    use super::{CaptureWindowCandidate, process_is_current, target_match_rank};
     use crate::buff_assistant::model::BuffTarget;
 
     fn candidate() -> CaptureWindowCandidate {
@@ -184,5 +204,11 @@ mod tests {
             reference_height: 1080,
         };
         assert_eq!(target_match_rank(&candidate(), &target), None);
+    }
+
+    #[test]
+    fn detects_the_current_process() {
+        assert!(process_is_current(42, 42));
+        assert!(!process_is_current(42, 43));
     }
 }

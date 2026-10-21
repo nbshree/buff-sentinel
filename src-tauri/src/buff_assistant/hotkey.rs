@@ -1,7 +1,9 @@
 use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-use super::{BuffAssistant, emit_execution_log, emit_state};
+use super::{
+    BuffAssistant, BuffAssistantConfig, emit_capture_preview, emit_execution_log, emit_state,
+};
 
 const HOTKEY_ERROR_PREFIX: &str = "监控热键注册失败";
 
@@ -139,11 +141,80 @@ pub fn handle_pressed(app: &AppHandle) {
         report_toggle_error(app, "请先停止实时识别测试，再使用监控热键");
         return;
     }
+    let capture_recovery_required = state.lock().capture_recovery_required;
+    if should_capture_foreground(&snapshot.config, capture_recovery_required) {
+        capture_foreground_target(app, &state);
+        return;
+    }
 
     match super::start_buff_monitor_internal(app) {
         Ok(()) => emit_execution_log(app, "监控热键：开始日常监控"),
         Err(error) => report_toggle_error(app, &error),
     }
+}
+
+fn capture_foreground_target(app: &AppHandle, state: &BuffAssistant) {
+    let preview = match super::windows::foreground_candidate().and_then(|(window, candidate)| {
+        super::capture_preview_for_window(app, state, window, candidate)
+    }) {
+        Ok(preview) => preview,
+        Err(error) => {
+            state.lock().capture_recovery_required = true;
+            crate::desktop::show_main_window(app);
+            report_toggle_error(app, &error);
+            return;
+        }
+    };
+    emit_capture_preview(app, &preview);
+
+    let ready = {
+        let inner = state.lock();
+        monitor_configuration_ready_from_parts(&inner.config, inner.overlay_editing)
+    };
+    if ready {
+        match super::start_buff_monitor_internal(app) {
+            Ok(()) => emit_execution_log(app, "监控热键：已捕获当前窗口并开始日常监控"),
+            Err(error) => {
+                crate::desktop::show_main_window(app);
+                report_toggle_error(app, &error);
+            }
+        }
+        return;
+    }
+
+    crate::desktop::show_main_window(app);
+    emit_execution_log(
+        app,
+        "监控热键：已捕获当前激活窗口，请完成搜索区域和监听项配置",
+    );
+}
+
+fn target_is_empty(config: &BuffAssistantConfig) -> bool {
+    config.target.as_ref().is_none_or(|target| {
+        target.process_name.trim().is_empty()
+            && target.window_title.trim().is_empty()
+            && target.class_name.trim().is_empty()
+    })
+}
+
+fn should_capture_foreground(
+    config: &BuffAssistantConfig,
+    capture_recovery_required: bool,
+) -> bool {
+    capture_recovery_required || target_is_empty(config)
+}
+
+fn monitor_configuration_ready_from_parts(
+    config: &BuffAssistantConfig,
+    overlay_editing: bool,
+) -> bool {
+    !overlay_editing
+        && !target_is_empty(config)
+        && config.search_region.is_some()
+        && config
+            .listeners
+            .iter()
+            .any(|listener| listener.enabled && listener.template.is_some())
 }
 
 fn is_supported_primary_key(value: &str) -> bool {
@@ -218,7 +289,14 @@ fn set_registration_error(state: &BuffAssistant, error: Option<String>) {
 mod tests {
     use std::{cell::RefCell, collections::HashSet};
 
-    use super::{ShortcutRegistrar, normalize_monitor_hotkey, replace_registered_shortcut};
+    use super::{
+        ShortcutRegistrar, monitor_configuration_ready_from_parts, normalize_monitor_hotkey,
+        replace_registered_shortcut, should_capture_foreground, target_is_empty,
+    };
+    use crate::buff_assistant::model::{
+        BuffAssistantConfig, BuffListenerConfig, BuffListenerSettings, BuffTarget,
+        BuffTemplateSummary, NormalizedRect,
+    };
 
     #[derive(Default)]
     struct FakeRegistrar {
@@ -296,5 +374,77 @@ mod tests {
         assert_eq!(error.active.as_deref(), Some("Ctrl+Alt+F10"));
         assert!(registrar.registered.borrow().contains("Ctrl+Alt+F10"));
         assert!(!registrar.registered.borrow().contains("Ctrl+Shift+K"));
+    }
+
+    #[test]
+    fn detects_empty_target_identity() {
+        let mut config = BuffAssistantConfig::default();
+        assert!(target_is_empty(&config));
+
+        config.target = Some(BuffTarget {
+            process_name: String::new(),
+            window_title: String::new(),
+            class_name: String::new(),
+            reference_width: 1920,
+            reference_height: 1080,
+        });
+        assert!(target_is_empty(&config));
+
+        config.target.as_mut().unwrap().process_name = "game.exe".into();
+        assert!(!target_is_empty(&config));
+    }
+
+    #[test]
+    fn requires_a_complete_monitor_configuration_after_capture() {
+        let mut config = BuffAssistantConfig::default();
+        assert!(!monitor_configuration_ready_from_parts(&config, false));
+
+        config.target = Some(BuffTarget {
+            process_name: "game.exe".into(),
+            window_title: "Game".into(),
+            class_name: "GameWindow".into(),
+            reference_width: 1920,
+            reference_height: 1080,
+        });
+        config.search_region = Some(NormalizedRect {
+            x: 0.5,
+            y: 0.0,
+            width: 0.4,
+            height: 0.2,
+        });
+        config.listeners = vec![BuffListenerConfig {
+            id: "listener-1".into(),
+            name: "监听项".into(),
+            enabled: true,
+            hide_in_overlay: false,
+            template: Some(BuffTemplateSummary {
+                id: "template-1".into(),
+                width: 32,
+                height: 32,
+                crop: None,
+            }),
+            settings: BuffListenerSettings::default(),
+        }];
+
+        assert!(monitor_configuration_ready_from_parts(&config, false));
+        assert!(!monitor_configuration_ready_from_parts(&config, true));
+
+        config.listeners[0].template = None;
+        assert!(!monitor_configuration_ready_from_parts(&config, false));
+    }
+
+    #[test]
+    fn failed_capture_makes_the_hotkey_recapture_the_foreground_window() {
+        let mut config = BuffAssistantConfig::default();
+        config.target = Some(BuffTarget {
+            process_name: "game.exe".into(),
+            window_title: "Game".into(),
+            class_name: "GameWindow".into(),
+            reference_width: 1920,
+            reference_height: 1080,
+        });
+
+        assert!(!should_capture_foreground(&config, false));
+        assert!(should_capture_foreground(&config, true));
     }
 }

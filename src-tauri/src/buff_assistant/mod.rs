@@ -60,6 +60,7 @@ struct RuntimeData {
     activity: BuffAssistantActivity,
     monitor_requested: bool,
     last_error: Option<String>,
+    capture_recovery_required: bool,
     capture_border_supported: bool,
     capture_border_notice: Option<String>,
     hotkey_registration_error: Option<String>,
@@ -167,6 +168,7 @@ impl BuffAssistant {
                     activity: BuffAssistantActivity::Stopped,
                     monitor_requested: false,
                     last_error: None,
+                    capture_recovery_required: false,
                     capture_border_supported,
                     capture_border_notice: None,
                     hotkey_registration_error: None,
@@ -274,8 +276,11 @@ pub fn capture_buff_preview(
     state: State<'_, BuffAssistant>,
     window_id: String,
 ) -> Result<CapturePreview, String> {
-    let (window, candidate) = windows::resolve_window(&window_id)?;
-    capture_preview_for_window(&app, state.inner(), window, candidate)
+    let result = windows::resolve_window(&window_id).and_then(|(window, candidate)| {
+        capture_preview_for_window(&app, state.inner(), window, candidate)
+    });
+    record_capture_preview_result(state.inner(), &result);
+    result
 }
 
 #[tauri::command]
@@ -283,16 +288,20 @@ pub fn capture_buff_preview_for_saved_target(
     app: AppHandle,
     state: State<'_, BuffAssistant>,
 ) -> Result<CapturePreview, String> {
-    let target = state
-        .lock()
-        .config
-        .target
-        .clone()
-        .ok_or_else(|| "尚未选择目标游戏窗口".to_string())?;
-    let (window, candidate) = windows::resolve_target(&target)?.ok_or_else(|| {
-        "上次选择的游戏窗口当前不可用，请启动游戏后刷新窗口并手动捕获预览".to_string()
-    })?;
-    capture_preview_for_window(&app, state.inner(), window, candidate)
+    let result = (|| {
+        let target = state
+            .lock()
+            .config
+            .target
+            .clone()
+            .ok_or_else(|| "尚未选择目标游戏窗口".to_string())?;
+        let (window, candidate) = windows::resolve_target(&target)?.ok_or_else(|| {
+            "上次选择的游戏窗口当前不可用，请启动游戏后刷新窗口并手动捕获预览".to_string()
+        })?;
+        capture_preview_for_window(&app, state.inner(), window, candidate)
+    })();
+    record_capture_preview_result(state.inner(), &result);
+    result
 }
 
 fn capture_preview_for_window(
@@ -322,6 +331,8 @@ fn capture_preview_for_window(
         // reusing a stale target from a previous configuration.
         let storage_directory = inner.storage_directory.clone();
         persist_capture_target(&mut inner.config, &storage_directory, target.clone())?;
+        inner.capture_recovery_required = false;
+        inner.last_error = None;
         update_capture_border_notice(&mut inner, outcome.used_border_fallback);
     }
     emit_state(app, &state.snapshot());
@@ -332,6 +343,10 @@ fn capture_preview_for_window(
         height: image.height,
         target,
     })
+}
+
+fn record_capture_preview_result(state: &BuffAssistant, result: &Result<CapturePreview, String>) {
+    state.lock().capture_recovery_required = result.is_err();
 }
 
 fn persist_capture_target(
@@ -1875,6 +1890,10 @@ fn borderless_access_notice(result: BorderlessCaptureAccessResult) -> Option<&'s
 
 fn emit_state(app: &AppHandle, state: &BuffAssistantState) {
     let _ = app.emit("buff-assistant-state", state);
+}
+
+fn emit_capture_preview(app: &AppHandle, preview: &CapturePreview) {
+    let _ = app.emit("buff-capture-preview", preview);
 }
 
 fn emit_execution_log(app: &AppHandle, message: &str) {

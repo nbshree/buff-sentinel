@@ -85,6 +85,7 @@ export function createBuffSentinelApi(buffStateOverride?: BuffAssistantState) {
     onBuffAssistantState: vi.fn(() => () => undefined),
     onBuffMetric: vi.fn(() => () => undefined),
     onBuffExecutionLog: vi.fn(() => () => undefined),
+    onBuffCapturePreview: vi.fn<BuffSentinelAPI['onBuffCapturePreview']>(() => () => undefined),
     onBuffOverlayState: vi.fn(() => () => undefined),
     window: {
       minimize: vi.fn(async () => undefined),

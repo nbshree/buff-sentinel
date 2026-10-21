@@ -1,9 +1,10 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { StrictMode } from 'react'
 import { describe, expect, it } from 'vitest'
 
 import { useBuffAssistantController } from '@/hooks/useBuffAssistantController'
+import type { BuffCapturePreview } from '@/lib/buff-sentinel-api'
 import { createBuffSentinelApi, installBuffSentinelApi } from '@/test/test-utils'
 
 import { BuffAssistantPage } from './BuffAssistantPage'
@@ -210,6 +211,95 @@ describe('BuffAssistantPage', () => {
     await user.click(await screen.findByRole('option', { name: /other\.exe/ }))
 
     expect(windowSelect).toHaveTextContent('other.exe · Other · 1280×720')
+  })
+
+  it('shows a preview captured by the monitor hotkey', async () => {
+    const api = createBuffSentinelApi()
+    api.listBuffCaptureWindows.mockResolvedValue([
+      {
+        id: 'foreground',
+        processName: 'game.exe',
+        windowTitle: 'Game',
+        className: 'GameWindow',
+        width: 1920,
+        height: 1080
+      }
+    ])
+    let emitPreview: ((preview: BuffCapturePreview) => void) | null = null
+    let unlistenCalled = false
+    api.onBuffCapturePreview.mockImplementation((callback) => {
+      emitPreview = callback
+      return () => {
+        unlistenCalled = true
+      }
+    })
+    installBuffSentinelApi(api)
+    const result = render(<BuffAssistantHarness />)
+
+    await waitFor(() => expect(api.listBuffCaptureWindows).toHaveBeenCalledOnce())
+    act(() => {
+      emitPreview?.({
+        windowId: 'foreground',
+        dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+        width: 1920,
+        height: 1080,
+        target: {
+          processName: 'game.exe',
+          windowTitle: 'Game',
+          className: 'GameWindow',
+          referenceWidth: 1920,
+          referenceHeight: 1080
+        }
+      })
+    })
+
+    expect(await screen.findByAltText('游戏窗口捕获预览')).toBeVisible()
+    expect(screen.getByRole('combobox', { name: '目标游戏窗口' })).toHaveTextContent(
+      'game.exe · Game · 1920×1080'
+    )
+
+    result.unmount()
+    expect(unlistenCalled).toBe(true)
+  })
+
+  it('clears a failed startup capture error after the hotkey captures a new window', async () => {
+    const api = await createListenerApi()
+    api.captureBuffPreviewForSavedTarget.mockRejectedValue(
+      new Error('等待游戏窗口画面超时，请确认游戏没有最小化并使用无边框窗口')
+    )
+    let emitPreview: ((preview: BuffCapturePreview) => void) | null = null
+    api.onBuffCapturePreview.mockImplementation((callback) => {
+      emitPreview = callback
+      return () => undefined
+    })
+    installBuffSentinelApi(api)
+    render(<BuffAssistantHarness />)
+
+    expect(
+      await screen.findByText('等待游戏窗口画面超时，请确认游戏没有最小化并使用无边框窗口')
+    ).toBeVisible()
+    act(() => {
+      emitPreview?.({
+        windowId: '1',
+        dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+        width: 1920,
+        height: 1080,
+        target: {
+          processName: 'game.exe',
+          windowTitle: 'Game',
+          className: 'GameWindow',
+          referenceWidth: 1920,
+          referenceHeight: 1080
+        }
+      })
+    })
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText('等待游戏窗口画面超时，请确认游戏没有最小化并使用无边框窗口')
+      ).not.toBeInTheDocument()
+    )
+    expect(await screen.findByAltText('游戏窗口捕获预览')).toBeVisible()
   })
 
   it('does not restore a preview without a saved target', async () => {

@@ -99,6 +99,10 @@ export function useBuffAssistantController() {
       })
     const stopState = window.api.onBuffAssistantState(updateRuntimeState)
     const stopExecutionLog = window.api.onBuffExecutionLog(appendLog)
+    const stopCapturePreview = window.api.onBuffCapturePreview((nextPreview) => {
+      setPreview(nextPreview)
+      setError(null)
+    })
     const stopMetric = window.api.onBuffMetric(({ metrics: nextMetrics }) => {
       setMetrics((current) => {
         const next = { ...current }
@@ -133,6 +137,7 @@ export function useBuffAssistantController() {
       stopState()
       stopMetric()
       stopExecutionLog()
+      stopCapturePreview()
     }
 
     function updateRuntimeState(nextState: BuffAssistantState): void {

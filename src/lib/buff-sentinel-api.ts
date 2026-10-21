@@ -297,6 +297,7 @@ export type BuffSentinelAPI = {
   onBuffAssistantState: (callback: (state: BuffAssistantState) => void) => () => void
   onBuffMetric: (callback: (metric: BuffMetricBatch) => void) => () => void
   onBuffExecutionLog: (callback: (message: string) => void) => () => void
+  onBuffCapturePreview: (callback: (preview: BuffCapturePreview) => void) => () => void
   onBuffOverlayState: (callback: (state: BuffOverlayState) => void) => () => void
   window: WindowControlsAPI
 }
@@ -456,6 +457,8 @@ export const buffSentinelApi: BuffSentinelAPI = {
   onBuffAssistantState: (callback) => createEventListener('buff-assistant-state', callback),
   onBuffMetric: (callback) => createEventListener('buff-assistant-metric', callback),
   onBuffExecutionLog: (callback) => createEventListener('buff-assistant-execution-log', callback),
+  onBuffCapturePreview: (callback) =>
+    createEventListener<BuffCapturePreview>('buff-capture-preview', callback),
   onBuffOverlayState: (callback) => createEventListener('buff-overlay-state', callback),
   window: windowControls
 }
